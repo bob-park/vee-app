@@ -1,11 +1,13 @@
+mod settings;
 mod source_app;
 mod store;
 mod watcher;
+mod windows;
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::{ClipDto, Kind, Store};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 
 pub struct AppState {
     pub store: Mutex<Store>,
@@ -56,16 +58,51 @@ fn clear_history(app: AppHandle, state: State<AppState>) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn copy_clip(app: AppHandle, id: i64) -> Result<(), String> {
+    windows::copy_clip(&app, id)
+}
+
+#[tauri::command]
+fn hide_panel(app: AppHandle) {
+    windows::hide_panel(&app, true);
+}
+
+#[tauri::command]
+fn open_settings(app: AppHandle) {
+    windows::hide_panel(&app, false);
+    windows::show_settings(&app);
+}
+
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let store = Store::open(&data_dir.join("vee.db"), &data_dir.join("images")).map_err(|e| e as Box<dyn std::error::Error>)?;
             app.manage(AppState::new(store));
             watcher::spawn(app.handle().clone());
+            if let Err(e) = settings::register_shortcut(app.handle(), settings::DEFAULT_SHORTCUT) {
+                log::error!("failed to register shortcut: {e}");
+            }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_clips, delete_clip, clear_history])
+        .on_window_event(|window, event| match (window.label(), event) {
+            (windows::SETTINGS, WindowEvent::CloseRequested { api, .. }) => {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+            (windows::PANEL, WindowEvent::Focused(false)) => windows::hide_panel(window.app_handle(), false),
+            _ => {}
+        })
+        .invoke_handler(tauri::generate_handler![
+            list_clips,
+            delete_clip,
+            clear_history,
+            copy_clip,
+            hide_panel,
+            open_settings
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
