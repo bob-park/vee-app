@@ -179,7 +179,8 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 - 새 버전 발견 → 백그라운드 다운로드·설치 준비 → 트레이 메뉴와 설정 창에 "업데이트 후 재시작" 표시. 재시작은 사용자 클릭 시에만
 - 서명 공개키: `~/.config/vee/bee.key.pub` (Tauri CLI 설치 후 사용자가 `yarn tauri signer generate -w ~/.config/vee/bee.key`로 생성) → `tauri.conf.json`의 `plugins.updater.pubkey`에 커밋
 - CI: `.github/workflows/release.yml`, `v*` 태그 push 시 `tauri-apps/tauri-action`으로 macOS `aarch64-apple-darwin`, `x86_64-apple-darwin`, Windows `x86_64-pc-windows-msvc` 빌드 → 초안 GitHub Release에 번들과 `latest.json` 업로드
-- 시크릿: `~/.config/vee/sign.env`의 `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`, `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`를 GitHub 레포 Secrets로 등록(구현 시 사용자 확인 후 `gh secret set`). macOS 서명 인증서(.p12)를 CI에서 쓰려면 `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`가 추가로 필요하며, 없으면 macOS 빌드는 로컬에서 `sign.env`를 source해 수행한다
+- 시크릿: `~/.config/vee/sign.env`의 `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`, `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`를 GitHub 레포 Secrets로 등록(구현 시 사용자 확인 후 `gh secret set`)
+- macOS 서명 인증서: 로그인 키체인의 `Developer ID Application: HyunWoo Park (BQ7GXB2QRT)`를 사용자가 키체인 접근 앱에서 `~/.config/vee/developer-id.p12`로 내보낸다(내보내기 암호 설정). CI 시크릿 `APPLE_CERTIFICATE`(= `base64 -i developer-id.p12`), `APPLE_CERTIFICATE_PASSWORD`(= 내보내기 암호)로 등록해 CI에서 서명·공증까지 수행한다
 - 값은 절대 커밋하지 않는다
 - Windows는 코드 서명 없음 → 첫 설치 시 SmartScreen 경고 허용
 
