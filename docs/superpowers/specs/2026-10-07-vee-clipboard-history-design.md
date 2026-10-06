@@ -177,7 +177,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 - `tauri-plugin-updater` 엔드포인트: `https://github.com/bob-park/vee-app/releases/latest/download/latest.json`
 - 확인 시점: 앱 시작 시, 이후 6시간마다, 사용자가 "업데이트 확인" 클릭 시
 - 새 버전 발견 → 백그라운드 다운로드·설치 준비 → 트레이 메뉴와 설정 창에 "업데이트 후 재시작" 표시. 재시작은 사용자 클릭 시에만
-- 서명 공개키: `~/.config/vee/bee.key.pub` (Tauri CLI 설치 후 사용자가 `yarn tauri signer generate -w ~/.config/vee/bee.key`로 생성) → `tauri.conf.json`의 `plugins.updater.pubkey`에 커밋
+- 서명 공개키: `~/.config/vee/vee.key.pub` (Tauri CLI 설치 후 사용자가 `yarn tauri signer generate -w ~/.config/vee/vee.key`로 생성) → `tauri.conf.json`의 `plugins.updater.pubkey`에 커밋
 - **CI 없음.** 빌드·서명·릴리스는 항상 사용자 장비에서 스크립트로 수행한다
 - 버전: `src-tauri/tauri.conf.json`의 `version`, 태그 `v<version>`
 - `scripts/release.sh` (macOS)

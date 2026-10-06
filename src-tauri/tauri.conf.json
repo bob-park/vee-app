@@ -74,7 +74,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU5MjYwQkM2Mjg1RkM2NTcKUldSWHhsOG94Z3NtNmNOM3FodU11MHRJbzhHbXlJZTVycDdYS0hFZitjVVpRT2cwSVVFRDljVmYK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQwNEY3QkY1M0YxNDNEN0YKUldSL1BSUS85WHRQMEJaQ1IzVHJHaG8wMVlNK3MyVVU1aXRtSEFHOUZVck1wazBjaDlxU1JNTDYK",
       "endpoints": [
         "https://github.com/bob-park/vee-app/releases/latest/download/latest.json"
       ],
