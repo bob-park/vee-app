@@ -1,6 +1,7 @@
 mod settings;
 mod source_app;
 mod store;
+mod tray;
 mod watcher;
 mod windows;
 
@@ -76,12 +77,33 @@ fn open_settings(app: AppHandle) {
 
 pub fn run() {
     tauri::Builder::default()
+        // Must be first: a second launch just opens the settings window.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| windows::show_settings(app)))
+        .plugin(tauri_plugin_log::Builder::new().level(log::LevelFilter::Info).build())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             let data_dir = app.path().app_data_dir()?;
-            let store = Store::open(&data_dir.join("vee.db"), &data_dir.join("images")).map_err(|e| e as Box<dyn std::error::Error>)?;
+            let store = match Store::open(&data_dir.join("vee.db"), &data_dir.join("images")) {
+                Ok(store) => store,
+                Err(e) => {
+                    // Never wipe the history automatically; tell the user and quit.
+                    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+                    log::error!("failed to open database: {e}");
+                    app.dialog()
+                        .message(format!("Vee couldn't open its history database.\n\n{e}"))
+                        .title("Vee")
+                        .kind(MessageDialogKind::Error)
+                        .show(|_| std::process::exit(1));
+                    return Ok(());
+                }
+            };
             app.manage(AppState::new(store));
+            tray::create(app.handle())?;
             watcher::spawn(app.handle().clone());
             settings::register_stored_shortcut(app.handle());
             Ok(())

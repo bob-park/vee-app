@@ -80,6 +80,9 @@ pub fn get_settings(app: AppHandle, state: State<AppState>) -> SettingsDto {
 pub fn set_setting(app: AppHandle, state: State<AppState>, key: String, value: String) -> Result<(), String> {
     validate(&key, &value)?;
     state.store.lock().unwrap().set_setting(&key, &value).map_err(|e| e.to_string())?;
+    if key == "locale" {
+        crate::tray::refresh(&app);
+    }
     changed(&app);
     Ok(())
 }
