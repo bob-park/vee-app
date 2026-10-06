@@ -30,6 +30,10 @@ pub fn get(store: &Store, key: &str) -> String {
     store.get_setting(key).ok().flatten().unwrap_or_else(|| default.to_string())
 }
 
+pub fn copy_sound_enabled(store: &Store) -> bool {
+    get(store, "sound") == "on"
+}
+
 fn validate(key: &str, value: &str) -> Result<(), String> {
     let ok = match key {
         "theme" => matches!(value, "system" | "light" | "dark"),
@@ -137,6 +141,15 @@ mod tests {
         assert!(validate("sound", "off").is_ok());
         assert!(validate("sound", "on").is_ok());
         assert!(validate("sound", "loud").is_err());
+    }
+
+    #[test]
+    fn copy_sound_can_be_turned_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_in_memory(dir.path()).unwrap();
+        assert!(copy_sound_enabled(&store));
+        store.set_setting("sound", "off").unwrap();
+        assert!(!copy_sound_enabled(&store));
     }
 
     #[test]

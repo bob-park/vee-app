@@ -175,7 +175,7 @@ pub fn copy_clip(app: &AppHandle, id: i64) -> Result<(), String> {
             let sound_on = {
                 let store = state.store.lock().unwrap();
                 let _ = store.touch(id, now_ms());
-                crate::settings::get(&store, "sound") == "on"
+                crate::settings::copy_sound_enabled(&store)
             };
             if sound_on {
                 source_app::play_copy_sound();
