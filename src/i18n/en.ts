@@ -19,6 +19,7 @@ export const en = {
     light: "Light",
     dark: "Dark",
     launchAtLogin: "Launch at login",
+    copySound: "Play a sound when copying",
     shortcut: "Shortcut",
     shortcutHint: "Open the history panel",
     recording: "Press keys…",

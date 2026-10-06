@@ -14,6 +14,7 @@ pub struct SettingsDto {
     theme: String,
     locale: String,
     shortcut: String,
+    sound: String,
     autostart: bool,
     version: String,
 }
@@ -23,6 +24,7 @@ pub fn get(store: &Store, key: &str) -> String {
     let default = match key {
         "theme" | "locale" => "system",
         "shortcut" => DEFAULT_SHORTCUT,
+        "sound" => "on",
         _ => "",
     };
     store.get_setting(key).ok().flatten().unwrap_or_else(|| default.to_string())
@@ -32,6 +34,7 @@ fn validate(key: &str, value: &str) -> Result<(), String> {
     let ok = match key {
         "theme" => matches!(value, "system" | "light" | "dark"),
         "locale" => matches!(value, "system" | "ko" | "en"),
+        "sound" => matches!(value, "on" | "off"),
         _ => false,
     };
     if ok { Ok(()) } else { Err(format!("invalid setting {key}={value}")) }
@@ -71,6 +74,7 @@ pub fn get_settings(app: AppHandle, state: State<AppState>) -> SettingsDto {
         theme: get(&store, "theme"),
         locale: get(&store, "locale"),
         shortcut: get(&store, "shortcut"),
+        sound: get(&store, "sound"),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         version: app.package_info().version.to_string(),
     }
@@ -123,6 +127,16 @@ mod tests {
         assert!(validate("theme", "purple").is_err());
         assert!(validate("shortcut", "Alt+X").is_err()); // shortcuts go through set_shortcut
         assert!(validate("unknown", "x").is_err());
+    }
+
+    #[test]
+    fn copy_sound_defaults_on_and_accepts_on_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_in_memory(dir.path()).unwrap();
+        assert_eq!(get(&store, "sound"), "on");
+        assert!(validate("sound", "off").is_ok());
+        assert!(validate("sound", "on").is_ok());
+        assert!(validate("sound", "loud").is_err());
     }
 
     #[test]

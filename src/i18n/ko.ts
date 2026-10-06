@@ -21,6 +21,7 @@ export const ko: Dict = {
     light: "라이트",
     dark: "다크",
     launchAtLogin: "로그인 시 자동 실행",
+    copySound: "복사할 때 소리 재생",
     shortcut: "단축키",
     shortcutHint: "히스토리 패널 열기",
     recording: "키를 누르세요…",

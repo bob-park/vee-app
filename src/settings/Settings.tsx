@@ -132,6 +132,16 @@ export function Settings() {
             onChange={(e) => run(api.setAutostart(e.target.checked))}
           />
         </Row>
+        <Row label={s.copySound}>
+          <input
+            type="checkbox"
+            role="switch"
+            className="switch"
+            aria-label={s.copySound}
+            checked={settings.sound === "on"}
+            onChange={(e) => run(api.setSetting("sound", e.target.checked ? "on" : "off"))}
+          />
+        </Row>
         <Row label={s.shortcut} hint={s.shortcutHint}>
           <ShortcutRecorder value={settings.shortcut} />
         </Row>

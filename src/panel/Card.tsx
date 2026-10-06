@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { Clip } from "../api.ts";
 import type { Dict } from "../i18n/en.ts";
 import { relativeTime } from "../i18n/index.ts";
@@ -5,6 +6,8 @@ import { usePrefs } from "../prefs.tsx";
 
 interface Props {
   clip: Clip;
+  /** Position in the row; staggers the opening animation. */
+  index: number;
   selected: boolean;
   onSelect: () => void;
   onCopy: () => void;
@@ -44,13 +47,14 @@ function Body({ clip }: { clip: Clip }) {
   return <p className={clip.kind === "link" ? "preview link" : "preview"}>{clip.textPreview}</p>;
 }
 
-export function Card({ clip, selected, onSelect, onCopy }: Props) {
+export function Card({ clip, index, selected, onSelect, onCopy }: Props) {
   const { t, locale } = usePrefs();
   return (
     <div
       className={selected ? "card selected" : "card"}
       role="option"
       aria-selected={selected}
+      style={{ "--i": Math.min(index, 10) } as CSSProperties}
       onClick={onSelect}
       onDoubleClick={onCopy}
     >

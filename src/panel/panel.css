@@ -218,3 +218,38 @@
 .card-foot.missing {
   color: var(--danger);
 }
+
+/* Entrance: the window itself appears instantly, its content slides up. */
+.panel {
+  animation: panel-in 180ms ease-out;
+}
+
+.panel.entering .card {
+  animation: card-in 220ms ease-out backwards;
+  animation-delay: calc(var(--i, 0) * 20ms);
+}
+
+@keyframes panel-in {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes card-in {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .panel.entering .card {
+    animation: none;
+  }
+}

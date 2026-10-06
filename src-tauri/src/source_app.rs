@@ -45,6 +45,22 @@ pub fn activate(pid: i32) {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub fn play_copy_sound() {
+    use objc2_app_kit::NSSound;
+    use objc2_foundation::NSString;
+    if let Some(sound) = NSSound::soundNamed(&NSString::from_str("Pop")) {
+        sound.play();
+    }
+}
+
+#[cfg(windows)]
+pub fn play_copy_sound() {
+    use ::windows::Win32::System::Diagnostics::Debug::MessageBeep;
+    use ::windows::Win32::UI::WindowsAndMessaging::MB_OK;
+    let _ = unsafe { MessageBeep(MB_OK) };
+}
+
 #[cfg(windows)]
 pub fn frontmost() -> Option<FrontApp> {
     use ::windows::Win32::Foundation::CloseHandle;

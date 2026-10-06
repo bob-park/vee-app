@@ -172,7 +172,14 @@ pub fn copy_clip(app: &AppHandle, id: i64) -> Result<(), String> {
     hide_panel(app, true);
     match result {
         Ok(content) => {
-            let _ = state.store.lock().unwrap().touch(id, now_ms());
+            let sound_on = {
+                let store = state.store.lock().unwrap();
+                let _ = store.touch(id, now_ms());
+                crate::settings::get(&store, "sound") == "on"
+            };
+            if sound_on {
+                source_app::play_copy_sound();
+            }
             let _ = app.emit("clips://changed", ());
             show_toast(app, ToastPayload::copied(&content));
             Ok(())

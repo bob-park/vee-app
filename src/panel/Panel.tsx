@@ -8,6 +8,8 @@ import { FILTERS, Toolbar } from "./Toolbar.tsx";
 import "./panel.css";
 
 const PAGE = 50;
+/** How long cards keep their staggered entrance after the panel opens. */
+const ENTER_MS = 450;
 
 export function Panel() {
   const { t } = usePrefs();
@@ -16,6 +18,9 @@ export function Panel() {
   const [clips, setClips] = useState<Clip[]>([]);
   const [selected, setSelected] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  // Bumped on every open so the entrance animation replays.
+  const [openCount, setOpenCount] = useState(0);
+  const [entering, setEntering] = useState(false);
   const requestId = useRef(0);
   const loadingMore = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -61,6 +66,8 @@ export function Panel() {
     const offOpened = listen("panel://opened", () => {
       setQuery("");
       setFilter("all");
+      setOpenCount((n) => n + 1);
+      setEntering(true);
       void reloadRef.current(false);
       inputRef.current?.focus();
     });
@@ -69,6 +76,12 @@ export function Panel() {
       void offOpened.then((off) => off());
     };
   }, []);
+
+  useEffect(() => {
+    if (!entering) return;
+    const timer = window.setTimeout(() => setEntering(false), ENTER_MS);
+    return () => window.clearTimeout(timer);
+  }, [entering, openCount]);
 
   useEffect(() => {
     rowRef.current?.children[selected]?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -125,7 +138,8 @@ export function Panel() {
 
   return (
     <div
-      className="panel"
+      key={openCount}
+      className={entering ? "panel entering" : "panel"}
       onKeyDown={onKeyDown}
       // Keep keyboard focus in the search box no matter what is clicked.
       onMouseDown={(e) => {
@@ -148,6 +162,7 @@ export function Panel() {
             <Card
               key={clip.id}
               clip={clip}
+              index={i}
               selected={i === selected}
               onSelect={() => setSelected(i)}
               onCopy={() => copy(clip)}
