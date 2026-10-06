@@ -1,6 +1,6 @@
 //! Menu-bar / system-tray icon.
 
-use crate::{AppState, settings, windows};
+use crate::{AppState, settings, updater::{self, UpdateState}, windows};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
@@ -10,14 +10,16 @@ pub const TRAY_ID: &str = "main";
 pub struct Labels {
     pub open: &'static str,
     pub settings: &'static str,
+    pub check_update: &'static str,
+    pub restart_update: &'static str,
     pub quit: &'static str,
 }
 
 pub fn labels(locale: &str) -> Labels {
     if locale == "ko" {
-        Labels { open: "열기", settings: "설정", quit: "종료" }
+        Labels { open: "열기", settings: "설정", check_update: "업데이트 확인", restart_update: "업데이트 후 재시작", quit: "종료" }
     } else {
-        Labels { open: "Open", settings: "Settings", quit: "Quit" }
+        Labels { open: "Open", settings: "Settings", check_update: "Check for Updates", restart_update: "Restart to Update", quit: "Quit" }
     }
 }
 
@@ -34,11 +36,13 @@ pub fn resolve_locale(setting: &str) -> &'static str {
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let setting = settings::get(&app.state::<AppState>().store.lock().unwrap(), "locale");
     let l = labels(resolve_locale(&setting));
+    let ready = app.state::<UpdateState>().ready_version().is_some();
     Menu::with_items(
         app,
         &[
             &MenuItem::with_id(app, "open", l.open, true, None::<&str>)?,
             &MenuItem::with_id(app, "settings", l.settings, true, None::<&str>)?,
+            &MenuItem::with_id(app, "update", if ready { l.restart_update } else { l.check_update }, true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "quit", l.quit, true, None::<&str>)?,
         ],
@@ -56,6 +60,18 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => windows::show_panel(app),
             "settings" => windows::show_settings(app),
+            "update" => {
+                if app.state::<UpdateState>().ready_version().is_some() {
+                    if let Err(e) = updater::install_and_restart(app) {
+                        log::error!("update install failed: {e}");
+                    }
+                } else {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        updater::check(&app).await;
+                    });
+                }
+            }
             "quit" => app.exit(0),
             _ => {}
         })

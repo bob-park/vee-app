@@ -1,6 +1,8 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { api } from "../api.ts";
+import { api, type UpdateStatus } from "../api.ts";
+import { relativeTime } from "../i18n/index.ts";
 import { usePrefs } from "../prefs.tsx";
 import { ShortcutRecorder } from "./ShortcutRecorder.tsx";
 import "./settings.css";
@@ -40,6 +42,47 @@ function Segmented<T extends string>({
         </button>
       ))}
     </div>
+  );
+}
+
+function UpdateRow() {
+  const { settings, t, locale } = usePrefs();
+  const s = t.settings;
+  const [status, setStatus] = useState<UpdateStatus>({ status: "idle" });
+
+  useEffect(() => {
+    void api.getUpdateStatus().then(setStatus);
+    const unlisten = listen<UpdateStatus>("update://status", (e) => setStatus(e.payload));
+    return () => void unlisten.then((off) => off());
+  }, []);
+
+  const detail = (() => {
+    switch (status.status) {
+      case "idle":
+        return s.notChecked;
+      case "checking":
+        return s.checking;
+      case "upToDate":
+        return `${s.upToDate} · ${relativeTime(status.checkedAt, locale)}`;
+      case "failed":
+        return `${s.checkFailed} · ${relativeTime(status.checkedAt, locale)}`;
+      case "ready":
+        return s.updateReady(status.version);
+    }
+  })();
+
+  return (
+    <Row label={s.updates} hint={`${s.version(settings.version)} · ${detail}`}>
+      {status.status === "ready" ? (
+        <button className="btn" onClick={() => void api.installUpdate()}>
+          {s.restartToUpdate}
+        </button>
+      ) : (
+        <button className="btn" disabled={status.status === "checking"} onClick={() => void api.checkUpdate()}>
+          {s.checkNow}
+        </button>
+      )}
+    </Row>
   );
 }
 
@@ -94,6 +137,7 @@ export function Settings() {
         </Row>
       </section>
       <section>
+        <UpdateRow />
         <Row label={s.history}>
           <button className="btn danger" onClick={() => void clear()}>
             {s.clearHistory}

@@ -2,6 +2,7 @@ mod settings;
 mod source_app;
 mod store;
 mod tray;
+mod updater;
 mod watcher;
 mod windows;
 
@@ -83,6 +84,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updater::UpdateState::default())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -106,6 +109,7 @@ pub fn run() {
             tray::create(app.handle())?;
             watcher::spawn(app.handle().clone());
             settings::register_stored_shortcut(app.handle());
+            updater::spawn_periodic(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| match (window.label(), event) {
@@ -126,7 +130,10 @@ pub fn run() {
             settings::get_settings,
             settings::set_setting,
             settings::set_autostart,
-            settings::set_shortcut
+            settings::set_shortcut,
+            updater::check_update,
+            updater::get_update_status,
+            updater::install_update_and_restart
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
