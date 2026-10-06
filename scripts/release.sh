@@ -35,7 +35,9 @@ for entry in "aarch64-apple-darwin:darwin-aarch64:aarch64" "x86_64-apple-darwin:
   # Both architectures produce Vee.app.tar.gz; rename so they can live side by side.
   tarball="$work/Vee_${VERSION}_${arch}.app.tar.gz"
   cp "$bundle/macos/Vee.app.tar.gz" "$tarball"
-  dmg=$(ls "$bundle"/dmg/*.dmg)
+  # Exact names: old versions' bundles stay in target/ after a version bump.
+  dmg="$bundle/dmg/Vee_${VERSION}_${arch}.dmg"
+  [ -f "$dmg" ] || { echo "missing $dmg" >&2; exit 1; }
   gh release upload "$TAG" -R "$REPO" --clobber "$tarball" "$dmg"
   jq --arg p "$platform" --arg sig "$(cat "$bundle/macos/Vee.app.tar.gz.sig")" \
      --arg url "$BASE_URL/$(basename "$tarball")" \

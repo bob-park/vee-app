@@ -97,6 +97,7 @@ export function Panel() {
       // WebKit reports keyCode 229 for the Enter that commits a Hangul syllable.
       isComposing: e.nativeEvent.isComposing || e.keyCode === 229,
       queryEmpty: query === "",
+      repeat: e.repeat,
     });
     if (!action) return;
     e.preventDefault();

@@ -12,6 +12,8 @@ export interface KeyInput {
   /** True while Hangul/IME composition owns the keyboard. */
   isComposing: boolean;
   queryEmpty: boolean;
+  /** Auto-repeat from a held key. */
+  repeat: boolean;
 }
 
 export function panelKeyAction(e: KeyInput): KeyAction {
@@ -27,10 +29,11 @@ export function panelKeyAction(e: KeyInput): KeyAction {
       return { type: "hide" };
     case "Tab":
       return { type: "cycleFilter", delta: e.shiftKey ? -1 : 1 };
+    // A held key deletes at most one card: holding Backspace is how people clear a field.
     case "Delete":
-      return { type: "delete" };
+      return e.repeat ? null : { type: "delete" };
     case "Backspace":
-      return e.queryEmpty ? { type: "delete" } : null;
+      return e.queryEmpty && !e.repeat ? { type: "delete" } : null;
     default:
       return null;
   }

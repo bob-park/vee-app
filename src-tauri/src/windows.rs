@@ -159,7 +159,10 @@ fn write_clipboard(state: &AppState, content: &ClipContent) -> Result<(), String
             ctx.set_files(files.clone())
         }
     }
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    // Re-arm after the write: decoding a large image can take a few hundred ms.
+    state.suppress_watcher();
+    Ok(())
 }
 
 /// Copies a clip back to the clipboard, closes the panel and confirms with a toast.

@@ -14,7 +14,8 @@ $tag = "v$version"
 yarn tauri build
 if ($LASTEXITCODE) { throw "tauri build failed" }
 
-$setup = Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" | Select-Object -First 1
+# Exact name: old versions' installers stay in target/ after a version bump. Get-Item throws if missing.
+$setup = Get-Item "src-tauri/target/release/bundle/nsis/Vee_${version}_x64-setup.exe"
 $signature = (Get-Content "$($setup.FullName).sig" -Raw).Trim()
 
 gh release view $tag -R $repo *> $null

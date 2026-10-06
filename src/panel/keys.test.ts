@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { panelKeyAction, type KeyInput } from "./keys.ts";
 
 const press = (key: string, extra: Partial<KeyInput> = {}) =>
-  panelKeyAction({ key, shiftKey: false, isComposing: false, queryEmpty: true, ...extra });
+  panelKeyAction({ key, shiftKey: false, isComposing: false, queryEmpty: true, repeat: false, ...extra });
 
 test("ignores every key while an IME composition is active", () => {
   for (const key of ["Enter", "ArrowLeft", "ArrowRight", "Backspace", "Tab", "Escape"]) {
@@ -31,4 +31,10 @@ test("tab cycles filters forward, shift+tab backward", () => {
 
 test("other keys are left to the search box", () => {
   assert.equal(press("a"), null);
+});
+
+test("holding backspace or delete never deletes more than one card", () => {
+  assert.equal(press("Backspace", { repeat: true }), null);
+  assert.equal(press("Delete", { repeat: true }), null);
+  assert.deepEqual(press("ArrowRight", { repeat: true }), { type: "move", delta: 1 });
 });

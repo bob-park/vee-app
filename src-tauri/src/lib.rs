@@ -24,8 +24,9 @@ impl AppState {
     }
 
     /// Ignore clipboard changes briefly after we write the clipboard ourselves.
+    /// Longer than clipboard-rs's 500ms macOS poll so the poll after a slow write is covered.
     pub fn suppress_watcher(&self) {
-        *self.suppress_until.lock().unwrap() = Instant::now() + Duration::from_millis(500);
+        *self.suppress_until.lock().unwrap() = Instant::now() + Duration::from_millis(1200);
     }
 
     pub fn watcher_suppressed(&self) -> bool {
@@ -137,4 +138,20 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn self_write_suppression_outlasts_a_watcher_poll() {
+        // clipboard-rs polls macOS every 500ms, so the window must cover a full
+        // poll after the write finishes, not just 500ms from when it started.
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::new(Store::open_in_memory(dir.path()).unwrap());
+        state.suppress_watcher();
+        std::thread::sleep(Duration::from_millis(700));
+        assert!(state.watcher_suppressed());
+    }
 }
