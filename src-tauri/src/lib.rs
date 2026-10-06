@@ -77,14 +77,13 @@ fn open_settings(app: AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let store = Store::open(&data_dir.join("vee.db"), &data_dir.join("images")).map_err(|e| e as Box<dyn std::error::Error>)?;
             app.manage(AppState::new(store));
             watcher::spawn(app.handle().clone());
-            if let Err(e) = settings::register_shortcut(app.handle(), settings::DEFAULT_SHORTCUT) {
-                log::error!("failed to register shortcut: {e}");
-            }
+            settings::register_stored_shortcut(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| match (window.label(), event) {
@@ -101,7 +100,11 @@ pub fn run() {
             clear_history,
             copy_clip,
             hide_panel,
-            open_settings
+            open_settings,
+            settings::get_settings,
+            settings::set_setting,
+            settings::set_autostart,
+            settings::set_shortcut
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

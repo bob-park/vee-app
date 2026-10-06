@@ -1,0 +1,82 @@
+:root {
+  --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: Menlo, Consolas, monospace;
+  --radius: 12px;
+}
+
+:root[data-theme="light"] {
+  --surface: #ffffff;
+  --card: #ffffff;
+  --border: #dedee5;
+  --divider: #f0f0f4;
+  --subtle: rgba(148, 151, 169, 0.08);
+  --text: #101114;
+  --muted: #9497a9;
+  --accent: #7132f5;
+  --accent-subtle: rgba(133, 91, 251, 0.16);
+  --badge-bg: rgba(104, 107, 130, 0.12);
+  --badge-fg: #484b5e;
+  --ok-bg: rgba(20, 158, 97, 0.16);
+  --ok-fg: #026b3f;
+  --danger: #d1344b;
+  --toast-bg: #101114;
+  --toast-fg: #ffffff;
+}
+
+:root[data-theme="dark"] {
+  --surface: #16171c;
+  --card: #1f2027;
+  --border: #2e2f39;
+  --divider: #2a2b33;
+  --subtle: rgba(148, 151, 169, 0.12);
+  --text: #ececf1;
+  --muted: #8a8da0;
+  --accent: #9b7bff;
+  --accent-subtle: rgba(133, 91, 251, 0.24);
+  --badge-bg: rgba(148, 151, 169, 0.16);
+  --badge-fg: #c9cad6;
+  --ok-bg: rgba(20, 158, 97, 0.22);
+  --ok-fg: #5fd39c;
+  --danger: #ff6b81;
+  --toast-bg: #ececf1;
+  --toast-fg: #101114;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+html[data-window="panel"] body,
+html[data-window="toast"] body {
+  background: transparent;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
