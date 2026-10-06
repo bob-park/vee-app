@@ -97,6 +97,7 @@ fn place_and_show(app: &AppHandle, panel: &WebviewWindow) -> tauri::Result<()> {
 pub fn hide_panel(app: &AppHandle, restore_focus: bool) {
     if let Some(panel) = app.get_webview_window(PANEL) {
         let _ = panel.hide();
+        let _ = app.emit_to(PANEL, "panel://closed", ());
     }
     let previous = app.state::<AppState>().prev_app_pid.lock().unwrap().take();
     if let (true, Some(pid)) = (restore_focus, previous) {
