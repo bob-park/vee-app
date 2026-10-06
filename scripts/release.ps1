@@ -1,5 +1,6 @@
-# Builds the Windows installer, uploads it and merges the windows entry into latest.json
-# on the draft release. Run from a Windows PC after copying the signing key there.
+# Builds the Windows installer and uploads it with its .sig to the draft release.
+# Run from a Windows PC after copying the signing key there. latest.json is
+# assembled afterwards by scripts/latest-json.mjs.
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
@@ -16,39 +17,15 @@ if ($LASTEXITCODE) { throw "tauri build failed" }
 
 # Exact name: old versions' installers stay in target/ after a version bump. Get-Item throws if missing.
 $setup = Get-Item "src-tauri/target/release/bundle/nsis/Vee_${version}_x64-setup.exe"
-$signature = (Get-Content "$($setup.FullName).sig" -Raw).Trim()
+$sig = Get-Item "$($setup.FullName).sig"
 
 gh release view $tag -R $repo *> $null
 if ($LASTEXITCODE) {
   gh release create $tag -R $repo --draft --title "Vee $tag" --notes "Vee $tag"
   if ($LASTEXITCODE) { throw "could not create release $tag" }
 }
-gh release upload $tag -R $repo --clobber $setup.FullName
+gh release upload $tag -R $repo --clobber $setup.FullName $sig.FullName
 if ($LASTEXITCODE) { throw "upload failed" }
 
-$work = New-Item -ItemType Directory (Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid()))
-$latestPath = Join-Path $work "latest.json"
-gh release download $tag -R $repo -p latest.json -D $work 2>$null
-if (Test-Path $latestPath) {
-  # -DateKind String keeps pub_date exactly as written (needs PowerShell 7.5+).
-  $latest = Get-Content $latestPath -Raw | ConvertFrom-Json -DateKind String
-} else {
-  $latest = [pscustomobject]@{
-    version   = $version
-    notes     = "Vee $tag"
-    pub_date  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    platforms = [pscustomobject]@{}
-  }
-}
-$entry = [pscustomobject]@{
-  signature = $signature
-  url       = "https://github.com/$repo/releases/download/$tag/$($setup.Name)"
-}
-$latest.platforms | Add-Member -NotePropertyName "windows-x86_64" -NotePropertyValue $entry -Force
-$latest | ConvertTo-Json -Depth 5 | Set-Content $latestPath -Encoding utf8NoBOM
-gh release upload $tag -R $repo --clobber $latestPath
-if ($LASTEXITCODE) { throw "latest.json upload failed" }
-
-Remove-Item $work -Recurse -Force
 Write-Host "Draft $tag updated with the Windows build."
-Write-Host "Once macOS is uploaded too: gh release edit $tag -R $repo --draft=false"
+Write-Host "After the macOS upload: node scripts/latest-json.mjs $tag, then gh release edit $tag -R $repo --draft=false"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds, signs and notarizes the macOS app for Apple Silicon (Intel Macs are not
-# supported), then uploads the bundles and merges the darwin-aarch64 entry into
-# latest.json on a draft release.
+# supported), then uploads the dmg, the updater bundle and its .sig to a draft
+# release. latest.json is assembled afterwards by scripts/latest-json.mjs.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -11,39 +11,26 @@ source "$HOME/.config/vee/sign.env"
 set +a
 
 REPO="bob-park/vee-app"
-VERSION=$(jq -r .version src-tauri/tauri.conf.json)
+VERSION=$(node -p 'require("./src-tauri/tauri.conf.json").version')
 TAG="v$VERSION"
-BASE_URL="https://github.com/$REPO/releases/download/$TAG"
 
 yarn tauri build --target aarch64-apple-darwin
 
 gh release view "$TAG" -R "$REPO" >/dev/null 2>&1 \
   || gh release create "$TAG" -R "$REPO" --draft --title "Vee $TAG" --notes "Vee $TAG"
 
+bundle="src-tauri/target/aarch64-apple-darwin/release/bundle"
+# Exact names: old versions' bundles stay in target/ after a version bump.
+dmg="$bundle/dmg/Vee_${VERSION}_aarch64.dmg"
+[ -f "$dmg" ] || { echo "missing $dmg" >&2; exit 1; }
+
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-latest="$work/latest.json"
-if ! gh release download "$TAG" -R "$REPO" -p latest.json -D "$work" 2>/dev/null; then
-  jq -n --arg v "$VERSION" --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{version: $v, notes: ("Vee v" + $v), pub_date: $d, platforms: {}}' > "$latest"
-fi
+# The updater bundle is always named Vee.app.tar.gz; version it for the release.
+tarball="$work/Vee_${VERSION}_aarch64.app.tar.gz"
+cp "$bundle/macos/Vee.app.tar.gz" "$tarball"
+cp "$bundle/macos/Vee.app.tar.gz.sig" "$tarball.sig"
 
-for entry in "aarch64-apple-darwin:darwin-aarch64:aarch64"; do
-  IFS=: read -r target platform arch <<< "$entry"
-  bundle="src-tauri/target/$target/release/bundle"
-  # Versioned name so the asset is distinguishable from older releases.
-  tarball="$work/Vee_${VERSION}_${arch}.app.tar.gz"
-  cp "$bundle/macos/Vee.app.tar.gz" "$tarball"
-  # Exact names: old versions' bundles stay in target/ after a version bump.
-  dmg="$bundle/dmg/Vee_${VERSION}_${arch}.dmg"
-  [ -f "$dmg" ] || { echo "missing $dmg" >&2; exit 1; }
-  gh release upload "$TAG" -R "$REPO" --clobber "$tarball" "$dmg"
-  jq --arg p "$platform" --arg sig "$(cat "$bundle/macos/Vee.app.tar.gz.sig")" \
-     --arg url "$BASE_URL/$(basename "$tarball")" \
-     '.platforms[$p] = {signature: $sig, url: $url}' "$latest" > "$latest.tmp"
-  mv "$latest.tmp" "$latest"
-done
-
-gh release upload "$TAG" -R "$REPO" --clobber "$latest"
-echo "Draft $TAG updated with macOS builds."
-echo "After the Windows upload, publish with: gh release edit $TAG -R $REPO --draft=false"
+gh release upload "$TAG" -R "$REPO" --clobber "$dmg" "$tarball" "$tarball.sig"
+echo "Draft $TAG updated with the macOS build."
+echo "After the Windows upload: node scripts/latest-json.mjs $TAG, then gh release edit $TAG -R $REPO --draft=false"

@@ -184,14 +184,14 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   1. `~/.config/vee/sign.env`를 source (로그인 키체인의 `Developer ID Application` 인증서로 서명, `APPLE_ID`/`APPLE_PASSWORD`/`APPLE_TEAM_ID`로 공증)
   2. `yarn tauri build --target aarch64-apple-darwin` (`createUpdaterArtifacts: true` → `.app.tar.gz`와 `.sig` 생성). Intel Mac은 지원하지 않는다
   3. 태그의 GitHub Release가 없으면 초안(draft)으로 생성(`gh release create --draft`), 있으면 재사용
-  4. `.dmg`, `.app.tar.gz` 업로드(`gh release upload --clobber`)
-  5. 릴리스의 기존 `latest.json`을 내려받아(없으면 새로) `darwin-aarch64` 항목을 `jq`로 병합 후 재업로드
+  4. dmg, `Vee_<버전>_aarch64.app.tar.gz`와 그 `.sig` 업로드(`gh release upload --clobber`)
 - `scripts/release.ps1` (Windows PC)
-  1. `%USERPROFILE%\.config\vee\sign.env`(같은 형식, `TAURI_SIGNING_PRIVATE_KEY*`만 필요)를 읽어 환경변수 설정. 사용자가 개인키를 Windows 장비에도 복사해 둔다
+  1. `%USERPROFILE%\.config\vee\sign.env`(같은 형식, `TAURI_SIGNING_PRIVATE_KEY*`만 필요)를 읽어 환경변수 설정
   2. `yarn tauri build` (NSIS 설치 파일과 `.sig`)
-  3. release.sh 3~5단계와 동일하게 초안 릴리스 생성/재사용, 설치 파일 업로드, `latest.json`에 `windows-x86_64` 항목을 `ConvertFrom-Json`으로 병합 후 재업로드
-- 두 스크립트는 실행 순서와 무관하게 동작한다. 양쪽 업로드가 끝나면 사용자가 `gh release edit v<version> --draft=false`로 게시한다. 초안 동안은 `releases/latest`에 잡히지 않으므로 반쪽짜리 `latest.json`이 배포되지 않는다
-- 필요 도구: macOS `gh`, `jq`; Windows `gh`, PowerShell 7
+  3. 초안 릴리스 생성/재사용 후 설치 파일과 `.sig` 업로드
+- `scripts/latest-json.mjs`: 두 업로드가 끝난 뒤 아무 기계에서 `node scripts/latest-json.mjs v<버전>`. 릴리스의 `.sig` 자산을 모아 `darwin-aarch64`/`windows-x86_64` 항목으로 `latest.json`을 만들어 업로드한다(올라온 플랫폼만 포함, 공개키가 비어 있으면 중단)
+- 빌드 스크립트는 순서와 무관하다. `latest.json`을 만든 뒤 사용자가 `gh release edit v<버전> --draft=false`로 게시한다. 초안 동안은 `releases/latest`에 잡히지 않는다
+- 필요 도구: macOS `gh`; Windows `gh`, PowerShell 7
 - 값은 절대 커밋하지 않는다
 - Windows는 코드 서명 없음 → 첫 설치 시 SmartScreen 경고 허용
 

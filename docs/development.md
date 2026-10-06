@@ -50,7 +50,7 @@ yarn typecheck                                          # TypeScript 타입 검�
   ```bash
   cargo test --manifest-path src-tauri/Cargo.toml -- --ignored reads_frontmost_app_and_icon
   ```
-- 프론트 테스트는 별도 라이브러리 없이 Node 내장 `node:test`로 `src/**/*.test.ts`를 실행합니다.
+- 프론트와 스크립트 테스트는 별도 라이브러리 없이 Node 내장 `node:test`로 `src/**/*.test.ts`, `scripts/*.test.mjs`를 실행합니다.
 
 ## 빌드
 
@@ -63,7 +63,7 @@ yarn tauri build
   ```bash
   yarn tauri build --no-bundle
   ```
-- 서명·공증·GitHub 릴리스 업로드는 [릴리스 절차](release.md)를 따릅니다(`scripts/release.sh`, `scripts/release.ps1`).
+- 서명·공증·GitHub 릴리스 업로드는 [릴리스 절차](release.md)를 따릅니다(`scripts/release.sh`, `scripts/release.ps1`, `scripts/latest-json.mjs`).
 
 ## 프로젝트 구조
 
@@ -90,7 +90,7 @@ vee-app/
 │     ├─ settings.rs       # 설정 command, 전역 단축키
 │     ├─ tray.rs           # 트레이 아이콘·메뉴
 │     └─ updater.rs        # 업데이트 확인·설치
-├─ scripts/                # 로컬 릴리스 스크립트
+├─ scripts/                # 로컬 릴리스 스크립트, latest.json 생성(latest-json.mjs)
 └─ docs/                   # 설계·계획·릴리스·개발 문서
 ```
 
