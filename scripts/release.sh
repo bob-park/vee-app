@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Builds, signs and notarizes the macOS app for both architectures, then uploads
-# the bundles and merges darwin entries into latest.json on a draft release.
+# Builds, signs and notarizes the macOS app for Apple Silicon (Intel Macs are not
+# supported), then uploads the bundles and merges the darwin-aarch64 entry into
+# latest.json on a draft release.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -14,9 +15,7 @@ VERSION=$(jq -r .version src-tauri/tauri.conf.json)
 TAG="v$VERSION"
 BASE_URL="https://github.com/$REPO/releases/download/$TAG"
 
-for target in aarch64-apple-darwin x86_64-apple-darwin; do
-  yarn tauri build --target "$target"
-done
+yarn tauri build --target aarch64-apple-darwin
 
 gh release view "$TAG" -R "$REPO" >/dev/null 2>&1 \
   || gh release create "$TAG" -R "$REPO" --draft --title "Vee $TAG" --notes "Vee $TAG"
@@ -29,10 +28,10 @@ if ! gh release download "$TAG" -R "$REPO" -p latest.json -D "$work" 2>/dev/null
     '{version: $v, notes: ("Vee v" + $v), pub_date: $d, platforms: {}}' > "$latest"
 fi
 
-for entry in "aarch64-apple-darwin:darwin-aarch64:aarch64" "x86_64-apple-darwin:darwin-x86_64:x64"; do
+for entry in "aarch64-apple-darwin:darwin-aarch64:aarch64"; do
   IFS=: read -r target platform arch <<< "$entry"
   bundle="src-tauri/target/$target/release/bundle"
-  # Both architectures produce Vee.app.tar.gz; rename so they can live side by side.
+  # Versioned name so the asset is distinguishable from older releases.
   tarball="$work/Vee_${VERSION}_${arch}.app.tar.gz"
   cp "$bundle/macos/Vee.app.tar.gz" "$tarball"
   # Exact names: old versions' bundles stay in target/ after a version bump.
