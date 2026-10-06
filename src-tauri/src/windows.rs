@@ -4,7 +4,7 @@ use crate::{AppState, now_ms, source_app, store::ClipContent};
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 pub const PANEL: &str = "panel";
 pub const TOAST: &str = "toast";
@@ -51,9 +51,84 @@ fn toast_preview(text: &str) -> String {
     format!("{}…", flat.chars().take(TOAST_PREVIEW_CHARS).collect::<String>())
 }
 
+/// macOS positions windows in points in one global space across displays;
+/// Windows positions them in physical pixels of the virtual desktop.
+const USES_POINTS: bool = cfg!(target_os = "macos");
+
+/// A rectangle in the space windows are positioned in (see `USES_POINTS`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Rect {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+impl Rect {
+    fn contains(&self, (x, y): (f64, f64)) -> bool {
+        x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
+    }
+}
+
+/// tao reports macOS monitor geometry as points × that monitor's own scale.
+fn rect_from((x, y): (i32, i32), (w, h): (u32, u32), scale: f64, points: bool) -> Rect {
+    let k = if points { scale } else { 1.0 };
+    Rect { x: x as f64 / k, y: y as f64 / k, w: w as f64 / k, h: h as f64 / k }
+}
+
+/// tao's macOS cursor is points × the *primary* display's scale, whichever display it is on,
+/// so `monitor_from_point` misses displays with a different scale.
+fn cursor_point((x, y): (f64, f64), primary_scale: f64, points: bool) -> (f64, f64) {
+    if points { (x / primary_scale, y / primary_scale) } else { (x, y) }
+}
+
+fn pick(point: (f64, f64), rects: &[Rect]) -> Option<usize> {
+    rects.iter().position(|r| r.contains(point))
+}
+
+/// `unit` is how many positioning units one design point takes: 1 on macOS, the scale on Windows.
+fn panel_rect(work: Rect, unit: f64) -> Rect {
+    let (margin, h) = (PANEL_MARGIN * unit, PANEL_HEIGHT * unit);
+    Rect { x: work.x + margin, y: work.y + work.h - h - margin, w: work.w - 2.0 * margin, h }
+}
+
+fn toast_rect(work: Rect, unit: f64) -> Rect {
+    let (w, h) = (TOAST_WIDTH * unit, TOAST_HEIGHT * unit);
+    Rect { x: work.x + (work.w - w) / 2.0, y: work.y + work.h - h - TOAST_BOTTOM * unit, w, h }
+}
+
 fn cursor_monitor(app: &AppHandle) -> Option<Monitor> {
-    let pos = app.cursor_position().ok()?;
-    app.monitor_from_point(pos.x, pos.y).ok().flatten().or_else(|| app.primary_monitor().ok().flatten())
+    let primary = app.primary_monitor().ok().flatten();
+    let found = (|| {
+        let monitors = app.available_monitors().ok()?;
+        let cursor = app.cursor_position().ok()?;
+        let primary_scale = primary.as_ref().map_or(1.0, |m| m.scale_factor());
+        let rects: Vec<Rect> = monitors
+            .iter()
+            .map(|m| rect_from((m.position().x, m.position().y), (m.size().width, m.size().height), m.scale_factor(), USES_POINTS))
+            .collect();
+        let index = pick(cursor_point((cursor.x, cursor.y), primary_scale, USES_POINTS), &rects)?;
+        monitors.into_iter().nth(index)
+    })();
+    found.or(primary)
+}
+
+/// Work area of `monitor` in positioning space, plus the size of one design point in it.
+fn work_area(monitor: &Monitor) -> (Rect, f64) {
+    let a = monitor.work_area();
+    let rect = rect_from((a.position.x, a.position.y), (a.size.width, a.size.height), monitor.scale_factor(), USES_POINTS);
+    (rect, if USES_POINTS { 1.0 } else { monitor.scale_factor() })
+}
+
+fn place(window: &WebviewWindow, r: Rect) -> tauri::Result<()> {
+    if USES_POINTS {
+        window.set_position(LogicalPosition::new(r.x, r.y))?;
+        window.set_size(LogicalSize::new(r.w, r.h))?;
+    } else {
+        window.set_position(PhysicalPosition::new(r.x.round() as i32, r.y.round() as i32))?;
+        window.set_size(PhysicalSize::new(r.w.round() as u32, r.h.round() as u32))?;
+    }
+    Ok(())
 }
 
 pub fn toggle_panel(app: &AppHandle) {
@@ -75,16 +150,8 @@ pub fn show_panel(app: &AppHandle) {
 
 fn place_and_show(app: &AppHandle, panel: &WebviewWindow) -> tauri::Result<()> {
     if let Some(monitor) = cursor_monitor(app) {
-        let area = monitor.work_area();
-        let scale = monitor.scale_factor();
-        let margin = (PANEL_MARGIN * scale) as i32;
-        let height = (PANEL_HEIGHT * scale) as u32;
-        let width = area.size.width.saturating_sub(2 * margin as u32);
-        panel.set_size(PhysicalSize::new(width, height))?;
-        panel.set_position(PhysicalPosition::new(
-            area.position.x + margin,
-            area.position.y + area.size.height as i32 - height as i32 - margin,
-        ))?;
+        let (work, unit) = work_area(&monitor);
+        place(panel, panel_rect(work, unit))?;
     }
     panel.show()?;
     panel.set_focus()?;
@@ -116,14 +183,8 @@ pub fn show_settings(app: &AppHandle) {
 fn show_toast(app: &AppHandle, payload: ToastPayload) {
     let Some(toast) = app.get_webview_window(TOAST) else { return };
     if let Some(monitor) = cursor_monitor(app) {
-        let area = monitor.work_area();
-        let scale = monitor.scale_factor();
-        let (w, h) = ((TOAST_WIDTH * scale) as i32, (TOAST_HEIGHT * scale) as i32);
-        let _ = toast.set_size(PhysicalSize::new(w as u32, h as u32));
-        let _ = toast.set_position(PhysicalPosition::new(
-            area.position.x + (area.size.width as i32 - w) / 2,
-            area.position.y + area.size.height as i32 - h - (TOAST_BOTTOM * scale) as i32,
-        ));
+        let (work, unit) = work_area(&monitor);
+        let _ = place(&toast, toast_rect(work, unit));
     }
     let _ = app.emit_to(TOAST, "toast://show", payload);
     let _ = toast.set_ignore_cursor_events(true);
@@ -199,6 +260,40 @@ pub fn copy_clip(app: &AppHandle, id: i64) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Geometry captured from a MacBook (Retina, scale 2) with a 1x 2560x1440
+    // display placed to its left — the setup where the panel never reached the
+    // external display.
+    const MAC_PRIMARY: Rect = Rect { x: 0.0, y: 0.0, w: 1800.0, h: 1169.0 };
+    const MAC_EXTERNAL: Rect = Rect { x: -2560.0, y: -271.0, w: 2560.0, h: 1440.0 };
+
+    #[test]
+    fn monitor_rects_are_points_on_macos_and_pixels_on_windows() {
+        assert_eq!(rect_from((0, 0), (3600, 2338), 2.0, true), MAC_PRIMARY);
+        assert_eq!(rect_from((-2560, -271), (2560, 1440), 1.0, true), MAC_EXTERNAL);
+        assert_eq!(rect_from((-1920, 0), (1920, 1080), 1.5, false), Rect { x: -1920.0, y: 0.0, w: 1920.0, h: 1080.0 });
+    }
+
+    #[test]
+    fn cursor_on_the_external_display_picks_it() {
+        let rects = [MAC_PRIMARY, MAC_EXTERNAL];
+        // Raw tao cursor values logged while the pointer was on the external display.
+        for raw in [(-2638.21875, 647.3125), (-3108.2734375, -166.953125), (-3980.0546875, 391.65625)] {
+            assert_eq!(pick(cursor_point(raw, 2.0, true), &rects), Some(1), "{raw:?}");
+        }
+        assert_eq!(pick(cursor_point((1000.0, 1000.0), 2.0, true), &rects), Some(0));
+        assert_eq!(pick(cursor_point((-1000.0, 500.0), 1.5, false), &[Rect { x: -1920.0, y: 0.0, w: 1920.0, h: 1080.0 }]), Some(0));
+    }
+
+    #[test]
+    fn panel_and_toast_sit_at_the_bottom_of_the_work_area() {
+        let work = Rect { x: -2560.0, y: -241.0, w: 2560.0, h: 1410.0 };
+        assert_eq!(panel_rect(work, 1.0), Rect { x: -2552.0, y: 861.0, w: 2544.0, h: 300.0 });
+        assert_eq!(toast_rect(work, 1.0), Rect { x: -1460.0, y: 1085.0, w: 360.0, h: 52.0 });
+        // Windows: same layout in pixels at 150%.
+        let px = Rect { x: 0.0, y: 0.0, w: 1920.0, h: 1040.0 };
+        assert_eq!(panel_rect(px, 1.5), Rect { x: 12.0, y: 578.0, w: 1896.0, h: 450.0 });
+    }
 
     #[test]
     fn toast_preview_collapses_whitespace_and_caps_length() {
