@@ -22,7 +22,7 @@
 **제외 (YAGNI)**
 - 자동 붙여넣기(선택 시 직전 앱에 `Cmd/Ctrl+V` 입력) — 복사만 한다. 추후 `copy_clip` 흐름 끝에 키 입력 단계를 추가하는 방식으로 확장 가능
 - 핀보드("유용한 링크" 등 사용자 정의 보드)
-- Linux 지원, Windows 코드 서명
+- Linux 지원, Windows 코드 서명, CI 빌드
 - 동기화/클라우드
 
 ## 2. 기술 스택
@@ -178,9 +178,20 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 - 확인 시점: 앱 시작 시, 이후 6시간마다, 사용자가 "업데이트 확인" 클릭 시
 - 새 버전 발견 → 백그라운드 다운로드·설치 준비 → 트레이 메뉴와 설정 창에 "업데이트 후 재시작" 표시. 재시작은 사용자 클릭 시에만
 - 서명 공개키: `~/.config/vee/bee.key.pub` (Tauri CLI 설치 후 사용자가 `yarn tauri signer generate -w ~/.config/vee/bee.key`로 생성) → `tauri.conf.json`의 `plugins.updater.pubkey`에 커밋
-- CI: `.github/workflows/release.yml`, `v*` 태그 push 시 `tauri-apps/tauri-action`으로 macOS `aarch64-apple-darwin`, `x86_64-apple-darwin`, Windows `x86_64-pc-windows-msvc` 빌드 → 초안 GitHub Release에 번들과 `latest.json` 업로드
-- 시크릿: `~/.config/vee/sign.env`의 `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`, `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`를 GitHub 레포 Secrets로 등록(구현 시 사용자 확인 후 `gh secret set`)
-- macOS 서명 인증서: 로그인 키체인의 `Developer ID Application: HyunWoo Park (BQ7GXB2QRT)`를 사용자가 키체인 접근 앱에서 `~/.config/vee/developer-id.p12`로 내보낸다(내보내기 암호 설정). CI 시크릿 `APPLE_CERTIFICATE`(= `base64 -i developer-id.p12`), `APPLE_CERTIFICATE_PASSWORD`(= 내보내기 암호)로 등록해 CI에서 서명·공증까지 수행한다
+- **CI 없음.** 빌드·서명·릴리스는 항상 사용자 장비에서 스크립트로 수행한다
+- 버전: `src-tauri/tauri.conf.json`의 `version`, 태그 `v<version>`
+- `scripts/release.sh` (macOS)
+  1. `~/.config/vee/sign.env`를 source (로그인 키체인의 `Developer ID Application` 인증서로 서명, `APPLE_ID`/`APPLE_PASSWORD`/`APPLE_TEAM_ID`로 공증)
+  2. `yarn tauri build --target aarch64-apple-darwin`, `--target x86_64-apple-darwin` (`createUpdaterArtifacts: true` → `.app.tar.gz`와 `.sig` 생성)
+  3. 태그의 GitHub Release가 없으면 초안(draft)으로 생성(`gh release create --draft`), 있으면 재사용
+  4. `.dmg`, `.app.tar.gz` 업로드(`gh release upload --clobber`)
+  5. 릴리스의 기존 `latest.json`을 내려받아(없으면 새로) `darwin-aarch64`, `darwin-x86_64` 항목을 `jq`로 병합 후 재업로드
+- `scripts/release.ps1` (Windows PC)
+  1. `%USERPROFILE%\.config\vee\sign.env`(같은 형식, `TAURI_SIGNING_PRIVATE_KEY*`만 필요)를 읽어 환경변수 설정. 사용자가 개인키를 Windows 장비에도 복사해 둔다
+  2. `yarn tauri build` (NSIS 설치 파일과 `.sig`)
+  3. release.sh 3~5단계와 동일하게 초안 릴리스 생성/재사용, 설치 파일 업로드, `latest.json`에 `windows-x86_64` 항목을 `ConvertFrom-Json`으로 병합 후 재업로드
+- 두 스크립트는 실행 순서와 무관하게 동작한다. 양쪽 업로드가 끝나면 사용자가 `gh release edit v<version> --draft=false`로 게시한다. 초안 동안은 `releases/latest`에 잡히지 않으므로 반쪽짜리 `latest.json`이 배포되지 않는다
+- 필요 도구: macOS `gh`, `jq`, rustup 타깃 `x86_64-apple-darwin`; Windows `gh`, PowerShell 7
 - 값은 절대 커밋하지 않는다
 - Windows는 코드 서명 없음 → 첫 설치 시 SmartScreen 경고 허용
 
