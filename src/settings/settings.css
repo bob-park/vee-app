@@ -1,0 +1,139 @@
+.settings {
+  height: 100%;
+  padding: 24px 28px;
+  overflow-y: auto;
+}
+
+.settings h1 {
+  margin-bottom: 16px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.settings section {
+  margin-bottom: 16px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--divider);
+}
+
+.setting-row:last-child {
+  border-bottom: none;
+}
+
+.setting-row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--subtle);
+}
+
+.seg button {
+  padding: 4px 10px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.seg button.on {
+  background: var(--card);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(16, 24, 40, 0.08);
+}
+
+.switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  appearance: none;
+  border-radius: 10px;
+  background: var(--border);
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform 120ms;
+}
+
+.switch:checked {
+  background: var(--accent);
+}
+
+.switch:checked::after {
+  transform: translateX(16px);
+}
+
+.recorder {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 260px;
+  text-align: right;
+}
+
+.kbd {
+  min-width: 96px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: var(--badge-bg);
+  color: var(--badge-fg);
+  font-weight: 600;
+}
+
+.kbd.recording {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.btn {
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn.danger {
+  background: rgba(209, 52, 75, 0.12);
+  color: var(--danger);
+}
+
+.error {
+  color: var(--danger);
+  font-size: 12px;
+}

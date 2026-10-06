@@ -1,0 +1,241 @@
+.panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.search {
+  flex: 0 0 220px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--subtle);
+  color: var(--muted);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.chips {
+  display: flex;
+  gap: 6px;
+}
+
+.chip {
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  background: var(--subtle);
+  font-size: 12px;
+}
+
+.chip.on {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.icon-btn {
+  padding: 0 6px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.icon-btn:hover {
+  background: var(--subtle);
+}
+
+.row {
+  flex: 1;
+  display: flex;
+  gap: 10px;
+  padding: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.row::-webkit-scrollbar {
+  display: none;
+}
+
+.empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.card {
+  flex: 0 0 180px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: 0 1px 4px rgba(16, 24, 40, 0.04);
+  cursor: default;
+}
+
+.card.selected {
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-subtle);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+}
+
+.app-icon {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 6px;
+}
+
+.app-icon-empty {
+  background: var(--subtle);
+  border: 1px solid var(--border);
+}
+
+.badge {
+  overflow: hidden;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--badge-bg);
+  color: var(--badge-fg);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.badge-file {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+.time {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.card-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 8px;
+  overflow: hidden;
+}
+
+.preview {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-all;
+  -webkit-line-clamp: 8;
+  -webkit-box-orient: vertical;
+}
+
+.preview.link {
+  color: var(--accent);
+}
+
+.thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.doc {
+  width: 48px;
+  height: 58px;
+  margin: 12px auto 0;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--subtle);
+}
+
+.doc.folder {
+  width: 64px;
+  height: 46px;
+  margin-top: 22px;
+  border: none;
+  border-radius: 4px 6px 6px 6px;
+  background: #5aa9f0;
+}
+
+.card-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--divider);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.card-foot span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.card-foot.missing {
+  color: var(--danger);
+}
+
+/*
+ * Entrance: the window appears instantly with the panel parked below its bottom
+ * edge (set while hidden), then the panel slides up like a sheet. Closing is
+ * instant, so there is no transition on the way down.
+ */
+.panel {
+  transform: translateY(calc(100% + 16px));
+}
+
+.panel.open {
+  transform: none;
+  transition: transform 300ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel.open {
+    transition: none;
+  }
+}

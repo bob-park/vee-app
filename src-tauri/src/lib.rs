@@ -1,0 +1,157 @@
+mod settings;
+mod source_app;
+mod store;
+mod tray;
+mod updater;
+mod watcher;
+mod windows;
+
+use std::sync::Mutex;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use store::{ClipDto, Kind, Store};
+use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+
+pub struct AppState {
+    pub store: Mutex<Store>,
+    /// Frontmost app when the panel opened, re-activated when it closes (macOS).
+    pub prev_app_pid: Mutex<Option<i32>>,
+    suppress_until: Mutex<Instant>,
+}
+
+impl AppState {
+    fn new(store: Store) -> Self {
+        Self { store: Mutex::new(store), prev_app_pid: Mutex::new(None), suppress_until: Mutex::new(Instant::now()) }
+    }
+
+    /// Ignore clipboard changes briefly after we write the clipboard ourselves.
+    /// Longer than clipboard-rs's 500ms macOS poll so the poll after a slow write is covered.
+    pub fn suppress_watcher(&self) {
+        *self.suppress_until.lock().unwrap() = Instant::now() + Duration::from_millis(1200);
+    }
+
+    pub fn watcher_suppressed(&self) -> bool {
+        Instant::now() < *self.suppress_until.lock().unwrap()
+    }
+}
+
+pub fn now_ms() -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+#[tauri::command]
+fn list_clips(state: State<AppState>, query: String, kind: String, offset: i64, limit: i64) -> Result<Vec<ClipDto>, String> {
+    let kind = match kind.as_str() {
+        "all" => None,
+        k => Some(Kind::parse(k).ok_or_else(|| format!("unknown kind: {k}"))?),
+    };
+    state.store.lock().unwrap().list(&query, kind, offset.max(0), limit.clamp(1, 200)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_clip(app: AppHandle, state: State<AppState>, id: i64) -> Result<(), String> {
+    state.store.lock().unwrap().delete(id).map_err(|e| e.to_string())?;
+    let _ = app.emit("clips://changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn clear_history(app: AppHandle, state: State<AppState>) -> Result<(), String> {
+    state.store.lock().unwrap().clear().map_err(|e| e.to_string())?;
+    let _ = app.emit("clips://changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn copy_clip(app: AppHandle, id: i64) -> Result<(), String> {
+    windows::copy_clip(&app, id)
+}
+
+#[tauri::command]
+fn hide_panel(app: AppHandle) {
+    windows::hide_panel(&app, true);
+}
+
+#[tauri::command]
+fn open_settings(app: AppHandle) {
+    windows::hide_panel(&app, false);
+    windows::show_settings(&app);
+}
+
+pub fn run() {
+    tauri::Builder::default()
+        // Must be first: a second launch just opens the settings window.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| windows::show_settings(app)))
+        .plugin(tauri_plugin_log::Builder::new().level(log::LevelFilter::Info).build())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updater::UpdateState::default())
+        .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            let data_dir = app.path().app_data_dir()?;
+            let store = match Store::open(&data_dir.join("vee.db"), &data_dir.join("images")) {
+                Ok(store) => store,
+                Err(e) => {
+                    // Never wipe the history automatically; tell the user and quit.
+                    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+                    log::error!("failed to open database: {e}");
+                    app.dialog()
+                        .message(format!("Vee couldn't open its history database.\n\n{e}"))
+                        .title("Vee")
+                        .kind(MessageDialogKind::Error)
+                        .show(|_| std::process::exit(1));
+                    return Ok(());
+                }
+            };
+            app.manage(AppState::new(store));
+            tray::create(app.handle())?;
+            watcher::spawn(app.handle().clone());
+            settings::register_stored_shortcut(app.handle());
+            updater::spawn_periodic(app.handle().clone());
+            Ok(())
+        })
+        .on_window_event(|window, event| match (window.label(), event) {
+            (windows::SETTINGS, WindowEvent::CloseRequested { api, .. }) => {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+            (windows::PANEL, WindowEvent::Focused(false)) => windows::hide_panel(window.app_handle(), false),
+            _ => {}
+        })
+        .invoke_handler(tauri::generate_handler![
+            list_clips,
+            delete_clip,
+            clear_history,
+            copy_clip,
+            hide_panel,
+            open_settings,
+            settings::get_settings,
+            settings::set_setting,
+            settings::set_autostart,
+            settings::set_shortcut,
+            updater::check_update,
+            updater::get_update_status,
+            updater::install_update_and_restart
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn self_write_suppression_outlasts_a_watcher_poll() {
+        // clipboard-rs polls macOS every 500ms, so the window must cover a full
+        // poll after the write finishes, not just 500ms from when it started.
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::new(Store::open_in_memory(dir.path()).unwrap());
+        state.suppress_watcher();
+        std::thread::sleep(Duration::from_millis(700));
+        assert!(state.watcher_suppressed());
+    }
+}
