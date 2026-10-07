@@ -55,6 +55,8 @@ html,
 body,
 #root {
   height: 100%;
+  /* Not a scroll container, so scrollIntoView on a card can't scroll the page while the panel is parked offscreen. */
+  overflow: clip;
 }
 
 body {
@@ -64,7 +66,6 @@ body {
   background: var(--surface);
   -webkit-font-smoothing: antialiased;
   user-select: none;
-  overflow: hidden;
 }
 
 html[data-window="panel"] body,
