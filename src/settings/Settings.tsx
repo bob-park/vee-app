@@ -142,6 +142,16 @@ export function Settings() {
             onChange={(e) => run(api.setSetting("sound", e.target.checked ? "on" : "off"))}
           />
         </Row>
+        <Row label={s.confirmDelete} hint={s.confirmDeleteHint}>
+          <input
+            type="checkbox"
+            role="switch"
+            className="switch"
+            aria-label={s.confirmDelete}
+            checked={settings.confirmDelete === "on"}
+            onChange={(e) => run(api.setSetting("confirmDelete", e.target.checked ? "on" : "off"))}
+          />
+        </Row>
         <Row label={s.shortcut} hint={s.shortcutHint}>
           <ShortcutRecorder value={settings.shortcut} />
         </Row>

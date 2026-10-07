@@ -22,6 +22,7 @@ export interface Settings {
   locale: "system" | "ko" | "en";
   shortcut: string;
   sound: "on" | "off";
+  confirmDelete: "on" | "off";
   autostart: boolean;
   version: string;
 }
@@ -49,7 +50,8 @@ export const api = {
   hidePanel: () => invoke<void>("hide_panel"),
   openSettings: () => invoke<void>("open_settings"),
   getSettings: () => invoke<Settings>("get_settings"),
-  setSetting: (key: "theme" | "locale" | "sound", value: string) => invoke<void>("set_setting", { key, value }),
+  setSetting: (key: "theme" | "locale" | "sound" | "confirmDelete", value: string) =>
+    invoke<void>("set_setting", { key, value }),
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   setShortcut: (accel: string) => invoke<void>("set_shortcut", { accel }),
   checkUpdate: () => invoke<UpdateStatus>("check_update"),

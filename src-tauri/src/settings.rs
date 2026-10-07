@@ -15,6 +15,7 @@ pub struct SettingsDto {
     locale: String,
     shortcut: String,
     sound: String,
+    confirm_delete: String,
     autostart: bool,
     version: String,
 }
@@ -25,6 +26,7 @@ pub fn get(store: &Store, key: &str) -> String {
         "theme" | "locale" => "system",
         "shortcut" => DEFAULT_SHORTCUT,
         "sound" => "on",
+        "confirmDelete" => "off",
         _ => "",
     };
     store.get_setting(key).ok().flatten().unwrap_or_else(|| default.to_string())
@@ -39,6 +41,7 @@ fn validate(key: &str, value: &str) -> Result<(), String> {
         "theme" => matches!(value, "system" | "light" | "dark"),
         "locale" => matches!(value, "system" | "ko" | "en"),
         "sound" => matches!(value, "on" | "off"),
+        "confirmDelete" => matches!(value, "on" | "off"),
         _ => false,
     };
     if ok { Ok(()) } else { Err(format!("invalid setting {key}={value}")) }
@@ -79,6 +82,7 @@ pub fn get_settings(app: AppHandle, state: State<AppState>) -> SettingsDto {
         locale: get(&store, "locale"),
         shortcut: get(&store, "shortcut"),
         sound: get(&store, "sound"),
+        confirm_delete: get(&store, "confirmDelete"),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         version: app.package_info().version.to_string(),
     }
@@ -141,6 +145,16 @@ mod tests {
         assert!(validate("sound", "off").is_ok());
         assert!(validate("sound", "on").is_ok());
         assert!(validate("sound", "loud").is_err());
+    }
+
+    #[test]
+    fn confirm_delete_defaults_off_and_accepts_on_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_in_memory(dir.path()).unwrap();
+        assert_eq!(get(&store, "confirmDelete"), "off");
+        assert!(validate("confirmDelete", "on").is_ok());
+        assert!(validate("confirmDelete", "off").is_ok());
+        assert!(validate("confirmDelete", "yes").is_err());
     }
 
     #[test]
