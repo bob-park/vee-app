@@ -51,8 +51,14 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let menu = build_menu(app)?;
+    // macOS tints a black template glyph to match the menu bar; Windows keeps the colour icon.
+    #[cfg(target_os = "macos")]
+    let (icon, template) = (tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?, true);
+    #[cfg(not(target_os = "macos"))]
+    let (icon, template) = (app.default_window_icon().cloned().expect("bundle has an icon"), false);
     TrayIconBuilder::with_id(TRAY_ID)
-        .icon(app.default_window_icon().cloned().expect("bundle has an icon"))
+        .icon(icon)
+        .icon_as_template(template)
         .tooltip("Vee")
         .menu(&menu)
         .show_menu_on_left_click(true)
