@@ -78,6 +78,9 @@ fn copy_clip(app: AppHandle, id: i64) -> Result<(), String> {
 /// Plays a built-in copy sound for the settings preview, regardless of the on/off setting.
 #[tauri::command]
 fn preview_sound(name: String) -> Result<(), String> {
+    if name == settings::SILENT {
+        return Ok(());
+    }
     if sound::wav(&name).is_none() {
         return Err(format!("unknown sound: {name}"));
     }

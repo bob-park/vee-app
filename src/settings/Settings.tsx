@@ -175,7 +175,7 @@ export function Settings() {
               className="btn play"
               aria-label={s.preview}
               title={s.preview}
-              disabled={settings.sound !== "on"}
+              disabled={settings.sound !== "on" || settings.soundName === "none"}
               onClick={() => void api.previewSound(settings.soundName)}
             >
               ▶

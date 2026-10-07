@@ -29,7 +29,7 @@ export const ko: Dict = {
     soundName: "효과음",
     soundNameHint: "선택하면 미리 들려요",
     preview: "미리 듣기",
-    sounds: { pop: "팝", click: "딸깍", chime: "차임", bubble: "방울", tap: "톡" },
+    sounds: { none: "무음", pop: "팝", click: "딸깍", chime: "차임", bubble: "방울", tap: "톡" },
     confirmDelete: "개별 삭제 시 확인",
     confirmDeleteHint: "패널에서 항목을 지울 때 한 번 더 확인합니다",
     shortcut: "단축키",

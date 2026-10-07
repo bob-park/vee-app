@@ -19,7 +19,7 @@ export interface Clip {
   stack: (string | null)[];
 }
 
-export const SOUND_NAMES = ["pop", "click", "chime", "bubble", "tap"] as const;
+export const SOUND_NAMES = ["none", "pop", "click", "chime", "bubble", "tap"] as const;
 export type SoundName = (typeof SOUND_NAMES)[number];
 
 export interface Settings {

@@ -27,7 +27,7 @@ export const en = {
     soundName: "Sound",
     soundNameHint: "Plays a preview when chosen",
     preview: "Preview",
-    sounds: { pop: "Pop", click: "Click", chime: "Chime", bubble: "Bubble", tap: "Tap" },
+    sounds: { none: "Silent", pop: "Pop", click: "Click", chime: "Chime", bubble: "Bubble", tap: "Tap" },
     confirmDelete: "Confirm before deleting",
     confirmDeleteHint: "Ask once more when deleting an item from the panel",
     shortcut: "Shortcut",

@@ -34,9 +34,13 @@ pub fn get(store: &Store, key: &str) -> String {
     store.get_setting(key).ok().flatten().unwrap_or_else(|| default.to_string())
 }
 
-/// The sound to play on copy, or `None` when copy sounds are off.
+/// `soundName` value that keeps copies silent while the sound switch stays on.
+pub const SILENT: &str = "none";
+
+/// The sound to play on copy, or `None` when copy sounds are off or set to silent.
 pub fn copy_sound(store: &Store) -> Option<String> {
-    (get(store, "sound") == "on").then(|| get(store, "soundName"))
+    let name = get(store, "soundName");
+    (get(store, "sound") == "on" && name != SILENT).then_some(name)
 }
 
 fn validate(key: &str, value: &str) -> Result<(), String> {
@@ -44,7 +48,7 @@ fn validate(key: &str, value: &str) -> Result<(), String> {
         "theme" => matches!(value, "system" | "light" | "dark"),
         "locale" => matches!(value, "system" | "ko" | "en"),
         "sound" => matches!(value, "on" | "off"),
-        "soundName" => crate::sound::NAMES.contains(&value),
+        "soundName" => value == SILENT || crate::sound::NAMES.contains(&value),
         "confirmDelete" => matches!(value, "on" | "off"),
         _ => false,
     };
@@ -169,6 +173,9 @@ mod tests {
         assert_eq!(copy_sound(&store).as_deref(), Some("pop"));
         store.set_setting("soundName", "chime").unwrap();
         assert_eq!(copy_sound(&store).as_deref(), Some("chime"));
+        store.set_setting("soundName", "none").unwrap();
+        assert_eq!(copy_sound(&store), None);
+        store.set_setting("soundName", "chime").unwrap();
         store.set_setting("sound", "off").unwrap();
         assert_eq!(copy_sound(&store), None);
     }
@@ -178,6 +185,7 @@ mod tests {
         for name in crate::sound::NAMES {
             assert!(validate("soundName", name).is_ok(), "{name}");
         }
+        assert!(validate("soundName", "none").is_ok());
         assert!(validate("soundName", "Pop").is_err());
         assert!(validate("soundName", "../x.wav").is_err());
     }
