@@ -18,6 +18,7 @@ export function Panel() {
   const [selected, setSelected] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [open, setOpen] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const requestId = useRef(0);
@@ -66,15 +67,18 @@ export function Panel() {
   useEffect(() => {
     const offChanged = listen("clips://changed", () => void reloadRef.current(true));
     const offOpened = listen("panel://opened", () => {
+      setClosing(false);
       inputRef.current?.focus();
       // The window is shown transparent; reveal it once the parked frame is on screen, then slide.
       requestAnimationFrame(() =>
         requestAnimationFrame(() => void api.revealPanel().finally(() => setOpen(true))),
       );
     });
+    const offClosing = listen("panel://closing", () => setClosing(true));
     // Reset while hidden so the next open slides in finished content.
     const offClosed = listen("panel://closed", () => {
       setOpen(false);
+      setClosing(false);
       setDragging(false);
       setConfirmingId(null);
       setQuery("");
@@ -85,6 +89,7 @@ export function Panel() {
     return () => {
       void offChanged.then((off) => off());
       void offOpened.then((off) => off());
+      void offClosing.then((off) => off());
       void offClosed.then((off) => off());
       void offDragCancelled.then((off) => off());
     };
@@ -162,7 +167,7 @@ export function Panel() {
 
   return (
     <div
-      className={["panel", open && "open", dragging && "dragging"].filter(Boolean).join(" ")}
+      className={["panel", open && "open", closing && "closing", dragging && "dragging"].filter(Boolean).join(" ")}
       onKeyDown={onKeyDown}
       // Keep keyboard focus in the search box no matter what is clicked.
       onMouseDown={(e) => {

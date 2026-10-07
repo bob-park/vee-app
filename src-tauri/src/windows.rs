@@ -4,7 +4,7 @@ use crate::{AppState, now_ms, source_app, store::{ClipContent, Kind, classify_te
 use drag::{DragItem, DragMode, DragResult};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow};
 
@@ -21,11 +21,17 @@ const TOAST_WIDTH: f64 = 420.0;
 const TOAST_HEIGHT: f64 = 96.0;
 const TOAST_BOTTOM: f64 = 14.0;
 const TOAST_MS: u64 = 1500;
+/// How long the panel slides down before its window hides; matches `.panel.closing` in panel.css.
+const PANEL_CLOSE_MS: u64 = 200;
 /// Reveal the panel anyway if the webview hasn't confirmed its parked frame by then.
 const PANEL_REVEAL_FALLBACK_MS: u64 = 200;
 const TOAST_PREVIEW_CHARS: usize = 40;
 
 static TOAST_GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Bumped to cancel a pending panel hide.
+static PANEL_GENERATION: AtomicU64 = AtomicU64::new(0);
+/// The panel is still visible but sliding down to hide.
+static PANEL_CLOSING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -146,12 +152,18 @@ fn place(window: &WebviewWindow, r: Rect) -> tauri::Result<()> {
 
 pub fn toggle_panel(app: &AppHandle) {
     let visible = app.get_webview_window(PANEL).and_then(|p| p.is_visible().ok()).unwrap_or(false);
-    if visible { hide_panel(app, true) } else { show_panel(app) }
+    if visible && !PANEL_CLOSING.load(Ordering::SeqCst) { hide_panel(app, true) } else { show_panel(app) }
 }
 
 pub fn show_panel(app: &AppHandle) {
     let Some(panel) = app.get_webview_window(PANEL) else { return };
     if panel.is_visible().unwrap_or(false) {
+        if PANEL_CLOSING.swap(false, Ordering::SeqCst) {
+            // Reopened mid-close: cancel the pending hide and slide back up.
+            PANEL_GENERATION.fetch_add(1, Ordering::SeqCst);
+            *app.state::<AppState>().prev_app_pid.lock().unwrap() = source_app::frontmost().map(|a| a.pid);
+            let _ = app.emit_to(PANEL, "panel://opened", ());
+        }
         let _ = panel.set_focus();
         return;
     }
@@ -200,17 +212,35 @@ pub fn reveal_panel(app: &AppHandle) {
     }
 }
 
+/// Slides the panel down, then hides its window.
 /// `restore_focus` re-activates the app that was in front before the panel opened.
 /// Pass `false` when the user already clicked into another app.
 pub fn hide_panel(app: &AppHandle, restore_focus: bool) {
-    if let Some(panel) = app.get_webview_window(PANEL) {
-        let _ = panel.hide();
-        let _ = app.emit_to(PANEL, "panel://closed", ());
-    }
     let previous = app.state::<AppState>().prev_app_pid.lock().unwrap().take();
     if let (true, Some(pid)) = (restore_focus, previous) {
         source_app::activate(pid);
     }
+    let Some(panel) = app.get_webview_window(PANEL) else { return };
+    if !panel.is_visible().unwrap_or(false) || PANEL_CLOSING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let _ = app.emit_to(PANEL, "panel://closing", ());
+    let generation = PANEL_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(PANEL_CLOSE_MS));
+        let main = handle.clone();
+        let _ = handle.run_on_main_thread(move || {
+            // A reopen in the meantime cancelled this hide.
+            if PANEL_GENERATION.load(Ordering::SeqCst) != generation || !PANEL_CLOSING.swap(false, Ordering::SeqCst) {
+                return;
+            }
+            if let Some(panel) = main.get_webview_window(PANEL) {
+                let _ = panel.hide();
+                let _ = main.emit_to(PANEL, "panel://closed", ());
+            }
+        });
+    });
 }
 
 pub fn show_settings(app: &AppHandle) {

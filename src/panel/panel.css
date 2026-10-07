@@ -347,8 +347,8 @@
 
 /*
  * Entrance: the window appears instantly with the panel parked below its bottom
- * edge (set while hidden), then the panel slides up like a sheet. Closing is
- * instant, so there is no transition on the way down.
+ * edge (set while hidden), then the panel slides up like a sheet. Closing slides
+ * it back down before the window hides.
  */
 .panel {
   transform: translateY(calc(100% + 16px));
@@ -359,7 +359,8 @@
   transition: transform 300ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/* Dragging a file out: the panel gets out of the way so the whole screen is a drop target. */
+/* Closing, or dragging a file out so the whole screen is a drop target. */
+.panel.open.closing,
 .panel.open.dragging {
   transform: translateY(calc(100% + 16px));
   transition: transform 200ms ease-in;
@@ -369,6 +370,7 @@
   .panel.open {
     transition: none;
   }
+  .panel.open.closing,
   .panel.open.dragging {
     transition: none;
   }
