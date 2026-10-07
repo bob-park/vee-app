@@ -18,6 +18,11 @@ export const ko: Dict = {
   cancel: "취소",
   delete: "삭제",
   deleteHint: "⏎ 삭제 · esc 취소",
+  newVersion: (v: string) => `새 버전 v${v}`,
+  updateConfirm: (v: string) => `v${v}로 업데이트할까요?`,
+  updateRestartHint: "Vee가 잠깐 재시작돼요",
+  restart: "재시작",
+  updateFailed: "업데이트하지 못했어요",
   settings: {
     title: "설정",
     theme: "테마",

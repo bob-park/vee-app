@@ -59,6 +59,67 @@
   flex: 1;
 }
 
+.update {
+  position: relative;
+}
+
+.update-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 6px;
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.update-badge i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.update-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 2;
+  width: 240px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: rgba(0, 0, 0, 0.12) 0 8px 24px;
+}
+
+.update-title {
+  font-weight: 600;
+}
+
+.update-sub {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.update-sub.failed {
+  color: var(--danger);
+}
+
+.update-pop .confirm-btns {
+  justify-content: flex-end;
+}
+
+.confirm-btn.go {
+  background: var(--ok-fg);
+  color: var(--card);
+}
+
 .icon-btn {
   padding: 0 6px;
   border-radius: 10px;

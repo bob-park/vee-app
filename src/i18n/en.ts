@@ -16,6 +16,11 @@ export const en = {
   cancel: "Cancel",
   delete: "Delete",
   deleteHint: "⏎ Delete · esc Cancel",
+  newVersion: (v: string) => `New version v${v}`,
+  updateConfirm: (v: string) => `Update to v${v}?`,
+  updateRestartHint: "Vee will restart briefly",
+  restart: "Restart",
+  updateFailed: "Couldn't update",
   settings: {
     title: "Settings",
     theme: "Theme",

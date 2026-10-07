@@ -11,9 +11,29 @@ interface Props {
   onFilter: (filter: Filter) => void;
   inputRef: RefObject<HTMLInputElement | null>;
   onSettings: () => void;
+  /** The downloaded update's version, or null when there is none. */
+  updateVersion: string | null;
+  updateConfirming: boolean;
+  updateFailed: boolean;
+  onUpdate: () => void;
+  onConfirmUpdate: () => void;
+  onCancelUpdate: () => void;
 }
 
-export function Toolbar({ query, onQuery, filter, onFilter, inputRef, onSettings }: Props) {
+export function Toolbar({
+  query,
+  onQuery,
+  filter,
+  onFilter,
+  inputRef,
+  onSettings,
+  updateVersion,
+  updateConfirming,
+  updateFailed,
+  onUpdate,
+  onConfirmUpdate,
+  onCancelUpdate,
+}: Props) {
   const { t } = usePrefs();
   return (
     <div className="toolbar">
@@ -44,6 +64,32 @@ export function Toolbar({ query, onQuery, filter, onFilter, inputRef, onSettings
         ))}
       </div>
       <span className="spacer" />
+      {updateVersion && (
+        <div className="update">
+          <button className="update-badge" onClick={onUpdate} tabIndex={-1}>
+            <i aria-hidden />
+            {t.newVersion(updateVersion)}
+          </button>
+          {updateConfirming && (
+            <div className="update-pop" role="dialog">
+              <div>
+                <p className="update-title">{t.updateConfirm(updateVersion)}</p>
+                <p className={updateFailed ? "update-sub failed" : "update-sub"}>
+                  {updateFailed ? t.updateFailed : t.updateRestartHint}
+                </p>
+              </div>
+              <div className="confirm-btns">
+                <button className="confirm-btn" onClick={onCancelUpdate} tabIndex={-1}>
+                  {t.cancel}
+                </button>
+                <button className="confirm-btn go" onClick={onConfirmUpdate} tabIndex={-1}>
+                  {t.restart}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       <button className="icon-btn" onClick={onSettings} aria-label={t.settings.title} tabIndex={-1}>
         ⚙︎
       </button>

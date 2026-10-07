@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type UIEvent, type WheelEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { api, type Clip, type Filter } from "../api.ts";
+import { api, type Clip, type Filter, type UpdateStatus } from "../api.ts";
 import { usePrefs } from "../prefs.tsx";
 import { Card } from "./Card.tsx";
 import { dragFileName } from "./fileThumb.ts";
@@ -21,6 +21,9 @@ export function Panel() {
   const [closing, setClosing] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+  const [updateConfirming, setUpdateConfirming] = useState(false);
+  const [updateFailed, setUpdateFailed] = useState(false);
   const requestId = useRef(0);
   const loadingMore = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -61,6 +64,13 @@ export function Panel() {
     void reload(false);
   }, [reload]);
 
+  useEffect(() => {
+    const apply = (s: UpdateStatus) => setUpdateVersion(s.status === "ready" ? s.version : null);
+    void api.getUpdateStatus().then(apply);
+    const unlisten = listen<UpdateStatus>("update://status", (e) => apply(e.payload));
+    return () => void unlisten.then((off) => off());
+  }, []);
+
   // Subscribe once; always call the latest reload.
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
@@ -81,6 +91,8 @@ export function Panel() {
       setClosing(false);
       setDragging(false);
       setConfirmingId(null);
+      setUpdateConfirming(false);
+      setUpdateFailed(false);
       setQuery("");
       setFilter("all");
       void reloadRef.current(false);
@@ -113,6 +125,16 @@ export function Panel() {
     if (clip) void api.deleteClip(clip.id);
   };
 
+  const installUpdate = () => {
+    setUpdateFailed(false);
+    void api.installUpdate().catch(() => setUpdateFailed(true));
+  };
+
+  const cancelUpdate = () => {
+    setUpdateConfirming(false);
+    setUpdateFailed(false);
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
     const action = panelKeyAction({
       key: e.key,
@@ -121,7 +143,7 @@ export function Panel() {
       isComposing: e.nativeEvent.isComposing || e.keyCode === 229,
       queryEmpty: query === "",
       repeat: e.repeat,
-      confirming: confirmingId !== null,
+      confirming: confirmingId !== null || updateConfirming,
     });
     if (!action) return;
     e.preventDefault();
@@ -147,11 +169,16 @@ export function Panel() {
         break;
       }
       case "confirmDelete":
+        if (updateConfirming) {
+          installUpdate();
+          break;
+        }
         remove(clips.find((c) => c.id === confirmingId));
         setConfirmingId(null);
         break;
       case "cancelDelete":
         setConfirmingId(null);
+        cancelUpdate();
         break;
     }
   };
@@ -172,6 +199,7 @@ export function Panel() {
       // Keep keyboard focus in the search box no matter what is clicked.
       onMouseDown={(e) => {
         if (e.target !== inputRef.current) e.preventDefault();
+        if (!(e.target as Element).closest(".update")) cancelUpdate();
       }}
     >
       <Toolbar
@@ -181,6 +209,16 @@ export function Panel() {
         onFilter={setFilter}
         inputRef={inputRef}
         onSettings={() => void api.openSettings()}
+        updateVersion={updateVersion}
+        updateConfirming={updateConfirming}
+        updateFailed={updateFailed}
+        onUpdate={() => {
+          setConfirmingId(null);
+          if (updateConfirming) cancelUpdate();
+          else setUpdateConfirming(true);
+        }}
+        onConfirmUpdate={installUpdate}
+        onCancelUpdate={cancelUpdate}
       />
       {clips.length === 0 ? (
         <div className="empty">{query || filter !== "all" ? t.noResults : t.empty}</div>
