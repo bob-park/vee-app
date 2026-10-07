@@ -172,6 +172,11 @@
   word-break: break-all;
   -webkit-line-clamp: 14;
   -webkit-box-orient: vertical;
+  /* Set the text apart from the card's header and footer. */
+  height: calc(100% - 8px);
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--subtle);
 }
 
 .preview.link {
