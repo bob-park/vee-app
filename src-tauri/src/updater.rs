@@ -70,9 +70,12 @@ pub async fn check(app: &AppHandle) -> UpdateStatus {
 }
 
 pub fn install_and_restart(app: &AppHandle) -> Result<(), String> {
-    let pending = app.state::<UpdateState>().pending.lock().unwrap().take();
-    let Some((update, bytes)) = pending else { return Err("no update has been downloaded".into()) };
-    update.install(&bytes).map_err(|e| e.to_string())?;
+    // Borrow, don't take: a failed install keeps the download so the user can retry.
+    let state = app.state::<UpdateState>();
+    let pending = state.pending.lock().unwrap();
+    let Some((update, bytes)) = pending.as_ref() else { return Err("no update has been downloaded".into()) };
+    update.install(bytes).map_err(|e| e.to_string())?;
+    drop(pending);
     app.restart();
 }
 
