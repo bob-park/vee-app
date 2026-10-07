@@ -1,6 +1,6 @@
 //! Panel, toast and settings window behaviour, plus copying a clip back.
 
-use crate::{AppState, now_ms, source_app, store::ClipContent};
+use crate::{AppState, now_ms, source_app, store::{ClipContent, Kind, classify_text}};
 use drag::{DragItem, DragMode, DragResult};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -16,9 +16,10 @@ const PANEL_RATIO: f64 = 0.30;
 const PANEL_MIN: f64 = 300.0;
 const PANEL_MAX: f64 = 360.0;
 const PANEL_MARGIN: f64 = 8.0;
-const TOAST_WIDTH: f64 = 360.0;
-const TOAST_HEIGHT: f64 = 52.0;
-const TOAST_BOTTOM: f64 = 32.0;
+/// Window size; the card inside is smaller and the rest is room for its shadow.
+const TOAST_WIDTH: f64 = 420.0;
+const TOAST_HEIGHT: f64 = 96.0;
+const TOAST_BOTTOM: f64 = 14.0;
 const TOAST_MS: u64 = 1500;
 /// Reveal the panel anyway if the webview hasn't confirmed its parked frame by then.
 const PANEL_REVEAL_FALLBACK_MS: u64 = 200;
@@ -30,22 +31,23 @@ static TOAST_GENERATION: AtomicU64 = AtomicU64::new(0);
 #[serde(rename_all = "camelCase")]
 pub struct ToastPayload {
     pub ok: bool,
+    /// What was copied, for the toast's icon.
+    pub kind: Kind,
     pub text: Option<String>,
     pub files: usize,
-    pub image: bool,
 }
 
 impl ToastPayload {
     fn copied(content: &ClipContent) -> Self {
         match content {
-            ClipContent::Text(t) => Self { ok: true, text: Some(toast_preview(t)), files: 0, image: false },
-            ClipContent::Image(_) => Self { ok: true, text: None, files: 0, image: true },
-            ClipContent::Files(f) => Self { ok: true, text: None, files: f.len(), image: false },
+            ClipContent::Text(t) => Self { ok: true, kind: classify_text(t), text: Some(toast_preview(t)), files: 0 },
+            ClipContent::Image(_) => Self { ok: true, kind: Kind::Image, text: None, files: 0 },
+            ClipContent::Files(f) => Self { ok: true, kind: Kind::Files, text: None, files: f.len() },
         }
     }
 
     fn failed() -> Self {
-        Self { ok: false, text: None, files: 0, image: false }
+        Self { ok: false, kind: Kind::Text, text: None, files: 0 }
     }
 }
 
@@ -468,10 +470,19 @@ mod tests {
     fn panel_and_toast_sit_at_the_bottom_of_the_work_area() {
         let work = Rect { x: -2560.0, y: -241.0, w: 2560.0, h: 1410.0 };
         assert_eq!(panel_rect(work, 1.0), Rect { x: -2552.0, y: 801.0, w: 2544.0, h: 360.0 });
-        assert_eq!(toast_rect(work, 1.0), Rect { x: -1460.0, y: 1085.0, w: 360.0, h: 52.0 });
+        assert_eq!(toast_rect(work, 1.0), Rect { x: -1490.0, y: 1059.0, w: 420.0, h: 96.0 });
         // Windows: same layout in pixels at 150%.
         let px = Rect { x: 0.0, y: 0.0, w: 1920.0, h: 1040.0 };
         assert_eq!(panel_rect(px, 1.5), Rect { x: 12.0, y: 578.0, w: 1896.0, h: 450.0 });
+    }
+
+    #[test]
+    fn toast_names_what_was_copied() {
+        assert_eq!(ToastPayload::copied(&ClipContent::Text("hi".into())).kind, Kind::Text);
+        assert_eq!(ToastPayload::copied(&ClipContent::Text("https://a.com".into())).kind, Kind::Link);
+        assert_eq!(ToastPayload::copied(&ClipContent::Image(PathBuf::from("/x.png"))).kind, Kind::Image);
+        let files = ToastPayload::copied(&ClipContent::Files(vec!["/a".into(), "/b".into()]));
+        assert_eq!((files.kind, files.files), (Kind::Files, 2));
     }
 
     #[test]

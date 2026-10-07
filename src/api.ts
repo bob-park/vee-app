@@ -42,9 +42,10 @@ export type UpdateStatus =
 
 export interface ToastPayload {
   ok: boolean;
+  /** What was copied, for the toast's icon. */
+  kind: Kind;
   text: string | null;
   files: number;
-  image: boolean;
 }
 
 export const api = {

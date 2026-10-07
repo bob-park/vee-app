@@ -19,8 +19,10 @@
   --ok-bg: rgba(20, 158, 97, 0.16);
   --ok-fg: #026b3f;
   --danger: #d1344b;
-  --toast-bg: #101114;
-  --toast-fg: #ffffff;
+  --toast-bg: #ffffff;
+  --toast-fg: #101114;
+  --toast-border: #dedee5;
+  --toast-shadow: rgba(16, 24, 40, 0.28);
 }
 
 :root[data-theme="dark"] {
@@ -38,8 +40,10 @@
   --ok-bg: rgba(20, 158, 97, 0.22);
   --ok-fg: #5fd39c;
   --danger: #ff6b81;
-  --toast-bg: #ececf1;
-  --toast-fg: #101114;
+  --toast-bg: #2a2b33;
+  --toast-fg: #ececf1;
+  --toast-border: #3a3b47;
+  --toast-shadow: rgba(0, 0, 0, 0.6);
 }
 
 * {
