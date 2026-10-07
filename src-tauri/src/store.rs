@@ -66,6 +66,23 @@ PRAGMA user_version = 2;
 COMMIT;
 ";
 
+/// Every pasteboard representation of a clip, in the order the source app offered them,
+/// so a copy back pastes exactly like the original (e.g. Excel cells stay cells).
+const SCHEMA_V3: &str = "
+BEGIN;
+CREATE TABLE clip_formats (
+  clip_id INTEGER NOT NULL,
+  format  TEXT NOT NULL,
+  data    BLOB NOT NULL,
+  PRIMARY KEY (clip_id, format)
+);
+CREATE TRIGGER clip_formats_ad AFTER DELETE ON clips BEGIN
+  DELETE FROM clip_formats WHERE clip_id = old.id;
+END;
+PRAGMA user_version = 3;
+COMMIT;
+";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
@@ -183,6 +200,9 @@ impl Store {
         if version < 2 {
             conn.execute_batch(SCHEMA_V2)?;
         }
+        if version < 3 {
+            conn.execute_batch(SCHEMA_V3)?;
+        }
         Ok(Store { conn, images_dir: images_dir.to_path_buf() })
     }
 
@@ -206,19 +226,23 @@ impl Store {
         )?)
     }
 
-    /// Inserts a new clip, or moves an identical one to the front.
-    pub fn upsert(&self, clip: NewClip, app_id: Option<i64>, now: i64) -> Result<()> {
+    /// Inserts a new clip, or moves an identical one to the front. Returns its id.
+    pub fn upsert(&self, clip: NewClip, app_id: Option<i64>, now: i64) -> Result<i64> {
         let hash = match &clip {
             NewClip::Text(t) => sha256_hex(&[b"text\0", t.as_bytes()]),
             NewClip::Image { png, .. } => sha256_hex(&[b"image\0", png]),
             NewClip::Files { paths, .. } => sha256_hex(&[b"files\0", paths.join("\n").as_bytes()]),
         };
-        let bumped = self.conn.execute(
-            "UPDATE clips SET last_used_at = ?1, app_id = ?2 WHERE hash = ?3",
-            params![now, app_id, hash],
-        )?;
-        if bumped > 0 {
-            return Ok(());
+        let bumped: Option<i64> = self
+            .conn
+            .query_row(
+                "UPDATE clips SET last_used_at = ?1, app_id = ?2 WHERE hash = ?3 RETURNING id",
+                params![now, app_id, hash],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(id) = bumped {
+            return Ok(id);
         }
         let (kind, text, image_path, thumb, meta, file_thumbs) = match clip {
             NewClip::Text(t) => (classify_text(&t), Some(t), None, None, None, Vec::new()),
@@ -245,7 +269,27 @@ impl Store {
                 params![id, idx as i64, png],
             )?;
         }
+        Ok(id)
+    }
+
+    /// Replaces a clip's raw pasteboard formats; the latest copy of identical content wins.
+    pub fn set_formats(&self, id: i64, formats: &[(String, Vec<u8>)]) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM clip_formats WHERE clip_id = ?1", [id])?;
+        for (format, data) in formats {
+            tx.execute(
+                "INSERT OR REPLACE INTO clip_formats (clip_id, format, data) VALUES (?1, ?2, ?3)",
+                params![id, format, data],
+            )?;
+        }
+        tx.commit()?;
         Ok(())
+    }
+
+    pub fn formats(&self, id: i64) -> Result<Vec<(String, Vec<u8>)>> {
+        let mut stmt = self.conn.prepare("SELECT format, data FROM clip_formats WHERE clip_id = ?1 ORDER BY rowid")?;
+        let rows = stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub fn list(&self, query: &str, kind: Option<Kind>, offset: i64, limit: i64) -> Result<Vec<ClipDto>> {
@@ -657,7 +701,7 @@ mod tests {
     }
 
     #[test]
-    fn v1_database_migrates_to_v2() {
+    fn v1_database_migrates_to_latest() {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("vee.db");
         {
@@ -672,6 +716,23 @@ mod tests {
         let s = Store::open(&db, &dir.path().join("images")).unwrap();
         assert!(s.list("", None, 0, 50).unwrap()[0].stack.is_empty());
         let version: i64 = s.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
+    }
+
+    #[test]
+    fn formats_round_trip_in_order_are_replaced_on_bump_and_deleted_with_the_clip() {
+        let (s, _d) = store();
+        let f = |pairs: &[(&str, &[u8])]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_vec())).collect::<Vec<_>>();
+        let id = s.upsert(text("a\tb"), None, 1).unwrap();
+        s.set_formats(id, &f(&[("public.utf8-plain-text", b"a\tb"), ("public.html", b"<table>"), ("com.adobe.pdf", b"%PDF")]))
+            .unwrap();
+        assert_eq!(s.formats(id).unwrap()[1], ("public.html".to_string(), b"<table>".to_vec()));
+        assert_eq!(s.formats(id).unwrap().len(), 3);
+        let again = s.upsert(text("a\tb"), None, 2).unwrap();
+        assert_eq!(again, id);
+        s.set_formats(id, &f(&[("public.utf8-plain-text", b"a\tb")])).unwrap();
+        assert_eq!(s.formats(id).unwrap().len(), 1);
+        s.delete(id).unwrap();
+        assert!(s.formats(id).unwrap().is_empty());
     }
 }

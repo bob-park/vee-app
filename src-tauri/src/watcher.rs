@@ -14,6 +14,7 @@ const CONCEALED_FORMATS: [&str; 3] = [
     "ExcludeClipboardContentFromMonitorProcessing",
 ];
 const MAX_IMAGE_BYTES: usize = 50 * 1024 * 1024;
+const MAX_FORMATS_BYTES: usize = 50 * 1024 * 1024;
 const THUMB_SIZE: u32 = 320;
 
 pub fn text_clip(text: String) -> Option<NewClip> {
@@ -46,8 +47,34 @@ fn file_thumbs(paths: &[String]) -> Vec<(usize, Vec<u8>)> {
         .collect()
 }
 
-/// Files win over images, images over text: copying a file in Finder also
-/// puts its icon and name on the pasteboard.
+/// Every raw representation on the pasteboard, so a copy back pastes like the original.
+/// Empty when the total exceeds `MAX_FORMATS_BYTES`; the clip then falls back to its card content.
+#[cfg(target_os = "macos")]
+fn snapshot(ctx: &ClipboardContext) -> Vec<(String, Vec<u8>)> {
+    let mut formats = Vec::new();
+    let mut total = 0;
+    for format in ctx.available_formats().unwrap_or_default() {
+        let Ok(data) = ctx.get_buffer(&format) else { continue };
+        total += data.len();
+        if total > MAX_FORMATS_BYTES {
+            log::info!("not keeping raw formats larger than 50MB");
+            return Vec::new();
+        }
+        formats.push((format, data));
+    }
+    formats
+}
+
+// ponytail: Windows keeps only the card content; standard CF_* formats and GDI handles
+// don't round-trip through raw buffers, so add a per-format allowlist if it's needed there.
+#[cfg(not(target_os = "macos"))]
+fn snapshot(_ctx: &ClipboardContext) -> Vec<(String, Vec<u8>)> {
+    Vec::new()
+}
+
+/// Picks what the card shows. Files win over text, text over images: copying a file
+/// in Finder also puts its icon and name on the pasteboard, and Office apps add a
+/// picture of the copied cells or text.
 fn read(ctx: &ClipboardContext) -> clipboard_rs::Result<Option<NewClip>> {
     if CONCEALED_FORMATS.iter().any(|f| ctx.has(ContentFormat::Other(f.to_string()))) {
         return Ok(None);
@@ -59,6 +86,11 @@ fn read(ctx: &ClipboardContext) -> clipboard_rs::Result<Option<NewClip>> {
             return Ok(Some(NewClip::Files { paths: files, thumbs }));
         }
     }
+    if ctx.has(ContentFormat::Text)
+        && let Some(clip) = text_clip(ctx.get_text()?)
+    {
+        return Ok(Some(clip));
+    }
     if ctx.has(ContentFormat::Image) {
         let image = ctx.get_image()?;
         let png = image.to_png()?.get_bytes().to_vec();
@@ -69,9 +101,6 @@ fn read(ctx: &ClipboardContext) -> clipboard_rs::Result<Option<NewClip>> {
         let (width, height) = image.get_size();
         let thumb_png = image.thumbnail(THUMB_SIZE, THUMB_SIZE)?.to_png()?.get_bytes().to_vec();
         return Ok(Some(NewClip::Image { png, thumb_png, width, height }));
-    }
-    if ctx.has(ContentFormat::Text) {
-        return Ok(text_clip(ctx.get_text()?));
     }
     Ok(None)
 }
@@ -88,6 +117,8 @@ impl Handler {
             return Ok(());
         }
         let Some(clip) = read(&self.ctx)? else { return Ok(()) };
+        // File clips are restored from their paths, which handles multiple files.
+        let formats = if matches!(clip, NewClip::Files { .. }) { Vec::new() } else { snapshot(&self.ctx) };
         let front = source_app::frontmost();
         let store = state.store.lock().unwrap();
         let app_id = match front {
@@ -97,7 +128,8 @@ impl Handler {
             }
             None => None,
         };
-        store.upsert(clip, app_id, now_ms())?;
+        let id = store.upsert(clip, app_id, now_ms())?;
+        store.set_formats(id, &formats)?;
         let sound = crate::settings::copy_sound(&store);
         drop(store);
         if let Some(name) = sound {

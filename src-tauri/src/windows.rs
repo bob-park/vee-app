@@ -274,11 +274,13 @@ fn show_toast(app: &AppHandle, payload: ToastPayload) {
     });
 }
 
-fn write_clipboard(state: &AppState, content: &ClipContent) -> Result<(), String> {
-    use clipboard_rs::{Clipboard, ClipboardContext, RustImageData, common::RustImage};
+/// Writes the clip's raw pasteboard formats when it has them, else its card content.
+fn write_clipboard(state: &AppState, content: &ClipContent, formats: Vec<(String, Vec<u8>)>) -> Result<(), String> {
+    use clipboard_rs::{Clipboard, ClipboardContent, ClipboardContext, RustImageData, common::RustImage};
     let ctx = ClipboardContext::new().map_err(|e| e.to_string())?;
     state.suppress_watcher();
     match content {
+        _ if !formats.is_empty() => ctx.set(formats.into_iter().map(|(f, d)| ClipboardContent::Other(f, d)).collect()),
         ClipContent::Text(text) => ctx.set_text(text.clone()),
         ClipContent::Image(path) => {
             let image = RustImageData::from_path(&path.to_string_lossy()).map_err(|e| e.to_string())?;
@@ -300,9 +302,12 @@ fn write_clipboard(state: &AppState, content: &ClipContent) -> Result<(), String
 /// Copies a clip back to the clipboard, closes the panel and confirms with a toast.
 pub fn copy_clip(app: &AppHandle, id: i64) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let content = state.store.lock().unwrap().content(id).map_err(|e| e.to_string())?;
+    let (content, formats) = {
+        let store = state.store.lock().unwrap();
+        (store.content(id).map_err(|e| e.to_string())?, store.formats(id).map_err(|e| e.to_string())?)
+    };
     let result = match content {
-        Some(content) => write_clipboard(&state, &content).map(|()| content),
+        Some(content) => write_clipboard(&state, &content, formats).map(|()| content),
         None => Err("clip no longer exists".into()),
     };
     hide_panel(app, true);
