@@ -55,7 +55,7 @@
   - `NewClip::Files(Vec<String>)` → `NewClip::Files { paths, thumbs: Vec<(usize, Vec<u8>)> }` (파일 위치 idx, PNG).
   - 스키마 V2 마이그레이션(`user_version` 2): `CREATE TABLE clip_thumbs (clip_id INTEGER NOT NULL, idx INTEGER NOT NULL, png BLOB NOT NULL, PRIMARY KEY (clip_id, idx))` + `AFTER DELETE ON clips` 트리거로 정리(delete/clear 모두 커버).
   - `ClipDto`에 `stack: Vec<Option<String>>` 추가 — files 클립의 앞 min(3, n)개 레이어, 이미지면 data URL, 아니면 null. 이미지가 하나도 없으면 빈 배열.
-  - 드래그 이미지(3장)는 `stack`의 첫 썸네일 사용.
+  - 드래그 이미지는 `stack`의 첫 썸네일 사용.
 - `Card.tsx`: files 클립에서 `stack`이 비어 있지 않으면 — 1개면 `<img class="thumb">` + 태그, 여러 개면 `.stack` 레이어(각각 `<img>` 또는 문서 타일, 회전 −7° / +5° / 0°). 기존 파일 클립(마이그레이션 전)은 `stack`이 비어 기존 아이콘.
 
 ## 5. 저장 제한 제거
