@@ -1,15 +1,25 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { api, type UpdateStatus } from "../api.ts";
+import { api, SOUND_NAMES, type SoundName, type UpdateStatus } from "../api.ts";
 import { relativeTime } from "../i18n/index.ts";
 import { usePrefs } from "../prefs.tsx";
 import { ShortcutRecorder } from "./ShortcutRecorder.tsx";
 import "./settings.css";
 
-export function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+export function Row({
+  label,
+  hint,
+  dim,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  dim?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <div className="setting-row">
+    <div className={dim ? "setting-row dim" : "setting-row"}>
       <div>
         {label}
         {hint && <small>{hint}</small>}
@@ -141,6 +151,36 @@ export function Settings() {
             checked={settings.sound === "on"}
             onChange={(e) => run(api.setSetting("sound", e.target.checked ? "on" : "off"))}
           />
+        </Row>
+        <Row label={s.soundName} hint={s.soundNameHint} dim={settings.sound !== "on"}>
+          <div className="sound-pick">
+            <select
+              className="select"
+              aria-label={s.soundName}
+              value={settings.soundName}
+              disabled={settings.sound !== "on"}
+              onChange={(e) => {
+                const name = e.target.value as SoundName;
+                run(api.setSetting("soundName", name));
+                void api.previewSound(name);
+              }}
+            >
+              {SOUND_NAMES.map((name) => (
+                <option key={name} value={name}>
+                  {s.sounds[name]}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn play"
+              aria-label={s.preview}
+              title={s.preview}
+              disabled={settings.sound !== "on"}
+              onClick={() => void api.previewSound(settings.soundName)}
+            >
+              ▶
+            </button>
+          </div>
         </Row>
         <Row label={s.confirmDelete} hint={s.confirmDeleteHint}>
           <input

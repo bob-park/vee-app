@@ -1,4 +1,5 @@
 mod settings;
+mod sound;
 mod source_app;
 mod store;
 mod tray;
@@ -72,6 +73,16 @@ fn clear_history(app: AppHandle, state: State<AppState>) -> Result<(), String> {
 #[tauri::command]
 fn copy_clip(app: AppHandle, id: i64) -> Result<(), String> {
     windows::copy_clip(&app, id)
+}
+
+/// Plays a built-in copy sound for the settings preview, regardless of the on/off setting.
+#[tauri::command]
+fn preview_sound(name: String) -> Result<(), String> {
+    if sound::wav(&name).is_none() {
+        return Err(format!("unknown sound: {name}"));
+    }
+    sound::play(&name);
+    Ok(())
 }
 
 #[tauri::command]
@@ -151,6 +162,7 @@ pub fn run() {
             start_drag,
             hide_panel,
             reveal_panel,
+            preview_sound,
             open_settings,
             settings::get_settings,
             settings::set_setting,

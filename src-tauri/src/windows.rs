@@ -290,13 +290,13 @@ pub fn copy_clip(app: &AppHandle, id: i64) -> Result<(), String> {
 /// Bumps the clip, plays the copy sound and confirms with a toast.
 fn confirm_copy(app: &AppHandle, id: i64, content: &ClipContent) {
     let state = app.state::<AppState>();
-    let sound_on = {
+    let sound = {
         let store = state.store.lock().unwrap();
         let _ = store.touch(id, now_ms());
-        crate::settings::copy_sound_enabled(&store)
+        crate::settings::copy_sound(&store)
     };
-    if sound_on {
-        source_app::play_copy_sound();
+    if let Some(name) = sound {
+        crate::sound::play(&name);
     }
     let _ = app.emit("clips://changed", ());
     show_toast(app, ToastPayload::copied(content));

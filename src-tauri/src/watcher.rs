@@ -98,11 +98,11 @@ impl Handler {
             None => None,
         };
         store.upsert(clip, app_id, now_ms())?;
-        let sound = crate::settings::copy_sound_enabled(&store);
+        let sound = crate::settings::copy_sound(&store);
         drop(store);
-        if sound {
+        if let Some(name) = sound {
             // AppKit sound playback belongs on the main thread.
-            self.app.run_on_main_thread(source_app::play_copy_sound)?;
+            self.app.run_on_main_thread(move || crate::sound::play(&name))?;
         }
         self.app.emit("clips://changed", ())?;
         Ok(())

@@ -15,6 +15,7 @@ pub struct SettingsDto {
     locale: String,
     shortcut: String,
     sound: String,
+    sound_name: String,
     confirm_delete: String,
     autostart: bool,
     version: String,
@@ -26,14 +27,16 @@ pub fn get(store: &Store, key: &str) -> String {
         "theme" | "locale" => "system",
         "shortcut" => DEFAULT_SHORTCUT,
         "sound" => "on",
+        "soundName" => "pop",
         "confirmDelete" => "off",
         _ => "",
     };
     store.get_setting(key).ok().flatten().unwrap_or_else(|| default.to_string())
 }
 
-pub fn copy_sound_enabled(store: &Store) -> bool {
-    get(store, "sound") == "on"
+/// The sound to play on copy, or `None` when copy sounds are off.
+pub fn copy_sound(store: &Store) -> Option<String> {
+    (get(store, "sound") == "on").then(|| get(store, "soundName"))
 }
 
 fn validate(key: &str, value: &str) -> Result<(), String> {
@@ -41,6 +44,7 @@ fn validate(key: &str, value: &str) -> Result<(), String> {
         "theme" => matches!(value, "system" | "light" | "dark"),
         "locale" => matches!(value, "system" | "ko" | "en"),
         "sound" => matches!(value, "on" | "off"),
+        "soundName" => crate::sound::NAMES.contains(&value),
         "confirmDelete" => matches!(value, "on" | "off"),
         _ => false,
     };
@@ -82,6 +86,7 @@ pub fn get_settings(app: AppHandle, state: State<AppState>) -> SettingsDto {
         locale: get(&store, "locale"),
         shortcut: get(&store, "shortcut"),
         sound: get(&store, "sound"),
+        sound_name: get(&store, "soundName"),
         confirm_delete: get(&store, "confirmDelete"),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         version: app.package_info().version.to_string(),
@@ -158,12 +163,23 @@ mod tests {
     }
 
     #[test]
-    fn copy_sound_can_be_turned_off() {
+    fn copy_sound_is_the_chosen_sound_or_none_when_off() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open_in_memory(dir.path()).unwrap();
-        assert!(copy_sound_enabled(&store));
+        assert_eq!(copy_sound(&store).as_deref(), Some("pop"));
+        store.set_setting("soundName", "chime").unwrap();
+        assert_eq!(copy_sound(&store).as_deref(), Some("chime"));
         store.set_setting("sound", "off").unwrap();
-        assert!(!copy_sound_enabled(&store));
+        assert_eq!(copy_sound(&store), None);
+    }
+
+    #[test]
+    fn sound_name_accepts_only_built_in_sounds() {
+        for name in crate::sound::NAMES {
+            assert!(validate("soundName", name).is_ok(), "{name}");
+        }
+        assert!(validate("soundName", "Pop").is_err());
+        assert!(validate("soundName", "../x.wav").is_err());
     }
 
     #[test]
