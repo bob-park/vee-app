@@ -60,8 +60,11 @@ export function Panel() {
   useEffect(() => {
     const offChanged = listen("clips://changed", () => void reloadRef.current(true));
     const offOpened = listen("panel://opened", () => {
-      setOpen(true);
       inputRef.current?.focus();
+      // The window is shown transparent; reveal it once the parked frame is on screen, then slide.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => void api.revealPanel().finally(() => setOpen(true))),
+      );
     });
     // Reset while hidden so the next open slides in finished content.
     const offClosed = listen("panel://closed", () => {

@@ -72,6 +72,11 @@ fn hide_panel(app: AppHandle) {
 }
 
 #[tauri::command]
+fn reveal_panel(app: AppHandle) {
+    windows::reveal_panel(&app);
+}
+
+#[tauri::command]
 fn open_settings(app: AppHandle) {
     windows::hide_panel(&app, false);
     windows::show_settings(&app);
@@ -127,6 +132,7 @@ pub fn run() {
             clear_history,
             copy_clip,
             hide_panel,
+            reveal_panel,
             open_settings,
             settings::get_settings,
             settings::set_setting,

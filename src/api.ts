@@ -50,6 +50,7 @@ export const api = {
   deleteClip: (id: number) => invoke<void>("delete_clip", { id }),
   clearHistory: () => invoke<void>("clear_history"),
   hidePanel: () => invoke<void>("hide_panel"),
+  revealPanel: () => invoke<void>("reveal_panel"),
   openSettings: () => invoke<void>("open_settings"),
   getSettings: () => invoke<Settings>("get_settings"),
   setSetting: (key: "theme" | "locale" | "sound" | "confirmDelete", value: string) =>

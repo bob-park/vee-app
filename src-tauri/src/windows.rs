@@ -160,10 +160,30 @@ fn place_and_show(app: &AppHandle, panel: &WebviewWindow) -> tauri::Result<()> {
         let (work, unit) = work_area(&monitor);
         place(panel, panel_rect(work, unit))?;
     }
+    set_panel_alpha(panel, 0.0);
     panel.show()?;
     panel.set_focus()?;
     app.emit_to(PANEL, "panel://opened", ())?;
     Ok(())
+}
+
+/// macOS only: window opacity, used to hide the stale frame a hidden webview shows on `show()`.
+fn set_panel_alpha(panel: &WebviewWindow, alpha: f64) {
+    #[cfg(target_os = "macos")]
+    match panel.ns_window() {
+        // SAFETY: Tauri hands out the live NSWindow; callers run on the main thread.
+        Ok(ptr) => unsafe { (*(ptr as *const objc2_app_kit::NSWindow)).setAlphaValue(alpha) },
+        Err(e) => log::warn!("couldn't set panel alpha: {e}"),
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (panel, alpha);
+}
+
+/// Called by the panel once its parked frame has been painted.
+pub fn reveal_panel(app: &AppHandle) {
+    if let Some(panel) = app.get_webview_window(PANEL) {
+        set_panel_alpha(&panel, 1.0);
+    }
 }
 
 /// `restore_focus` re-activates the app that was in front before the panel opened.
