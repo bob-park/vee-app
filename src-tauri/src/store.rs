@@ -10,6 +10,9 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + S
 
 const PREVIEW_CHARS: i64 = 500;
 
+/// How many files of a files clip get a layer in the card's preview stack.
+pub const STACK_LAYERS: usize = 3;
+
 const SCHEMA_V1: &str = "
 BEGIN;
 CREATE TABLE apps (
@@ -47,6 +50,22 @@ PRAGMA user_version = 1;
 COMMIT;
 ";
 
+/// Thumbnails of image files inside a files clip, keyed by the file's position.
+const SCHEMA_V2: &str = "
+BEGIN;
+CREATE TABLE clip_thumbs (
+  clip_id INTEGER NOT NULL,
+  idx     INTEGER NOT NULL,
+  png     BLOB NOT NULL,
+  PRIMARY KEY (clip_id, idx)
+);
+CREATE TRIGGER clip_thumbs_ad AFTER DELETE ON clips BEGIN
+  DELETE FROM clip_thumbs WHERE clip_id = old.id;
+END;
+PRAGMA user_version = 2;
+COMMIT;
+";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
@@ -80,7 +99,8 @@ impl Kind {
 pub enum NewClip {
     Text(String),
     Image { png: Vec<u8>, thumb_png: Vec<u8>, width: u32, height: u32 },
-    Files(Vec<String>),
+    /// `thumbs` holds `(file index, PNG)` for image files among the first `STACK_LAYERS`.
+    Files { paths: Vec<String>, thumbs: Vec<(usize, Vec<u8>)> },
 }
 
 #[derive(Debug, PartialEq)]
@@ -104,6 +124,8 @@ pub struct ClipDto {
     pub last_used_at: i64,
     pub missing: bool,
     pub is_dir: bool,
+    /// Preview layers of a files clip; empty when none of its files has a thumbnail.
+    pub stack: Vec<Option<String>>,
 }
 
 /// A single URL (no whitespace inside) is a link; anything else is text.
@@ -158,6 +180,9 @@ impl Store {
         if version < 1 {
             conn.execute_batch(SCHEMA_V1)?;
         }
+        if version < 2 {
+            conn.execute_batch(SCHEMA_V2)?;
+        }
         Ok(Store { conn, images_dir: images_dir.to_path_buf() })
     }
 
@@ -186,7 +211,7 @@ impl Store {
         let hash = match &clip {
             NewClip::Text(t) => sha256_hex(&[b"text\0", t.as_bytes()]),
             NewClip::Image { png, .. } => sha256_hex(&[b"image\0", png]),
-            NewClip::Files(f) => sha256_hex(&[b"files\0", f.join("\n").as_bytes()]),
+            NewClip::Files { paths, .. } => sha256_hex(&[b"files\0", paths.join("\n").as_bytes()]),
         };
         let bumped = self.conn.execute(
             "UPDATE clips SET last_used_at = ?1, app_id = ?2 WHERE hash = ?3",
@@ -195,17 +220,17 @@ impl Store {
         if bumped > 0 {
             return Ok(());
         }
-        let (kind, text, image_path, thumb, meta) = match clip {
-            NewClip::Text(t) => (classify_text(&t), Some(t), None, None, None),
+        let (kind, text, image_path, thumb, meta, file_thumbs) = match clip {
+            NewClip::Text(t) => (classify_text(&t), Some(t), None, None, None, Vec::new()),
             NewClip::Image { png, thumb_png, width, height } => {
                 let path = self.images_dir.join(format!("{hash}.png"));
                 std::fs::write(&path, png)?;
                 let path = path.to_string_lossy().into_owned();
-                (Kind::Image, None, Some(path), Some(thumb_png), Some(format!("{width}×{height}")))
+                (Kind::Image, None, Some(path), Some(thumb_png), Some(format!("{width}×{height}")), Vec::new())
             }
-            NewClip::Files(f) => {
-                let count = f.len().to_string();
-                (Kind::Files, Some(f.join("\n")), None, None, Some(count))
+            NewClip::Files { paths, thumbs } => {
+                let count = paths.len().to_string();
+                (Kind::Files, Some(paths.join("\n")), None, None, Some(count), thumbs)
             }
         };
         self.conn.execute(
@@ -213,6 +238,13 @@ impl Store {
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
             params![kind.as_str(), hash, text, image_path, thumb, meta, app_id, now],
         )?;
+        let id = self.conn.last_insert_rowid();
+        for (idx, png) in file_thumbs {
+            self.conn.execute(
+                "INSERT INTO clip_thumbs (clip_id, idx, png) VALUES (?1, ?2, ?3)",
+                params![id, idx as i64, png],
+            )?;
+        }
         Ok(())
     }
 
@@ -262,9 +294,46 @@ impl Store {
                 last_used_at: r.get(8)?,
                 missing: paths.iter().any(|p| !p.exists()),
                 is_dir: kind == Kind::Files && paths.len() == 1 && paths[0].is_dir(),
+                stack: Vec::new(),
             })
         })?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
+        let mut clips: Vec<ClipDto> = rows.collect::<rusqlite::Result<_>>()?;
+        drop(stmt);
+        for clip in clips.iter_mut().filter(|c| c.kind == Kind::Files) {
+            let count = clip.meta.as_deref().and_then(|m| m.parse().ok()).unwrap_or(1);
+            clip.stack = self.stack(clip.id, count)?;
+        }
+        Ok(clips)
+    }
+
+    fn stack(&self, id: i64, files: usize) -> Result<Vec<Option<String>>> {
+        let mut stmt = self.conn.prepare("SELECT idx, png FROM clip_thumbs WHERE clip_id = ?1")?;
+        let thumbs: std::collections::HashMap<i64, Vec<u8>> =
+            stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        if thumbs.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok((0..files.min(STACK_LAYERS) as i64).map(|i| thumbs.get(&i).map(|png| data_url(png))).collect())
+    }
+
+    /// Image for dragging a clip out: its first file thumbnail, else its source app's icon.
+    pub fn preview_png(&self, id: i64) -> Result<Option<Vec<u8>>> {
+        let thumb = self
+            .conn
+            .query_row("SELECT png FROM clip_thumbs WHERE clip_id = ?1 ORDER BY idx LIMIT 1", [id], |r| r.get(0))
+            .optional()?;
+        if thumb.is_some() {
+            return Ok(thumb);
+        }
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT a.icon_png FROM clips c JOIN apps a ON a.id = c.app_id WHERE c.id = ?1",
+                [id],
+                |r| r.get::<_, Option<Vec<u8>>>(0),
+            )
+            .optional()?
+            .flatten())
     }
 
     pub fn content(&self, id: i64) -> Result<Option<ClipContent>> {
@@ -336,6 +405,10 @@ mod tests {
 
     fn text(s: &str) -> NewClip {
         NewClip::Text(s.to_string())
+    }
+
+    fn files(paths: &[&str]) -> NewClip {
+        NewClip::Files { paths: paths.iter().map(|p| p.to_string()).collect(), thumbs: vec![] }
     }
 
     fn texts(clips: &[ClipDto]) -> Vec<String> {
@@ -415,7 +488,7 @@ mod tests {
         let (s, _d) = store();
         s.upsert(text("hello"), None, 1).unwrap();
         s.upsert(text("https://example.com"), None, 2).unwrap();
-        s.upsert(NewClip::Files(vec!["/tmp/x".into()]), None, 3).unwrap();
+        s.upsert(files(&["/tmp/x"]), None, 3).unwrap();
         let links = s.list("", Some(Kind::Link), 0, 50).unwrap();
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].kind, Kind::Link);
@@ -429,9 +502,9 @@ mod tests {
         let file = d.path().join("a.txt");
         std::fs::write(&file, "x").unwrap();
         let path = |p: &Path| p.to_string_lossy().into_owned();
-        s.upsert(NewClip::Files(vec![path(&file)]), None, 1).unwrap();
-        s.upsert(NewClip::Files(vec![path(d.path())]), None, 2).unwrap();
-        s.upsert(NewClip::Files(vec!["/definitely/not/here.txt".into(), path(&file)]), None, 3).unwrap();
+        s.upsert(files(&[&path(&file)]), None, 1).unwrap();
+        s.upsert(files(&[&path(d.path())]), None, 2).unwrap();
+        s.upsert(files(&["/definitely/not/here.txt", &path(&file)]), None, 3).unwrap();
         let all = s.list("", None, 0, 50).unwrap();
         assert_eq!((all[0].missing, all[0].is_dir, all[0].meta.as_deref()), (true, false, Some("2")));
         assert_eq!((all[1].missing, all[1].is_dir, all[1].meta.as_deref()), (false, true, Some("1")));
@@ -457,7 +530,7 @@ mod tests {
     fn content_round_trips_text_and_files() {
         let (s, _d) = store();
         s.upsert(text("hi"), None, 1).unwrap();
-        s.upsert(NewClip::Files(vec!["/a".into(), "/b".into()]), None, 2).unwrap();
+        s.upsert(files(&["/a", "/b"]), None, 2).unwrap();
         let all = s.list("", None, 0, 50).unwrap();
         assert_eq!(s.content(all[0].id).unwrap(), Some(ClipContent::Files(vec!["/a".into(), "/b".into()])));
         assert_eq!(s.content(all[1].id).unwrap(), Some(ClipContent::Text("hi".into())));
@@ -528,5 +601,68 @@ mod tests {
         Store::open(&db, &images).unwrap().upsert(text("persist me"), None, 1).unwrap();
         let reopened = Store::open(&db, &images).unwrap();
         assert_eq!(texts(&reopened.list("", None, 0, 50).unwrap()), vec!["persist me"]);
+    }
+
+    #[test]
+    fn file_clips_carry_a_stack_of_up_to_three_layers() {
+        let (s, _d) = store();
+        let paths = |p: &[&str]| p.iter().map(|p| p.to_string()).collect::<Vec<_>>();
+        s.upsert(NewClip::Files { paths: paths(&["/a.png"]), thumbs: vec![(0, vec![1])] }, None, 1).unwrap();
+        s.upsert(
+            NewClip::Files { paths: paths(&["/b.png", "/c.txt", "/d.png", "/e.png"]), thumbs: vec![(0, vec![2]), (2, vec![3])] },
+            None,
+            2,
+        )
+        .unwrap();
+        s.upsert(files(&["/f.txt", "/g.txt"]), None, 3).unwrap();
+        let all = s.list("", None, 0, 50).unwrap();
+        assert!(all[0].stack.is_empty());
+        assert_eq!(all[1].stack.iter().map(Option::is_some).collect::<Vec<_>>(), vec![true, false, true]);
+        assert_eq!(all[2].stack.len(), 1);
+        assert!(all[2].stack[0].as_ref().unwrap().starts_with("data:image/png;base64,"));
+        assert_eq!(s.preview_png(all[1].id).unwrap(), Some(vec![2]));
+    }
+
+    #[test]
+    fn preview_falls_back_to_the_app_icon() {
+        let (s, _d) = store();
+        let app = s.upsert_app("com.a", "A", Some(&[7, 7])).unwrap();
+        s.upsert(files(&["/x.txt"]), Some(app), 1).unwrap();
+        s.upsert(text("no app"), None, 2).unwrap();
+        let all = s.list("", None, 0, 50).unwrap();
+        assert_eq!(s.preview_png(all[1].id).unwrap(), Some(vec![7, 7]));
+        assert_eq!(s.preview_png(all[0].id).unwrap(), None);
+    }
+
+    #[test]
+    fn delete_and_clear_remove_file_thumbnails() {
+        let (s, _d) = store();
+        let thumbs_left = |s: &Store| s.conn.query_row("SELECT count(*) FROM clip_thumbs", [], |r| r.get::<_, i64>(0)).unwrap();
+        let one = |p: &str| NewClip::Files { paths: vec![p.into()], thumbs: vec![(0, vec![1])] };
+        s.upsert(one("/a.png"), None, 1).unwrap();
+        s.delete(s.list("", None, 0, 1).unwrap()[0].id).unwrap();
+        assert_eq!(thumbs_left(&s), 0);
+        s.upsert(one("/b.png"), None, 2).unwrap();
+        s.clear().unwrap();
+        assert_eq!(thumbs_left(&s), 0);
+    }
+
+    #[test]
+    fn v1_database_migrates_to_v2() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("vee.db");
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.execute(
+                "INSERT INTO clips (kind, hash, text, meta, created_at, last_used_at) VALUES ('files', 'h', '/x.png', '1', 1, 1)",
+                [],
+            )
+            .unwrap();
+        }
+        let s = Store::open(&db, &dir.path().join("images")).unwrap();
+        assert!(s.list("", None, 0, 50).unwrap()[0].stack.is_empty());
+        let version: i64 = s.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, 2);
     }
 }

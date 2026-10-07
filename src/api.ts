@@ -15,6 +15,8 @@ export interface Clip {
   lastUsedAt: number;
   missing: boolean;
   isDir: boolean;
+  /** Preview layers of a files clip: data URL per image file, null for other files. */
+  stack: (string | null)[];
 }
 
 export interface Settings {

@@ -29,7 +29,7 @@ fn read(ctx: &ClipboardContext) -> clipboard_rs::Result<Option<NewClip>> {
     if ctx.has(ContentFormat::Files) {
         let files = ctx.get_files()?;
         if !files.is_empty() {
-            return Ok(Some(NewClip::Files(files)));
+            return Ok(Some(NewClip::Files { paths: files, thumbs: Vec::new() }));
         }
     }
     if ctx.has(ContentFormat::Image) {
