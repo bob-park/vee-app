@@ -137,6 +137,11 @@
   color: var(--danger);
 }
 
+.granted {
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .sound-pick {
   display: flex;
   align-items: center;

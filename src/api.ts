@@ -64,6 +64,9 @@ export const api = {
     invoke<void>("set_setting", { key, value }),
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   setShortcut: (accel: string) => invoke<void>("set_shortcut", { accel }),
+  /** null where the permission doesn't exist (Windows). */
+  getDiskAccess: () => invoke<boolean | null>("get_disk_access"),
+  openDiskAccessSettings: () => invoke<void>("open_disk_access_settings"),
   checkUpdate: () => invoke<UpdateStatus>("check_update"),
   getUpdateStatus: () => invoke<UpdateStatus>("get_update_status"),
   installUpdate: () => invoke<void>("install_update_and_restart"),

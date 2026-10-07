@@ -1,3 +1,4 @@
+mod disk_access;
 mod settings;
 mod sound;
 mod source_app;
@@ -143,6 +144,7 @@ pub fn run() {
             for config in app.config().app.windows.clone() {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
             }
+            disk_access::prompt_once(app.handle());
             tray::create(app.handle())?;
             watcher::spawn(app.handle().clone());
             settings::register_stored_shortcut(app.handle());
@@ -175,6 +177,8 @@ pub fn run() {
             settings::set_setting,
             settings::set_autostart,
             settings::set_shortcut,
+            disk_access::get_disk_access,
+            disk_access::open_disk_access_settings,
             updater::check_update,
             updater::get_update_status,
             updater::install_update_and_restart

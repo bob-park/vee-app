@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { api, SOUND_NAMES, type SoundName, type UpdateStatus } from "../api.ts";
 import { relativeTime } from "../i18n/index.ts";
@@ -90,6 +91,32 @@ function UpdateRow() {
       ) : (
         <button className="btn" disabled={status.status === "checking"} onClick={() => void api.checkUpdate()}>
           {s.checkNow}
+        </button>
+      )}
+    </Row>
+  );
+}
+
+/** macOS only; re-checked on focus so it updates after the user returns from System Settings. */
+function DiskAccessRow() {
+  const s = usePrefs().t.settings;
+  const [granted, setGranted] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const check = () => void api.getDiskAccess().then(setGranted);
+    check();
+    const unlisten = getCurrentWindow().onFocusChanged((e) => e.payload && check());
+    return () => void unlisten.then((off) => off());
+  }, []);
+
+  if (granted === null) return null;
+  return (
+    <Row label={s.diskAccess} hint={s.diskAccessHint}>
+      {granted ? (
+        <span className="granted">{s.diskAccessGranted}</span>
+      ) : (
+        <button className="btn" onClick={() => void api.openDiskAccessSettings()}>
+          {s.diskAccessGrant}
         </button>
       )}
     </Row>
@@ -192,6 +219,7 @@ export function Settings() {
             onChange={(e) => run(api.setSetting("confirmDelete", e.target.checked ? "on" : "off"))}
           />
         </Row>
+        <DiskAccessRow />
         <Row label={s.shortcut} hint={s.shortcutHint}>
           <ShortcutRecorder value={settings.shortcut} />
         </Row>
