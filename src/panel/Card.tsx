@@ -2,6 +2,7 @@ import type { Clip } from "../api.ts";
 import type { Dict } from "../i18n/en.ts";
 import { relativeTime } from "../i18n/index.ts";
 import { usePrefs } from "../prefs.tsx";
+import { imageTag } from "./fileThumb.ts";
 
 interface Props {
   clip: Clip;
@@ -23,13 +24,17 @@ function badgeLabel(clip: Clip, t: Dict): string {
   }
 }
 
+function firstPath(clip: Clip): string {
+  return (clip.textPreview ?? "").split("\n")[0];
+}
+
 function footLabel(clip: Clip, t: Dict): string {
   if (clip.missing) return t.missing;
   switch (clip.kind) {
     case "image":
       return clip.meta ?? "";
     case "files": {
-      const first = (clip.textPreview ?? "").split("\n")[0];
+      const first = firstPath(clip);
       const name = first.split(/[\\/]/).filter(Boolean).pop() ?? first;
       return t.moreFiles(name, fileCount(clip) - 1);
     }
@@ -38,9 +43,34 @@ function footLabel(clip: Clip, t: Dict): string {
   }
 }
 
+/** Tilt per layer, front (first file) first. */
+const LAYER_TILT = [0, 5, -7];
+
+function FilesBody({ clip }: { clip: Clip }) {
+  const { stack } = clip;
+  if (stack.length === 0) return <div className={clip.isDir ? "doc folder" : "doc"} aria-hidden />;
+  if (stack.length === 1) {
+    const tag = imageTag(firstPath(clip));
+    return (
+      <>
+        <img className="thumb" src={stack[0] ?? ""} alt="" />
+        {tag && <span className="ext-tag">{tag}</span>}
+      </>
+    );
+  }
+  return (
+    <div className="stack" aria-hidden>
+      {stack.map((src, i) => {
+        const style = { transform: `rotate(${LAYER_TILT[i]}deg)`, zIndex: LAYER_TILT.length - i };
+        return src ? <img key={i} src={src} alt="" style={style} /> : <div key={i} className="stack-doc" style={style} />;
+      })}
+    </div>
+  );
+}
+
 function Body({ clip }: { clip: Clip }) {
   if (clip.kind === "image") return clip.thumb ? <img className="thumb" src={clip.thumb} alt="" /> : null;
-  if (clip.kind === "files") return <div className={clip.isDir ? "doc folder" : "doc"} aria-hidden />;
+  if (clip.kind === "files") return <FilesBody clip={clip} />;
   return <p className={clip.kind === "link" ? "preview link" : "preview"}>{clip.textPreview}</p>;
 }
 
