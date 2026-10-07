@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "panel",
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion",
+        "create": false,
         "title": "Vee",
         "visible": false,
         "decorations": false,
@@ -29,7 +29,7 @@
       },
       {
         "label": "toast",
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion",
+        "create": false,
         "title": "Vee",
         "visible": false,
         "decorations": false,
@@ -46,7 +46,7 @@
       },
       {
         "label": "settings",
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion",
+        "create": false,
         "title": "Vee",
         "visible": false,
         "width": 520,

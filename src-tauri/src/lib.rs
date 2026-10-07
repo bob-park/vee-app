@@ -139,6 +139,10 @@ pub fn run() {
                 }
             };
             app.manage(AppState::new(store));
+            // Windows are `create: false` so no webview can call a command before AppState exists.
+            for config in app.config().app.windows.clone() {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
+            }
             tray::create(app.handle())?;
             watcher::spawn(app.handle().clone());
             settings::register_stored_shortcut(app.handle());
