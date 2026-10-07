@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-pub const MAX_CLIPS: i64 = 1000;
 const PREVIEW_CHARS: i64 = 500;
 
 const SCHEMA_V1: &str = "
@@ -214,17 +213,6 @@ impl Store {
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
             params![kind.as_str(), hash, text, image_path, thumb, meta, app_id, now],
         )?;
-        self.trim()
-    }
-
-    fn trim(&self) -> Result<()> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id FROM clips ORDER BY last_used_at DESC, id DESC LIMIT -1 OFFSET ?1")?;
-        let ids: Vec<i64> = stmt.query_map([MAX_CLIPS], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-        for id in ids {
-            self.delete(id)?;
-        }
         Ok(())
     }
 
@@ -387,19 +375,13 @@ mod tests {
     }
 
     #[test]
-    fn trims_oldest_beyond_max_and_removes_image_file() {
+    fn history_is_not_trimmed() {
         let (s, _d) = store();
-        s.upsert(image(1), None, 0).unwrap();
-        let first = s.list("", None, 0, 1).unwrap()[0].id;
-        let path = image_path(&s, first);
-        assert!(path.exists());
-        for i in 1..=MAX_CLIPS {
+        for i in 0..1100 {
             s.upsert(text(&format!("clip {i}")), None, i).unwrap();
         }
-        let all = s.list("", None, 0, 2000).unwrap();
-        assert_eq!(all.len() as i64, MAX_CLIPS);
-        assert!(all.iter().all(|c| c.kind != Kind::Image));
-        assert!(!path.exists());
+        assert_eq!(s.list("", None, 0, 200).unwrap().len(), 200);
+        assert_eq!(s.list("", None, 1000, 200).unwrap().len(), 100);
     }
 
     #[test]
