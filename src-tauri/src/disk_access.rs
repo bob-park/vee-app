@@ -6,21 +6,33 @@ use tauri::AppHandle;
 #[cfg(any(target_os = "macos", test))]
 use std::path::{Path, PathBuf};
 
-/// Protected data macOS guards with Full Disk Access. A denied attempt is what
-/// lists an app (switched off) in the Full Disk Access pane, as for other apps.
+/// Data only an app with Full Disk Access can read. Opening any of them tells
+/// us access is on; a denied attempt is what lists an app (switched off) in the
+/// Full Disk Access pane, as for other apps. Paths missing on this Mac are skipped
+/// (macOS 27 has no per-user TCC.db).
 #[cfg(target_os = "macos")]
-const PROBES: [&str; 4] = ["Library/Safari/Bookmarks.plist", "Library/Safari", "Library/Mail", "Library/Messages/chat.db"];
+const PROBES: [&str; 5] = [
+    "Library/Safari",
+    "Library/Safari/Bookmarks.plist",
+    "Library/Mail",
+    "Library/Messages/chat.db",
+    "Library/Application Support/com.apple.TCC/TCC.db",
+];
 
-/// Only an app with Full Disk Access can open the TCC database, and every Mac has one.
 #[cfg(target_os = "macos")]
 fn granted() -> bool {
     let Some(home) = std::env::var_os("HOME") else { return false };
     let home = Path::new(&home);
-    for rel in PROBES {
-        let path = home.join(rel);
-        let _ = if path.is_dir() { std::fs::read_dir(&path).map(drop) } else { std::fs::File::open(&path).map(drop) };
-    }
-    std::fs::File::open(home.join("Library/Application Support/com.apple.TCC/TCC.db")).is_ok()
+    // Try every probe (no short-circuit) so a denied run registers all of them.
+    PROBES
+        .iter()
+        .map(|rel| {
+            let path = home.join(rel);
+            if path.is_dir() { std::fs::read_dir(&path).is_ok() } else { std::fs::File::open(&path).is_ok() }
+        })
+        .filter(|&opened| opened)
+        .count()
+        > 0
 }
 
 /// The `.app` bundle that contains `exe`, if any.
