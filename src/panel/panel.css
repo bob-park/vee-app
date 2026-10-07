@@ -94,7 +94,9 @@
 }
 
 .card {
-  flex: 0 0 180px;
+  /* The window is exactly the panel's height; 72px is the toolbar, paddings and borders. */
+  flex: 0 0 calc((100vh - 72px) * 0.95);
+  position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -164,11 +166,11 @@
 .preview {
   display: -webkit-box;
   overflow: hidden;
-  font-size: 12px;
+  font-size: clamp(12px, calc(100vh / 26), 15px);
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-all;
-  -webkit-line-clamp: 8;
+  -webkit-line-clamp: 14;
   -webkit-box-orient: vertical;
 }
 
