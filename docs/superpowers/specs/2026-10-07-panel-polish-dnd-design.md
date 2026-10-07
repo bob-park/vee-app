@@ -10,6 +10,7 @@
 4. 이미지 파일 클립 썸네일 미리보기
 5. 최대 저장 개수(1000) 제한 제거
 6. 트레이 아이콘 왼쪽 클릭 시 메뉴 표시
+7. 개별 삭제 확인 설정 토글
 
 범위 밖: 스크린샷(이미지) 클립 드래그, HEIC 썸네일, 기존 파일 클립 썸네일 소급 생성.
 
@@ -58,8 +59,19 @@
 
 - `tray.rs`: `.show_menu_on_left_click(true)`, `DoubleClick` 핸들러 제거(패널은 "열기" 메뉴/단축키로).
 
+## 7. 개별 삭제 확인 토글
+
+- 설정 키 `confirmDelete` = `"on" | "off"`, 기본 `"off"`(현재 동작 유지). `settings.rs`의 `get` 기본값·`validate`·`SettingsDto`에 추가, `api.ts` `Settings`/`setSetting` 키 타입에 추가.
+- 설정 화면: "복사 사운드" 아래 토글 "개별 삭제 시 확인" + 보조 문구 "패널에서 항목을 지울 때 한 번 더 확인합니다". ko/en 문자열 추가.
+- 패널: 토글이 켜져 있으면 `delete` 액션 시 즉시 삭제 대신 `confirmingId = 선택 카드 id`. 해당 카드에 오버레이(빨간 테두리, "이 항목을 삭제할까요?", [취소] [삭제], "⏎ 삭제 · esc 취소").
+  - 확인 중 키: Enter → 삭제, Escape → 취소(패널은 닫지 않음), 그 외 키·선택 이동·필터 변경·검색 입력 → 취소.
+  - 버튼 클릭도 동작. 패널이 닫히면(`panel://closed`) 취소.
+  - 네이티브 대화상자는 포커스를 뺏어 패널이 닫히므로 사용하지 않음.
+- `keys.ts`: `panelKeyAction`에 `confirming: boolean` 입력 추가 → 확인 중엔 Enter=`confirmDelete`, Escape=`cancelDelete`, 나머지=`cancelDelete` 후 원래 동작 없음(단순화).
+
 ## 테스트
 
 - Rust: 패널 높이 clamp(작은/중간/큰 work area, Windows px 변환), 파일 클립 thumb 저장·조회, 1000개 초과 삽입 후 trim 없음.
-- Node: 썸네일 태그 라벨 함수(`imageTag(paths)` → `"PNG"`, `"JPG · +3"`, 이미지 없으면 null).
+- Node: 썸네일 태그 라벨 함수(`imageTag(paths)` → `"PNG"`, `"JPG · +3"`, 이미지 없으면 null). `keys.test.ts`에 확인 모드 케이스(Enter/Escape/기타 키).
+- Rust: `confirmDelete` 기본값 off, 잘못된 값 거부.
 - 수동(`yarn tauri dev`, macOS): 등장 번쩍임 없음, 4종 모니터 크기, Finder로 드래그 시 복사(원본 유지) + 토스트, 드래그 취소 시 패널 복귀, 이미지 파일 카드 썸네일, 트레이 왼쪽 클릭 메뉴.
