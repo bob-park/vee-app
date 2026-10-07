@@ -3,6 +3,7 @@ import type { Clip } from "../api.ts";
 import type { Dict } from "../i18n/en.ts";
 import { relativeTime } from "../i18n/index.ts";
 import { usePrefs } from "../prefs.tsx";
+import { DocIcon, FolderIcon } from "./FileIcon.tsx";
 import { imageTag } from "./fileThumb.ts";
 
 interface Props {
@@ -31,8 +32,12 @@ function badgeLabel(clip: Clip, t: Dict): string {
   }
 }
 
+function paths(clip: Clip): string[] {
+  return (clip.textPreview ?? "").split("\n");
+}
+
 function firstPath(clip: Clip): string {
-  return (clip.textPreview ?? "").split("\n")[0];
+  return paths(clip)[0];
 }
 
 function footLabel(clip: Clip, t: Dict): string {
@@ -55,7 +60,7 @@ const LAYER_TILT = [0, 5, -7];
 
 function FilesBody({ clip }: { clip: Clip }) {
   const { stack } = clip;
-  if (stack.length === 0) return <div className={clip.isDir ? "doc folder" : "doc"} aria-hidden />;
+  if (stack.length === 0) return clip.isDir ? <FolderIcon /> : <DocIcon path={firstPath(clip)} />;
   if (stack.length === 1) {
     const tag = imageTag(firstPath(clip));
     return (
@@ -69,7 +74,13 @@ function FilesBody({ clip }: { clip: Clip }) {
     <div className="stack" aria-hidden>
       {stack.map((src, i) => {
         const style = { transform: `rotate(${LAYER_TILT[i]}deg)`, zIndex: LAYER_TILT.length - i };
-        return src ? <img key={i} src={src} alt="" style={style} /> : <div key={i} className="stack-doc" style={style} />;
+        return src ? (
+          <img key={i} src={src} alt="" style={style} />
+        ) : (
+          <div key={i} className="stack-doc" style={style}>
+            <DocIcon path={paths(clip)[i] ?? ""} />
+          </div>
+        );
       })}
     </div>
   );

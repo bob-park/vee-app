@@ -190,22 +190,42 @@
   border-radius: 6px;
 }
 
-.doc {
-  width: 48px;
-  height: 58px;
-  margin: 12px auto 0;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  background: var(--subtle);
+/* File and folder icons scale with the panel (the window is the panel's height). */
+.file-icon,
+.folder-icon {
+  display: block;
+  margin: 14px auto 0;
+  height: auto;
 }
 
-.doc.folder {
-  width: 64px;
-  height: 46px;
+.file-icon {
+  width: clamp(44px, calc(100vh / 7), 68px);
+  aspect-ratio: 52 / 64;
+}
+
+.folder-icon {
+  width: clamp(56px, calc(100vh / 5.5), 88px);
+  aspect-ratio: 70 / 54;
   margin-top: 22px;
-  border: none;
-  border-radius: 4px 6px 6px 6px;
-  background: #5aa9f0;
+}
+
+.file-paper {
+  fill: var(--card);
+  stroke: var(--border);
+  stroke-width: 2;
+}
+
+.file-fold {
+  fill: var(--divider);
+  stroke: var(--border);
+  stroke-width: 2;
+}
+
+.file-ext {
+  fill: #fff;
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .card-foot {
@@ -258,7 +278,15 @@
 }
 
 .stack-doc {
-  background: var(--divider);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card);
+}
+
+.stack-doc .file-icon {
+  width: 40%;
+  margin: 0;
 }
 
 /* Thumbnails must not start WebKit's own HTML drag. */
