@@ -38,7 +38,7 @@
   - 파일 존재 확인(없으면 Err, 프론트는 패널 복귀).
   - `AppState.dragging = true` → `Focused(false)` 핸들러는 dragging 중 hide 건너뜀.
   - 패널 `set_ignore_cursor_events(true)`.
-  - 메인 스레드에서 `drag::start_drag(panel, DragItem::Files(paths), Image::Raw(thumb 또는 앱 아이콘 PNG), callback, Options { mode: Copy, .. })`.
+  - 메인 스레드에서 `drag::start_drag(panel, DragItem::Files(paths), Image::Raw(stack 첫 썸네일 또는 앱 아이콘 PNG), callback, Options { mode: Copy, .. })`.
   - callback `Dropped`: dragging=false, ignore_cursor_events(false), `touch` + `clips://changed`, 복사음(설정 따름), 토스트(`ToastPayload::copied`), `hide_panel(app, true)`.
   - callback `Cancel`: dragging=false, ignore_cursor_events(false), `panel://drag-cancelled` emit → 프론트가 `dragging=false`로 패널 복귀.
 - `copy_clip`의 "복사 후 처리(touch/사운드/토스트)"를 함수로 추출해 드롭과 공유.
@@ -46,9 +46,17 @@
 ## 4. 이미지 파일 썸네일
 
 - 이미지 확장자: png, jpg, jpeg, gif, webp, bmp, tif, tiff (대소문자 무시).
-- `watcher.rs`: Files 클립에서 첫 이미지 파일(50MB 이하)을 `RustImageData::from_path` → `thumbnail(THUMB_SIZE)` → PNG. 실패 시 썸네일 없이 저장.
-- `store.rs`: `NewClip::Files(Vec<String>)` → `NewClip::Files { paths, thumb_png: Option<Vec<u8>> }`, 기존 `thumb_png` 컬럼에 저장(스키마 변경 없음). `ClipDto.thumb`가 파일 클립에도 채워짐.
-- `Card.tsx`: files + thumb → `<img class="thumb">` + 좌하단 태그 `EXT` 또는 `EXT · +N`(N = 파일 수 − 1). EXT는 경로 목록에서 첫 이미지 확장자(같은 확장자 목록을 프론트에도 둠). 배지/푸터는 기존 그대로.
+- 표시 규칙:
+  - **파일 1개(이미지)**: 썸네일이 본문 전체 + 좌하단 확장자 태그(`JPG`).
+  - **파일 여러 개 + 그중 이미지 1개 이상**: 앞 최대 3개 파일을 살짝 기울여 겹친 "사진 더미". 이미지 파일 레이어는 썸네일, 이미지가 아닌 파일 레이어는 문서 타일. 맨 앞(첫 파일)이 위. 태그 없음, 개수는 기존 배지("파일 4개")와 푸터.
+  - **이미지가 하나도 없음**: 기존 문서/폴더 아이콘 그대로.
+- `watcher.rs`: Files 클립의 앞 3개 경로 중 이미지(50MB 이하)를 각각 `RustImageData::from_path` → `thumbnail(THUMB_SIZE)` → PNG. 실패한 파일은 썸네일 없음(문서 타일).
+- `store.rs`:
+  - `NewClip::Files(Vec<String>)` → `NewClip::Files { paths, thumbs: Vec<(usize, Vec<u8>)> }` (파일 위치 idx, PNG).
+  - 스키마 V2 마이그레이션(`user_version` 2): `CREATE TABLE clip_thumbs (clip_id INTEGER NOT NULL, idx INTEGER NOT NULL, png BLOB NOT NULL, PRIMARY KEY (clip_id, idx))` + `AFTER DELETE ON clips` 트리거로 정리(delete/clear 모두 커버).
+  - `ClipDto`에 `stack: Vec<Option<String>>` 추가 — files 클립의 앞 min(3, n)개 레이어, 이미지면 data URL, 아니면 null. 이미지가 하나도 없으면 빈 배열.
+  - 드래그 이미지(3장)는 `stack`의 첫 썸네일 사용.
+- `Card.tsx`: files 클립에서 `stack`이 비어 있지 않으면 — 1개면 `<img class="thumb">` + 태그, 여러 개면 `.stack` 레이어(각각 `<img>` 또는 문서 타일, 회전 −7° / +5° / 0°). 기존 파일 클립(마이그레이션 전)은 `stack`이 비어 기존 아이콘.
 
 ## 5. 저장 제한 제거
 
@@ -71,7 +79,7 @@
 
 ## 테스트
 
-- Rust: 패널 높이 clamp(작은/중간/큰 work area, Windows px 변환), 파일 클립 thumb 저장·조회, 1000개 초과 삽입 후 trim 없음.
-- Node: 썸네일 태그 라벨 함수(`imageTag(paths)` → `"PNG"`, `"JPG · +3"`, 이미지 없으면 null). `keys.test.ts`에 확인 모드 케이스(Enter/Escape/기타 키).
+- Rust: 패널 높이 clamp(작은/중간/큰 work area, Windows px 변환), 파일 클립 stack 저장·조회(이미지/비이미지 혼합, 삭제 시 clip_thumbs 정리, V1→V2 마이그레이션), 1000개 초과 삽입 후 trim 없음.
+- Node: 확장자 태그 함수(`imageTag(path)` → `"PNG"`, 이미지 아니면 null). `keys.test.ts`에 확인 모드 케이스(Enter/Escape/기타 키).
 - Rust: `confirmDelete` 기본값 off, 잘못된 값 거부.
 - 수동(`yarn tauri dev`, macOS): 등장 번쩍임 없음, 4종 모니터 크기, Finder로 드래그 시 복사(원본 유지) + 토스트, 드래그 취소 시 패널 복귀, 이미지 파일 카드 썸네일, 트레이 왼쪽 클릭 메뉴.
