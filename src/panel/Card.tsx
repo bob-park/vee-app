@@ -126,7 +126,15 @@ export function Card({ clip, selected, onSelect, onCopy, onDragOut, confirming, 
         {selected && <span>{t.copyHint}</span>}
       </div>
       {confirming && (
-        <div className="confirm" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+        <div
+          className="confirm"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
           <p>{t.deleteConfirm}</p>
           <div className="confirm-btns">
             <button className="confirm-btn" onClick={onCancelDelete}>

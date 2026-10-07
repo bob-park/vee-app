@@ -160,6 +160,7 @@ pub fn show_panel(app: &AppHandle) {
 }
 
 fn place_and_show(app: &AppHandle, panel: &WebviewWindow) -> tauri::Result<()> {
+    let _ = end_drag(app);
     if let Some(monitor) = cursor_monitor(app) {
         let (work, unit) = work_area(&monitor);
         place(panel, panel_rect(work, unit))?;
