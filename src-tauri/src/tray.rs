@@ -2,7 +2,7 @@
 
 use crate::{AppState, settings, updater::{self, UpdateState}, windows};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Wry};
 
 pub const TRAY_ID: &str = "main";
@@ -55,8 +55,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .icon(app.default_window_icon().cloned().expect("bundle has an icon"))
         .tooltip("Vee")
         .menu(&menu)
-        // Left click is reserved for double-click → panel; right click opens the menu.
-        .show_menu_on_left_click(false)
+        .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => windows::show_panel(app),
             "settings" => windows::show_settings(app),
@@ -74,11 +73,6 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             }
             "quit" => app.exit(0),
             _ => {}
-        })
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::DoubleClick { .. } = event {
-                windows::show_panel(tray.app_handle());
-            }
         })
         .build(app)?;
     Ok(())
