@@ -18,6 +18,8 @@ const TOAST_WIDTH: f64 = 360.0;
 const TOAST_HEIGHT: f64 = 52.0;
 const TOAST_BOTTOM: f64 = 32.0;
 const TOAST_MS: u64 = 1500;
+/// Reveal the panel anyway if the webview hasn't confirmed its parked frame by then.
+const PANEL_REVEAL_FALLBACK_MS: u64 = 200;
 const TOAST_PREVIEW_CHARS: usize = 40;
 
 static TOAST_GENERATION: AtomicU64 = AtomicU64::new(0);
@@ -162,6 +164,13 @@ fn place_and_show(app: &AppHandle, panel: &WebviewWindow) -> tauri::Result<()> {
     }
     set_panel_alpha(panel, 0.0);
     panel.show()?;
+    // Never leave a shown, focused panel invisible; revealing twice is harmless.
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(PANEL_REVEAL_FALLBACK_MS));
+        let main = handle.clone();
+        let _ = handle.run_on_main_thread(move || reveal_panel(&main));
+    });
     panel.set_focus()?;
     app.emit_to(PANEL, "panel://opened", ())?;
     Ok(())
