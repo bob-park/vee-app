@@ -1,9 +1,9 @@
 //! Watches the system clipboard and records every change in the store.
 
-use crate::{AppState, now_ms, source_app, store::NewClip};
+use crate::{AppState, now_ms, source_app, store::{NewClip, STACK_LAYERS}};
 use clipboard_rs::{
     Clipboard, ClipboardContext, ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext, ContentFormat,
-    common::RustImage,
+    RustImageData, common::RustImage,
 };
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -20,6 +20,32 @@ pub fn text_clip(text: String) -> Option<NewClip> {
     (!text.trim().is_empty()).then_some(NewClip::Text(text))
 }
 
+const IMAGE_EXTS: [&str; 8] = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff"];
+
+pub fn is_image_path(path: &str) -> bool {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| IMAGE_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+fn thumb_png(path: &str) -> Option<Vec<u8>> {
+    let image = RustImageData::from_path(path).ok()?;
+    Some(image.thumbnail(THUMB_SIZE, THUMB_SIZE).ok()?.to_png().ok()?.get_bytes().to_vec())
+}
+
+/// Thumbnails of image files among the first `STACK_LAYERS`; undecodable files are skipped.
+fn file_thumbs(paths: &[String]) -> Vec<(usize, Vec<u8>)> {
+    paths
+        .iter()
+        .take(STACK_LAYERS)
+        .enumerate()
+        .filter(|(_, p)| is_image_path(p))
+        .filter(|(_, p)| std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.len() <= MAX_IMAGE_BYTES as u64))
+        .filter_map(|(i, p)| thumb_png(p).map(|png| (i, png)))
+        .collect()
+}
+
 /// Files win over images, images over text: copying a file in Finder also
 /// puts its icon and name on the pasteboard.
 fn read(ctx: &ClipboardContext) -> clipboard_rs::Result<Option<NewClip>> {
@@ -29,7 +55,8 @@ fn read(ctx: &ClipboardContext) -> clipboard_rs::Result<Option<NewClip>> {
     if ctx.has(ContentFormat::Files) {
         let files = ctx.get_files()?;
         if !files.is_empty() {
-            return Ok(Some(NewClip::Files { paths: files, thumbs: Vec::new() }));
+            let thumbs = file_thumbs(&files);
+            return Ok(Some(NewClip::Files { paths: files, thumbs }));
         }
     }
     if ctx.has(ContentFormat::Image) {
@@ -104,6 +131,36 @@ pub fn spawn(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A valid 1×1 PNG.
+    const PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+    #[test]
+    fn recognises_image_extensions_case_insensitively() {
+        assert!(is_image_path("/a/Shot.PNG"));
+        assert!(is_image_path("C:\\pics\\a.jpeg"));
+        assert!(is_image_path("/a/b.webp"));
+        assert!(!is_image_path("/a/report.pdf"));
+        assert!(!is_image_path("/a/README"));
+    }
+
+    #[test]
+    fn thumbnails_only_decodable_images_among_the_first_three() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        let dir = tempfile::tempdir().unwrap();
+        let png = dir.path().join("a.PNG");
+        std::fs::write(&png, STANDARD.decode(PIXEL_PNG).unwrap()).unwrap();
+        let txt = dir.path().join("b.txt");
+        std::fs::write(&txt, "x").unwrap();
+        let broken = dir.path().join("c.jpg");
+        std::fs::write(&broken, "not an image").unwrap();
+        let fourth = dir.path().join("d.png");
+        std::fs::copy(&png, &fourth).unwrap();
+        let p = |p: &std::path::Path| p.to_string_lossy().into_owned();
+        let thumbs = file_thumbs(&[p(&png), p(&txt), p(&broken), p(&fourth)]);
+        assert_eq!(thumbs.iter().map(|(i, _)| *i).collect::<Vec<_>>(), vec![0]);
+        assert!(thumbs[0].1.starts_with(b"\x89PNG"));
+    }
 
     #[test]
     fn whitespace_only_text_is_ignored() {
