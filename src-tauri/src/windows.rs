@@ -1,7 +1,9 @@
 //! Panel, toast and settings window behaviour, plus copying a clip back.
 
 use crate::{AppState, now_ms, source_app, store::ClipContent};
+use drag::{DragItem, DragMode, DragResult};
 use serde::Serialize;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow};
@@ -273,16 +275,7 @@ pub fn copy_clip(app: &AppHandle, id: i64) -> Result<(), String> {
     hide_panel(app, true);
     match result {
         Ok(content) => {
-            let sound_on = {
-                let store = state.store.lock().unwrap();
-                let _ = store.touch(id, now_ms());
-                crate::settings::copy_sound_enabled(&store)
-            };
-            if sound_on {
-                source_app::play_copy_sound();
-            }
-            let _ = app.emit("clips://changed", ());
-            show_toast(app, ToastPayload::copied(&content));
+            confirm_copy(app, id, &content);
             Ok(())
         }
         Err(e) => {
@@ -293,9 +286,107 @@ pub fn copy_clip(app: &AppHandle, id: i64) -> Result<(), String> {
     }
 }
 
+/// Bumps the clip, plays the copy sound and confirms with a toast.
+fn confirm_copy(app: &AppHandle, id: i64, content: &ClipContent) {
+    let state = app.state::<AppState>();
+    let sound_on = {
+        let store = state.store.lock().unwrap();
+        let _ = store.touch(id, now_ms());
+        crate::settings::copy_sound_enabled(&store)
+    };
+    if sound_on {
+        source_app::play_copy_sound();
+    }
+    let _ = app.emit("clips://changed", ());
+    show_toast(app, ToastPayload::copied(content));
+}
+
+const DRAG_ICON: &[u8] = include_bytes!("../icons/128x128.png");
+const DRAG_IMAGE_SIZE: u32 = 96;
+
+/// A small PNG to show under the cursor while dragging.
+fn drag_image(preview: Option<Vec<u8>>) -> Vec<u8> {
+    use clipboard_rs::{RustImageData, common::RustImage};
+    preview
+        .and_then(|png| {
+            let image = RustImageData::from_bytes(&png).ok()?;
+            Some(image.thumbnail(DRAG_IMAGE_SIZE, DRAG_IMAGE_SIZE).ok()?.to_png().ok()?.get_bytes().to_vec())
+        })
+        .unwrap_or_else(|| DRAG_ICON.to_vec())
+}
+
+/// Starts dragging a files clip out of the panel. Drops always copy.
+pub fn start_drag(app: &AppHandle, id: i64) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let (paths, preview) = {
+        let store = state.store.lock().unwrap();
+        let paths = match store.content(id).map_err(|e| e.to_string())? {
+            Some(ClipContent::Files(paths)) => paths,
+            _ => return Err("not a file clip".into()),
+        };
+        (paths, store.preview_png(id).map_err(|e| e.to_string())?)
+    };
+    if paths.iter().any(|p| !Path::new(p).exists()) {
+        return Err("a copied file no longer exists".into());
+    }
+    let panel = app.get_webview_window(PANEL).ok_or("panel window is missing")?;
+    state.dragging.store(true, Ordering::SeqCst);
+    // Let drops land on whatever is behind the (slid-away) panel.
+    let _ = panel.set_ignore_cursor_events(true);
+    let items = DragItem::Files(paths.iter().map(PathBuf::from).collect());
+    let content = ClipContent::Files(paths);
+    let handle = app.clone();
+    let started = drag::start_drag(
+        &panel,
+        items,
+        drag::Image::Raw(drag_image(preview)),
+        move |result, _cursor| finish_drag(&handle, id, &content, result),
+        drag::Options { mode: DragMode::Copy, ..Default::default() },
+    );
+    if let Err(e) = started {
+        end_drag(app);
+        return Err(e.to_string());
+    }
+    Ok(())
+}
+
+fn end_drag(app: &AppHandle) -> Option<WebviewWindow> {
+    app.state::<AppState>().dragging.store(false, Ordering::SeqCst);
+    let panel = app.get_webview_window(PANEL)?;
+    let _ = panel.set_ignore_cursor_events(false);
+    Some(panel)
+}
+
+fn finish_drag(app: &AppHandle, id: i64, content: &ClipContent, result: DragResult) {
+    let panel = end_drag(app);
+    match result {
+        DragResult::Dropped => {
+            hide_panel(app, true);
+            confirm_copy(app, id, content);
+        }
+        DragResult::Cancel => {
+            if let Some(panel) = panel {
+                let _ = panel.set_focus();
+            }
+            let _ = app.emit_to(PANEL, "panel://drag-cancelled", ());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn drag_image_shrinks_previews_and_falls_back_to_the_app_icon() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        let pixel = STANDARD
+            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+            .unwrap();
+        assert!(drag_image(Some(pixel)).starts_with(b"\x89PNG"));
+        assert_eq!(drag_image(None), DRAG_ICON);
+        assert_eq!(drag_image(Some(vec![1, 2, 3])), DRAG_ICON);
+    }
 
     // Geometry captured from a MacBook (Retina, scale 2) with a 1x 2560x1440
     // display placed to its left — the setup where the panel never reached the

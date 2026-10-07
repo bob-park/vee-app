@@ -275,8 +275,17 @@
   transition: transform 300ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+/* Dragging a file out: the panel gets out of the way so the whole screen is a drop target. */
+.panel.open.dragging {
+  transform: translateY(calc(100% + 16px));
+  transition: transform 200ms ease-in;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .panel.open {
+    transition: none;
+  }
+  .panel.open.dragging {
     transition: none;
   }
 }

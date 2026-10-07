@@ -7,6 +7,7 @@ mod watcher;
 mod windows;
 
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::{ClipDto, Kind, Store};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
@@ -16,11 +17,18 @@ pub struct AppState {
     /// Frontmost app when the panel opened, re-activated when it closes (macOS).
     pub prev_app_pid: Mutex<Option<i32>>,
     suppress_until: Mutex<Instant>,
+    /// A file drag out of the panel is in progress; losing focus must not hide it.
+    pub dragging: AtomicBool,
 }
 
 impl AppState {
     fn new(store: Store) -> Self {
-        Self { store: Mutex::new(store), prev_app_pid: Mutex::new(None), suppress_until: Mutex::new(Instant::now()) }
+        Self {
+            store: Mutex::new(store),
+            prev_app_pid: Mutex::new(None),
+            suppress_until: Mutex::new(Instant::now()),
+            dragging: AtomicBool::new(false),
+        }
     }
 
     /// Ignore clipboard changes briefly after we write the clipboard ourselves.
@@ -64,6 +72,11 @@ fn clear_history(app: AppHandle, state: State<AppState>) -> Result<(), String> {
 #[tauri::command]
 fn copy_clip(app: AppHandle, id: i64) -> Result<(), String> {
     windows::copy_clip(&app, id)
+}
+
+#[tauri::command]
+fn start_drag(app: AppHandle, id: i64) -> Result<(), String> {
+    windows::start_drag(&app, id)
 }
 
 #[tauri::command]
@@ -123,7 +136,11 @@ pub fn run() {
                 api.prevent_close();
                 let _ = window.hide();
             }
-            (windows::PANEL, WindowEvent::Focused(false)) => windows::hide_panel(window.app_handle(), false),
+            (windows::PANEL, WindowEvent::Focused(false)) => {
+                if !window.app_handle().state::<AppState>().dragging.load(Ordering::SeqCst) {
+                    windows::hide_panel(window.app_handle(), false)
+                }
+            }
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
@@ -131,6 +148,7 @@ pub fn run() {
             delete_clip,
             clear_history,
             copy_clip,
+            start_drag,
             hide_panel,
             reveal_panel,
             open_settings,

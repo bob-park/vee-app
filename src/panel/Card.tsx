@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import type { Clip } from "../api.ts";
 import type { Dict } from "../i18n/en.ts";
 import { relativeTime } from "../i18n/index.ts";
@@ -9,7 +10,10 @@ interface Props {
   selected: boolean;
   onSelect: () => void;
   onCopy: () => void;
+  onDragOut?: () => void;
 }
+
+const DRAG_THRESHOLD = 5;
 
 function fileCount(clip: Clip): number {
   return Number(clip.meta ?? "1");
@@ -74,8 +78,9 @@ function Body({ clip }: { clip: Clip }) {
   return <p className={clip.kind === "link" ? "preview link" : "preview"}>{clip.textPreview}</p>;
 }
 
-export function Card({ clip, selected, onSelect, onCopy }: Props) {
+export function Card({ clip, selected, onSelect, onCopy, onDragOut }: Props) {
   const { t, locale } = usePrefs();
+  const press = useRef<{ x: number; y: number } | null>(null);
   return (
     <div
       className={selected ? "card selected" : "card"}
@@ -83,6 +88,23 @@ export function Card({ clip, selected, onSelect, onCopy }: Props) {
       aria-selected={selected}
       onClick={onSelect}
       onDoubleClick={onCopy}
+      onMouseDown={(e) => {
+        press.current = onDragOut ? { x: e.clientX, y: e.clientY } : null;
+      }}
+      onMouseMove={(e) => {
+        const p = press.current;
+        if (!p || !onDragOut) return;
+        if ((e.buttons & 1) === 0) {
+          press.current = null;
+          return;
+        }
+        if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_THRESHOLD) return;
+        press.current = null;
+        onDragOut();
+      }}
+      onMouseUp={() => {
+        press.current = null;
+      }}
     >
       <div className="card-head">
         {clip.appIcon ? (

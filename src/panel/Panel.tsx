@@ -17,6 +17,7 @@ export function Panel() {
   const [selected, setSelected] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [open, setOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const requestId = useRef(0);
   const loadingMore = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -69,14 +70,17 @@ export function Panel() {
     // Reset while hidden so the next open slides in finished content.
     const offClosed = listen("panel://closed", () => {
       setOpen(false);
+      setDragging(false);
       setQuery("");
       setFilter("all");
       void reloadRef.current(false);
     });
+    const offDragCancelled = listen("panel://drag-cancelled", () => setDragging(false));
     return () => {
       void offChanged.then((off) => off());
       void offOpened.then((off) => off());
       void offClosed.then((off) => off());
+      void offDragCancelled.then((off) => off());
     };
   }, []);
 
@@ -87,6 +91,11 @@ export function Panel() {
 
   const copy = (clip: Clip | undefined) => {
     if (clip) void api.copyClip(clip.id).catch(() => {});
+  };
+
+  const dragOut = (clip: Clip) => {
+    setDragging(true);
+    void api.startDrag(clip.id).catch(() => setDragging(false));
   };
 
   const remove = (clip: Clip | undefined) => {
@@ -136,7 +145,7 @@ export function Panel() {
 
   return (
     <div
-      className={open ? "panel open" : "panel"}
+      className={["panel", open && "open", dragging && "dragging"].filter(Boolean).join(" ")}
       onKeyDown={onKeyDown}
       // Keep keyboard focus in the search box no matter what is clicked.
       onMouseDown={(e) => {
@@ -162,6 +171,7 @@ export function Panel() {
               selected={i === selected}
               onSelect={() => setSelected(i)}
               onCopy={() => copy(clip)}
+              onDragOut={clip.kind === "files" && !clip.missing ? () => dragOut(clip) : undefined}
             />
           ))}
         </div>
