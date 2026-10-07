@@ -10,7 +10,7 @@ import "./panel.css";
 const PAGE = 50;
 
 export function Panel() {
-  const { t } = usePrefs();
+  const { t, settings } = usePrefs();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [clips, setClips] = useState<Clip[]>([]);
@@ -18,6 +18,7 @@ export function Panel() {
   const [hasMore, setHasMore] = useState(false);
   const [open, setOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const requestId = useRef(0);
   const loadingMore = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -32,7 +33,10 @@ export function Panel() {
       setClips(page);
       setHasMore(page.length === PAGE);
       setSelected((s) => (keepSelection ? Math.max(0, Math.min(s, page.length - 1)) : 0));
-      if (!keepSelection) rowRef.current?.scrollTo({ left: 0 });
+      if (!keepSelection) {
+        setConfirmingId(null);
+        rowRef.current?.scrollTo({ left: 0 });
+      }
     },
     [query, filter],
   );
@@ -71,6 +75,7 @@ export function Panel() {
     const offClosed = listen("panel://closed", () => {
       setOpen(false);
       setDragging(false);
+      setConfirmingId(null);
       setQuery("");
       setFilter("all");
       void reloadRef.current(false);
@@ -110,6 +115,7 @@ export function Panel() {
       isComposing: e.nativeEvent.isComposing || e.keyCode === 229,
       queryEmpty: query === "",
       repeat: e.repeat,
+      confirming: confirmingId !== null,
     });
     if (!action) return;
     e.preventDefault();
@@ -128,8 +134,18 @@ export function Panel() {
         setFilter(FILTERS[(FILTERS.indexOf(filter) + action.delta + n) % n]);
         break;
       }
-      case "delete":
-        remove(clips[selected]);
+      case "delete": {
+        const clip = clips[selected];
+        if (settings.confirmDelete === "on") setConfirmingId(clip?.id ?? null);
+        else remove(clip);
+        break;
+      }
+      case "confirmDelete":
+        remove(clips.find((c) => c.id === confirmingId));
+        setConfirmingId(null);
+        break;
+      case "cancelDelete":
+        setConfirmingId(null);
         break;
     }
   };
@@ -169,9 +185,18 @@ export function Panel() {
               key={clip.id}
               clip={clip}
               selected={i === selected}
-              onSelect={() => setSelected(i)}
+              onSelect={() => {
+                setSelected(i);
+                setConfirmingId(null);
+              }}
               onCopy={() => copy(clip)}
               onDragOut={clip.kind === "files" && !clip.missing ? () => dragOut(clip) : undefined}
+              confirming={clip.id === confirmingId}
+              onConfirmDelete={() => {
+                remove(clip);
+                setConfirmingId(null);
+              }}
+              onCancelDelete={() => setConfirmingId(null)}
             />
           ))}
         </div>

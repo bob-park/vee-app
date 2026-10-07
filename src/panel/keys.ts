@@ -4,6 +4,8 @@ export type KeyAction =
   | { type: "hide" }
   | { type: "cycleFilter"; delta: 1 | -1 }
   | { type: "delete" }
+  | { type: "confirmDelete" }
+  | { type: "cancelDelete" }
   | null;
 
 export interface KeyInput {
@@ -14,10 +16,19 @@ export interface KeyInput {
   queryEmpty: boolean;
   /** Auto-repeat from a held key. */
   repeat: boolean;
+  /** A delete confirmation is showing on the selected card. */
+  confirming: boolean;
 }
+
+const MODIFIERS = ["Shift", "Meta", "Control", "Alt"];
 
 export function panelKeyAction(e: KeyInput): KeyAction {
   if (e.isComposing) return null;
+  if (e.confirming) {
+    // Auto-repeat from the Delete that opened the confirmation must not dismiss it.
+    if (e.repeat || MODIFIERS.includes(e.key)) return null;
+    return e.key === "Enter" ? { type: "confirmDelete" } : { type: "cancelDelete" };
+  }
   switch (e.key) {
     case "ArrowRight":
       return { type: "move", delta: 1 };

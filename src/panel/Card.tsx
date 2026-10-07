@@ -11,6 +11,9 @@ interface Props {
   onSelect: () => void;
   onCopy: () => void;
   onDragOut?: () => void;
+  confirming: boolean;
+  onConfirmDelete: () => void;
+  onCancelDelete: () => void;
 }
 
 const DRAG_THRESHOLD = 5;
@@ -78,12 +81,12 @@ function Body({ clip }: { clip: Clip }) {
   return <p className={clip.kind === "link" ? "preview link" : "preview"}>{clip.textPreview}</p>;
 }
 
-export function Card({ clip, selected, onSelect, onCopy, onDragOut }: Props) {
+export function Card({ clip, selected, onSelect, onCopy, onDragOut, confirming, onConfirmDelete, onCancelDelete }: Props) {
   const { t, locale } = usePrefs();
   const press = useRef<{ x: number; y: number } | null>(null);
   return (
     <div
-      className={selected ? "card selected" : "card"}
+      className={["card", selected && "selected", confirming && "confirming"].filter(Boolean).join(" ")}
       role="option"
       aria-selected={selected}
       onClick={onSelect}
@@ -122,6 +125,20 @@ export function Card({ clip, selected, onSelect, onCopy, onDragOut }: Props) {
         <span>{footLabel(clip, t)}</span>
         {selected && <span>{t.copyHint}</span>}
       </div>
+      {confirming && (
+        <div className="confirm" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+          <p>{t.deleteConfirm}</p>
+          <div className="confirm-btns">
+            <button className="confirm-btn" onClick={onCancelDelete}>
+              {t.cancel}
+            </button>
+            <button className="confirm-btn danger" onClick={onConfirmDelete}>
+              {t.delete}
+            </button>
+          </div>
+          <span className="confirm-hint">{t.deleteHint}</span>
+        </div>
+      )}
     </div>
   );
 }

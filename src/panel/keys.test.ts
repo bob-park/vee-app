@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { panelKeyAction, type KeyInput } from "./keys.ts";
 
 const press = (key: string, extra: Partial<KeyInput> = {}) =>
-  panelKeyAction({ key, shiftKey: false, isComposing: false, queryEmpty: true, repeat: false, ...extra });
+  panelKeyAction({ key, shiftKey: false, isComposing: false, queryEmpty: true, repeat: false, confirming: false, ...extra });
 
 test("ignores every key while an IME composition is active", () => {
   for (const key of ["Enter", "ArrowLeft", "ArrowRight", "Backspace", "Tab", "Escape"]) {
@@ -37,4 +37,19 @@ test("holding backspace or delete never deletes more than one card", () => {
   assert.equal(press("Backspace", { repeat: true }), null);
   assert.equal(press("Delete", { repeat: true }), null);
   assert.deepEqual(press("ArrowRight", { repeat: true }), { type: "move", delta: 1 });
+});
+
+test("while confirming a delete, enter confirms and other keys cancel", () => {
+  assert.deepEqual(press("Enter", { confirming: true }), { type: "confirmDelete" });
+  for (const key of ["Escape", "ArrowRight", "Backspace", "Delete", "Tab", "a"]) {
+    assert.deepEqual(press(key, { confirming: true }), { type: "cancelDelete" }, key);
+  }
+});
+
+test("modifiers and the held delete key don't cancel a confirmation", () => {
+  for (const key of ["Shift", "Meta", "Control", "Alt"]) {
+    assert.equal(press(key, { confirming: true }), null, key);
+  }
+  assert.equal(press("Delete", { confirming: true, repeat: true }), null);
+  assert.equal(press("Backspace", { confirming: true, repeat: true }), null);
 });

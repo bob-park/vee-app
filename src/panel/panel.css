@@ -261,6 +261,52 @@
   -webkit-user-drag: none;
 }
 
+.card.confirming {
+  border: 2px solid var(--danger);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.confirm {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  text-align: center;
+}
+
+.confirm p {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.confirm-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.confirm-btn {
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  background: var(--subtle);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.confirm-btn.danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.confirm-hint {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 /*
  * Entrance: the window appears instantly with the panel parked below its bottom
  * edge (set while hidden), then the panel slides up like a sheet. Closing is
