@@ -14,7 +14,7 @@ pub const SETTINGS: &str = "settings";
 
 const PANEL_RATIO: f64 = 0.30;
 const PANEL_MIN: f64 = 300.0;
-const PANEL_MAX: f64 = 480.0;
+const PANEL_MAX: f64 = 360.0;
 const PANEL_MARGIN: f64 = 8.0;
 const TOAST_WIDTH: f64 = 360.0;
 const TOAST_HEIGHT: f64 = 52.0;
@@ -459,14 +459,15 @@ mod tests {
     fn panel_height_is_thirty_percent_of_the_work_area_clamped() {
         assert_eq!(panel_height(956.0), 300.0); // MacBook Air 13" → 287, floored to 300
         assert_eq!(panel_height(1117.0), 335.0); // MacBook Pro 16"
-        assert_eq!(panel_height(1440.0), 432.0); // 27" QHD
-        assert_eq!(panel_height(1692.0), 480.0); // 32" 4K scaled → 508, capped
+        assert_eq!(panel_height(1200.0), 360.0); // exactly at the cap
+        assert_eq!(panel_height(1440.0), 360.0); // 27" QHD → 432, capped
+        assert_eq!(panel_height(1692.0), 360.0); // 32" 4K scaled → 508, capped
     }
 
     #[test]
     fn panel_and_toast_sit_at_the_bottom_of_the_work_area() {
         let work = Rect { x: -2560.0, y: -241.0, w: 2560.0, h: 1410.0 };
-        assert_eq!(panel_rect(work, 1.0), Rect { x: -2552.0, y: 738.0, w: 2544.0, h: 423.0 });
+        assert_eq!(panel_rect(work, 1.0), Rect { x: -2552.0, y: 801.0, w: 2544.0, h: 360.0 });
         assert_eq!(toast_rect(work, 1.0), Rect { x: -1460.0, y: 1085.0, w: 360.0, h: 52.0 });
         // Windows: same layout in pixels at 150%.
         let px = Rect { x: 0.0, y: 0.0, w: 1920.0, h: 1040.0 };

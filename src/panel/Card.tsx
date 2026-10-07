@@ -60,7 +60,9 @@ const LAYER_TILT = [0, 5, -7];
 
 function FilesBody({ clip }: { clip: Clip }) {
   const { stack } = clip;
-  if (stack.length === 0) return clip.isDir ? <FolderIcon /> : <DocIcon path={firstPath(clip)} />;
+  if (stack.length === 0) {
+    return <div className="icon-box">{clip.isDir ? <FolderIcon /> : <DocIcon path={firstPath(clip)} />}</div>;
+  }
   if (stack.length === 1) {
     const tag = imageTag(firstPath(clip));
     return (

@@ -190,23 +190,28 @@
   border-radius: 6px;
 }
 
-/* File and folder icons scale with the panel (the window is the panel's height). */
+/* File and folder icons sit in the middle of the card and scale with the panel (the window is the panel's height). */
+.icon-box {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .file-icon,
 .folder-icon {
   display: block;
-  margin: 14px auto 0;
   height: auto;
 }
 
 .file-icon {
-  width: clamp(44px, calc(100vh / 7), 68px);
+  width: clamp(66px, calc(100vh / 4.67), 102px);
   aspect-ratio: 52 / 64;
 }
 
 .folder-icon {
   width: clamp(56px, calc(100vh / 5.5), 88px);
   aspect-ratio: 70 / 54;
-  margin-top: 22px;
 }
 
 .file-paper {
