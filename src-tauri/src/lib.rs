@@ -75,8 +75,8 @@ fn copy_clip(app: AppHandle, id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn start_drag(app: AppHandle, id: i64) -> Result<(), String> {
-    windows::start_drag(&app, id)
+fn start_drag(app: AppHandle, id: i64, name: String) -> Result<(), String> {
+    windows::start_drag(&app, id, &name)
 }
 
 #[tauri::command]

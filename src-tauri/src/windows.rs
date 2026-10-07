@@ -316,30 +316,51 @@ fn drag_image(preview: Option<Vec<u8>>) -> Vec<u8> {
         .unwrap_or_else(|| DRAG_ICON.to_vec())
 }
 
-/// Starts dragging a files clip out of the panel. Drops always copy.
-pub fn start_drag(app: &AppHandle, id: i64) -> Result<(), String> {
+/// A safe file name for a dragged image: no path parts, always `.png`.
+fn drag_file_name(name: &str) -> String {
+    let clean: String = name.chars().map(|c| if c.is_alphanumeric() || " -._".contains(c) { c } else { '_' }).collect();
+    let clean = clean.trim_matches(|c: char| c == '.' || c.is_whitespace());
+    let stem = clean.strip_suffix(".png").unwrap_or(clean);
+    format!("{}.png", if stem.is_empty() { "Vee" } else { stem })
+}
+
+/// Stored images are named by hash; drag a copy under a readable name instead.
+fn stage_image(src: &Path, dir: &Path, name: &str) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    let dest = dir.join(drag_file_name(name));
+    std::fs::copy(src, &dest)?;
+    Ok(dest)
+}
+
+/// Starts dragging a files or image clip out of the panel. Drops always copy.
+/// `name` names the dropped file for image clips.
+pub fn start_drag(app: &AppHandle, id: i64, name: &str) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let (paths, preview) = {
+    let (content, preview) = {
         let store = state.store.lock().unwrap();
-        let paths = match store.content(id).map_err(|e| e.to_string())? {
-            Some(ClipContent::Files(paths)) => paths,
-            _ => return Err("not a file clip".into()),
-        };
-        (paths, store.preview_png(id).map_err(|e| e.to_string())?)
+        let content = store.content(id).map_err(|e| e.to_string())?.ok_or("clip no longer exists")?;
+        (content, store.preview_png(id).map_err(|e| e.to_string())?)
     };
-    if paths.iter().any(|p| !Path::new(p).exists()) {
-        return Err("a copied file no longer exists".into());
-    }
+    let paths = match &content {
+        ClipContent::Files(paths) => {
+            if paths.iter().any(|p| !Path::new(p).exists()) {
+                return Err("a copied file no longer exists".into());
+            }
+            paths.iter().map(PathBuf::from).collect()
+        }
+        ClipContent::Image(path) => {
+            vec![stage_image(path, &std::env::temp_dir().join("vee-drag"), name).map_err(|e| e.to_string())?]
+        }
+        ClipContent::Text(_) => return Err("only files and images can be dragged".into()),
+    };
     let panel = app.get_webview_window(PANEL).ok_or("panel window is missing")?;
     state.dragging.store(true, Ordering::SeqCst);
     // Let drops land on whatever is behind the (slid-away) panel.
     let _ = panel.set_ignore_cursor_events(true);
-    let items = DragItem::Files(paths.iter().map(PathBuf::from).collect());
-    let content = ClipContent::Files(paths);
     let handle = app.clone();
     let started = drag::start_drag(
         &panel,
-        items,
+        DragItem::Files(paths),
         drag::Image::Raw(drag_image(preview)),
         move |result, _cursor| finish_drag(&handle, id, &content, result),
         drag::Options { mode: DragMode::Copy, ..Default::default() },
@@ -377,6 +398,27 @@ fn finish_drag(app: &AppHandle, id: i64, content: &ClipContent, result: DragResu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dragged_image_names_are_path_free_pngs() {
+        assert_eq!(drag_file_name("Vee 2026-10-07 14.32.05"), "Vee 2026-10-07 14.32.05.png");
+        assert_eq!(drag_file_name("shot.png"), "shot.png");
+        assert_eq!(drag_file_name("a/b\\c"), "a_b_c.png");
+        assert_eq!(drag_file_name("../x"), "_x.png");
+        assert_eq!(drag_file_name(".."), "Vee.png");
+        assert_eq!(drag_file_name(""), "Vee.png");
+    }
+
+    #[test]
+    fn staged_image_is_a_named_copy_of_the_original() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("3f9a.png");
+        std::fs::write(&src, b"png bytes").unwrap();
+        let staged = stage_image(&src, &dir.path().join("drag"), "Vee 2026-10-07 14.32.05").unwrap();
+        assert_eq!(staged.file_name().unwrap(), "Vee 2026-10-07 14.32.05.png");
+        assert_eq!(std::fs::read(&staged).unwrap(), b"png bytes");
+        assert!(src.exists());
+    }
 
     #[test]
     fn drag_image_shrinks_previews_and_falls_back_to_the_app_icon() {

@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api, type Clip, type Filter } from "../api.ts";
 import { usePrefs } from "../prefs.tsx";
 import { Card } from "./Card.tsx";
+import { dragFileName } from "./fileThumb.ts";
 import { panelKeyAction } from "./keys.ts";
 import { FILTERS, Toolbar } from "./Toolbar.tsx";
 import "./panel.css";
@@ -100,7 +101,7 @@ export function Panel() {
 
   const dragOut = (clip: Clip) => {
     setDragging(true);
-    void api.startDrag(clip.id).catch(() => setDragging(false));
+    void api.startDrag(clip.id, dragFileName(clip.lastUsedAt)).catch(() => setDragging(false));
   };
 
   const remove = (clip: Clip | undefined) => {
@@ -190,7 +191,7 @@ export function Panel() {
                 setConfirmingId(null);
               }}
               onCopy={() => copy(clip)}
-              onDragOut={clip.kind === "files" && !clip.missing ? () => dragOut(clip) : undefined}
+              onDragOut={(clip.kind === "files" || clip.kind === "image") && !clip.missing ? () => dragOut(clip) : undefined}
               confirming={clip.id === confirmingId}
               onConfirmDelete={() => {
                 remove(clip);

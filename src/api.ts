@@ -47,7 +47,7 @@ export const api = {
   listClips: (query: string, kind: Filter, offset: number, limit: number) =>
     invoke<Clip[]>("list_clips", { query, kind, offset, limit }),
   copyClip: (id: number) => invoke<void>("copy_clip", { id }),
-  startDrag: (id: number) => invoke<void>("start_drag", { id }),
+  startDrag: (id: number, name: string) => invoke<void>("start_drag", { id, name }),
   deleteClip: (id: number) => invoke<void>("delete_clip", { id }),
   clearHistory: () => invoke<void>("clear_history"),
   hidePanel: () => invoke<void>("hide_panel"),

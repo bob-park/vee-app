@@ -316,7 +316,7 @@ impl Store {
         Ok((0..files.min(STACK_LAYERS) as i64).map(|i| thumbs.get(&i).map(|png| data_url(png))).collect())
     }
 
-    /// Image for dragging a clip out: its first file thumbnail, else its source app's icon.
+    /// Image for dragging a clip out: its first file thumbnail or image thumbnail, else its source app's icon.
     pub fn preview_png(&self, id: i64) -> Result<Option<Vec<u8>>> {
         let thumb = self
             .conn
@@ -328,7 +328,7 @@ impl Store {
         Ok(self
             .conn
             .query_row(
-                "SELECT a.icon_png FROM clips c JOIN apps a ON a.id = c.app_id WHERE c.id = ?1",
+                "SELECT COALESCE(c.thumb_png, a.icon_png) FROM clips c LEFT JOIN apps a ON a.id = c.app_id WHERE c.id = ?1",
                 [id],
                 |r| r.get::<_, Option<Vec<u8>>>(0),
             )
@@ -621,6 +621,15 @@ mod tests {
         assert_eq!(all[2].stack.len(), 1);
         assert!(all[2].stack[0].as_ref().unwrap().starts_with("data:image/png;base64,"));
         assert_eq!(s.preview_png(all[1].id).unwrap(), Some(vec![2]));
+    }
+
+    #[test]
+    fn preview_of_an_image_clip_is_its_thumbnail() {
+        let (s, _d) = store();
+        let app = s.upsert_app("com.a", "A", Some(&[7, 7])).unwrap();
+        s.upsert(image(1), Some(app), 1).unwrap();
+        let id = s.list("", None, 0, 1).unwrap()[0].id;
+        assert_eq!(s.preview_png(id).unwrap(), Some(vec![9]));
     }
 
     #[test]
