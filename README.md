@@ -44,8 +44,6 @@
 | macOS (Apple Silicon) | `Vee_<버전>_aarch64.dmg` | Apple 공증을 거친 앱입니다. Intel Mac은 지원하지 않습니다. 보호된 폴더(문서, 다운로드 등)의 파일을 드래그로 꺼내려면 설정에서 **전체 디스크 접근**을 허용하세요. |
 | Windows | `Vee_<버전>_x64-setup.exe` | 코드 서명이 없어서 첫 실행 시 SmartScreen 경고가 뜹니다. **추가 정보 → 실행**을 누르세요. |
 
-> v0.4.0은 macOS만 배포했습니다. Windows 최신 버전은 v0.3.2입니다.
-
 ## 사용법
 
 | 동작 | 키 |
