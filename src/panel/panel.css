@@ -174,22 +174,42 @@
 }
 
 .card-head {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px;
+  min-height: 40px;
+  /* The left 46px is where the backdrop icon shows through. */
+  padding: 8px 8px 8px 46px;
 }
 
-.app-icon {
-  width: 24px;
-  height: 24px;
-  flex: none;
-  border-radius: 6px;
+/* The source app's icon, faded in from the top-left corner like a watermark. */
+.card-bg {
+  position: absolute;
+  top: -14px;
+  left: -18px;
+  z-index: 0;
+  width: 72px;
+  height: 72px;
+  pointer-events: none;
+  opacity: 0.16;
+  -webkit-mask-image: linear-gradient(135deg, #000 30%, transparent 85%);
+  mask-image: linear-gradient(135deg, #000 30%, transparent 85%);
 }
 
-.app-icon-empty {
-  background: var(--subtle);
-  border: 1px solid var(--border);
+:root[data-theme="dark"] .card-bg {
+  opacity: 0.22;
+}
+
+.app-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .badge {
@@ -222,6 +242,7 @@
   padding: 0 8px;
   overflow: hidden;
   position: relative;
+  z-index: 1;
 }
 
 .preview {
@@ -295,6 +316,8 @@
 }
 
 .card-foot {
+  position: relative;
+  z-index: 1;
   display: flex;
   justify-content: space-between;
   gap: 6px;
@@ -368,6 +391,7 @@
 .confirm {
   position: absolute;
   inset: 0;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;

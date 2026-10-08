@@ -122,12 +122,9 @@ export function Card({ clip, selected, onSelect, onCopy, onDragOut, confirming, 
         press.current = null;
       }}
     >
+      {clip.appIcon && <img className="card-bg" src={clip.appIcon} alt="" aria-hidden />}
       <div className="card-head">
-        {clip.appIcon ? (
-          <img className="app-icon" src={clip.appIcon} alt={clip.appName ?? ""} title={clip.appName ?? ""} />
-        ) : (
-          <span className="app-icon app-icon-empty" aria-hidden />
-        )}
+        <span className="app-name">{clip.appName ?? ""}</span>
         <span className={clip.kind === "files" ? "badge badge-file" : "badge"}>{badgeLabel(clip, t)}</span>
         <span className="time">{relativeTime(clip.lastUsedAt, locale)}</span>
       </div>
