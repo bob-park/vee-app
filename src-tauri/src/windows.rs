@@ -274,10 +274,10 @@ fn show_toast(app: &AppHandle, payload: ToastPayload) {
         }
         let _ = app.emit_to(TOAST, "toast://hide", ());
         std::thread::sleep(Duration::from_millis(TOAST_EXIT_MS));
-        if current() {
-            if let Some(toast) = app.get_webview_window(TOAST) {
-                let _ = toast.hide();
-            }
+        if current()
+            && let Some(toast) = app.get_webview_window(TOAST)
+        {
+            let _ = toast.hide();
         }
     });
 }
