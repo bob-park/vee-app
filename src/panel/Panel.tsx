@@ -160,15 +160,15 @@ export function Panel() {
     if (clip) void api.copyClip(clip.id).catch(() => {});
   };
 
-  const dragOut = (clip: Clip) => {
+  const dragOut = (clip: Clip, image: string | null = null) => {
     setDragging(true);
-    void api.startDrag(clip.id, dragFileName(clip.lastUsedAt)).catch(() => setDragging(false));
+    void api.startDrag(clip.id, dragFileName(clip.lastUsedAt), image).catch(() => setDragging(false));
   };
 
   /** Floats the card under the cursor first; the OS drag starts once it leaves the panel. */
   const liftCard = (clip: Clip, card: HTMLElement, x: number, y: number) => {
     if (reducedMotion()) dragOut(clip);
-    else floatCard(card, x, y, () => dragOut(clip));
+    else floatCard(card, x, y, (image) => dragOut(clip, image));
   };
 
   const remove = (clip: Clip | undefined) => {

@@ -1,5 +1,7 @@
 /** Shared motion for the panel. Everything here is a no-op under reduced motion. */
 
+import { cardImage } from "./cardImage.ts";
+
 export const EASE_MOVE = "cubic-bezier(0.32, 0.72, 0, 1)";
 export const EASE_SPRING = "cubic-bezier(0.34, 1.56, 0.64, 1)";
 
@@ -47,20 +49,33 @@ export function playFlip(row: HTMLElement, before: Map<number, number>): void {
   }
 }
 
-/**
- * Distance from the window's top edge at which a floating card hands off to the OS drag.
- * 0 = only once the cursor has left the window. 20 hands off inside the window, the path
- * known to work; switch to 0 once a native drag started outside the window is confirmed.
- */
-export const HANDOFF_EDGE = 20;
+/** How much a floating card grows when lifted. */
+const LIFT = 1.05;
 
 /** The floating card leans into horizontal motion and settles when it stops. */
 export function nextTilt(prev: number, dx: number): number {
   return Math.max(-10, Math.min(10, prev * 0.7 + dx * 0.6));
 }
 
-export function leftWindow(x: number, y: number, w: number, h: number, edge: number): boolean {
-  return x < 0 || y < edge || x >= w || y >= h;
+type Box = { left: number; top: number; right: number; bottom: number };
+
+/**
+ * The window is about to cut more of the floating card off than it did when the card was
+ * lifted (`start`): time to hand it to the OS drag. The bottom never counts — the panel sits
+ * on the screen's bottom edge, so a lifted card already overhangs it and nothing is below.
+ */
+export function ghostLeaves(box: Box, start: Box, w: number): boolean {
+  return box.top < Math.min(0, start.top) || box.left < Math.min(0, start.left) || box.right > Math.max(w, start.right);
+}
+
+/**
+ * The canvas for a `w`×`h` drag image grabbed at (`ox`, `oy`), padded so that point is its
+ * centre, and where in it the card goes.
+ */
+export function cursorCentredFrame(w: number, h: number, ox: number, oy: number) {
+  const halfW = Math.max(ox, w - ox);
+  const halfH = Math.max(oy, h - oy);
+  return { width: halfW * 2, height: halfH * 2, x: halfW - ox, y: halfH - oy };
 }
 
 /** Tears down the float (or its spring-back) in progress, if any. */
@@ -72,13 +87,20 @@ export function cancelFloat(): void {
 }
 
 /**
- * Lifts a copy of `card` that follows the cursor, leaving a dashed slot behind. When the
- * cursor leaves the window the copy is dropped and `onLeave` starts the OS drag; when the
- * button is released inside, the copy springs back into the slot.
+ * Lifts a copy of `card` that follows the cursor, leaving a dashed slot behind. When the copy
+ * reaches the window's edge it is dropped and `onLeave` starts the OS drag with a picture of
+ * the card (base64 PNG, or null if it isn't drawn yet); when the button is released inside,
+ * the copy springs back into the slot.
  */
-export function floatCard(card: HTMLElement, x0: number, y0: number, onLeave: () => void): void {
+export function floatCard(card: HTMLElement, x0: number, y0: number, onLeave: (image: string | null) => void): void {
   // A card grabbed again mid spring-back must not clone the previous float's slot marker.
   cancelFloat();
+  let image: string | null = null;
+  // Read the card before it turns into a slot; only the PNG encoding finishes later.
+  cardImage(card, x0, y0, LIFT).then(
+    (png) => (image = png),
+    () => {},
+  );
   const r = card.getBoundingClientRect();
   const ghost = card.cloneNode(true) as HTMLElement;
   ghost.classList.add("ghost");
@@ -91,7 +113,7 @@ export function floatCard(card: HTMLElement, x0: number, y0: number, onLeave: ()
   let lastX = x0;
   let back: Animation | null = null;
   const place = (x: number, y: number) => {
-    ghost.style.transform = `translate(${x - x0}px, ${y - y0}px) rotate(${tilt}deg) scale(1.05)`;
+    ghost.style.transform = `translate(${x - x0}px, ${y - y0}px) rotate(${tilt}deg) scale(${LIFT})`;
   };
   const restore = () => {
     ghost.remove();
@@ -106,7 +128,7 @@ export function floatCard(card: HTMLElement, x0: number, y0: number, onLeave: ()
   function leave() {
     stop();
     restore();
-    onLeave();
+    onLeave(image);
   }
   function drop() {
     stop();
@@ -120,8 +142,8 @@ export function floatCard(card: HTMLElement, x0: number, y0: number, onLeave: ()
     if ((e.buttons & 1) === 0) return drop();
     tilt = nextTilt(tilt, e.clientX - lastX);
     lastX = e.clientX;
-    if (leftWindow(e.clientX, e.clientY, innerWidth, innerHeight, HANDOFF_EDGE)) return leave();
     place(e.clientX, e.clientY);
+    if (ghostLeaves(ghost.getBoundingClientRect(), lifted, innerWidth)) leave();
   }
 
   cancelActive = () => {
@@ -130,6 +152,7 @@ export function floatCard(card: HTMLElement, x0: number, y0: number, onLeave: ()
     restore();
   };
   place(x0, y0);
+  const lifted = ghost.getBoundingClientRect();
   window.addEventListener("mousemove", move);
   window.addEventListener("mouseup", drop);
   document.documentElement.addEventListener("mouseleave", leave);
