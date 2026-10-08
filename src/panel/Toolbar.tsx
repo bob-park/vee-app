@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import type { App, Filter } from "../api.ts";
 import { usePrefs } from "../prefs.tsx";
 
@@ -62,6 +62,11 @@ export function Toolbar({
   onCancelUpdate,
 }: Props) {
   const { t } = usePrefs();
+  const listRef = useRef<HTMLDivElement>(null);
+  // Only the list scrolls, so keep the highlighted app in view while moving with the arrows.
+  useEffect(() => {
+    listRef.current?.children[suggestIndex]?.scrollIntoView({ block: "nearest" });
+  }, [suggestIndex, suggestions]);
   return (
     <div className="toolbar">
       <div className="search">
@@ -85,23 +90,25 @@ export function Toolbar({
           spellCheck={false}
         />
         {suggesting && (
-          <div className="suggest" role="listbox">
+          <div className="suggest">
             {suggestions.length === 0 ? (
               <p className="suggest-empty">{t.noApps}</p>
             ) : (
-              suggestions.map((a, i) => (
-                <div
-                  key={a.id}
-                  role="option"
-                  aria-selected={i === suggestIndex}
-                  className={i === suggestIndex ? "suggest-item on" : "suggest-item"}
-                  onClick={() => onPickApp(a)}
-                >
-                  {a.icon ? <img src={a.icon} alt="" /> : <span className="suggest-noicon" />}
-                  <span className="suggest-name">{highlight(a.name, query.slice(1))}</span>
-                  <span className="suggest-count">{a.count}</span>
-                </div>
-              ))
+              <div className="suggest-list" role="listbox" ref={listRef}>
+                {suggestions.map((a, i) => (
+                  <div
+                    key={a.id}
+                    role="option"
+                    aria-selected={i === suggestIndex}
+                    className={i === suggestIndex ? "suggest-item on" : "suggest-item"}
+                    onClick={() => onPickApp(a)}
+                  >
+                    {a.icon ? <img src={a.icon} alt="" /> : <span className="suggest-noicon" />}
+                    <span className="suggest-name">{highlight(a.name, query.slice(1))}</span>
+                    <span className="suggest-count">{a.count}</span>
+                  </div>
+                ))}
+              </div>
             )}
             <p className="suggest-hint">{t.suggestHint}</p>
           </div>
