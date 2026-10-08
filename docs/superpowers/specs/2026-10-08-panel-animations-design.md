@@ -57,10 +57,10 @@
   - 열려 있는 동안 `list_clips` 텍스트 검색은 하지 않는다(쿼리 `""`로 취급).
   - 결과가 없으면 "일치하는 앱 없음" 한 줄 표시.
 - 선택 시: `app` 설정, `query`를 `""`로, 자동완성 닫힘, 선택 카드 0으로.
-- 태그: 입력창 앞에 `<span class="app-tag">`(16px 아이콘 + 이름 + ×). × 클릭 시 해제.
+- 태그: 입력창 앞에 `<span class="app-tag">`(16px 아이콘 + 이름 + ×). × 클릭 시 해제. `.search`는 `<label>`에서 `<div>`로 바꾼다(label 안의 첫 버튼이 label 대상이 되어 클릭 시 태그가 지워지는 문제 방지).
 - 팝오버: 입력창 아래 `position: absolute`, 너비 240px, `.update-pop`과 같은 카드 스타일. 항목은 20px 아이콘, 이름(일치 부분 `--accent` 굵게), 개수. 하단 힌트 "↑↓ 이동 · ↵ 선택 · esc 닫기".
 - 키 처리(`panelKeyAction`에 `suggesting: boolean`, `hasTag: boolean` 입력 추가):
-  - `suggesting`일 때: `ArrowDown/ArrowUp` → `suggestMove`, `Enter` → `suggestPick`, `Escape` → `suggestClose`(쿼리의 `@…` 제거). 나머지는 입력으로 흘려보냄(null). IME 조합 중엔 기존처럼 null.
+  - `suggesting`일 때: `ArrowDown/ArrowUp` → `suggestMove`, `Enter` → `suggestPick`, `Escape` → `suggestClose`(쿼리의 `@…` 제거). 나머지 키는 평소 규칙을 그대로 따른다(Tab 필터 순환 등). IME 조합 중엔 기존처럼 null.
   - `Backspace` + `queryEmpty` + `hasTag` → `clearTag` (카드 삭제보다 우선).
   - `Escape` + `hasTag`(자동완성 닫힘) → 기존대로 패널 숨김.
 - `panel://closed`에서 `app`, 자동완성 상태도 초기화.
@@ -91,12 +91,12 @@
 
 ## 4. 클립 추가 애니메이션 (목업 C)
 
-파일: `src/panel/Panel.tsx`, `src/panel/Card.tsx`(ref 전달), `src/panel/panel.css`
+파일: `src/panel/Panel.tsx`, `src/panel/Card.tsx`(`data-id` 속성), `src/panel/motion.ts`
 
 - `reload`에 `animate` 플래그를 두어, `clips://changed`에서 온 재로딩이고 패널이 `open`일 때만 애니메이션한다. 검색·필터·패널 열기/닫기·더 불러오기에는 적용하지 않는다.
 - 커밋 직전 카드 요소들의 `left`를 `Map<id, number>`로 기록하고, `useLayoutEffect`에서:
   - 이전에도 있던 id: 위치 차이 `dx`만큼 `translateX(dx) → none` (360ms, 이동 이징). 맨 앞으로 올라온 기존 카드도 이 규칙으로 이동만 한다(글로우 없음).
-  - 처음 보는 id: `scale(.86), opacity 0 → none, 1` (360ms) + `.glow` 클래스 1회(1.4s, 보라 링 `0 0 0 6px` → `0` 퍼짐 후 소멸), `animationend`에서 제거.
+  - 처음 보는 id: `scale(.86), opacity 0 → none, 1` (360ms) + 보라 링 글로우 1회(1.4s, `0 0 0 6px` → `0` 퍼짐 후 소멸). 클래스가 아니라 `element.animate`의 box-shadow로 준다(React가 className을 덮어써도 끊기지 않도록).
 - 화면 밖(스크롤된 상태)의 카드는 그대로 애니메이션돼도 무방하다.
 - 삭제로 인한 재로딩도 같은 경로라 남은 카드는 FLIP으로 메워진다(추가 비용 없음, 의도된 동작).
 
