@@ -100,6 +100,7 @@ export function Card({ clip, selected, onSelect, onCopy, onDragOut, confirming, 
   return (
     <div
       className={["card", selected && "selected", confirming && "confirming"].filter(Boolean).join(" ")}
+      data-id={clip.id}
       role="option"
       aria-selected={selected}
       onClick={onSelect}

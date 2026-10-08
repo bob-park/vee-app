@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type UIEvent, type WheelEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type UIEvent, type WheelEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, type App, type Clip, type Filter, type UpdateStatus } from "../api.ts";
 import { usePrefs } from "../prefs.tsx";
 import { Card } from "./Card.tsx";
 import { dragFileName } from "./fileThumb.ts";
 import { panelKeyAction } from "./keys.ts";
+import { cardLefts, playFlip, reducedMotion } from "./motion.ts";
 import { FILTERS, Toolbar } from "./Toolbar.tsx";
 import "./panel.css";
 
@@ -31,6 +32,10 @@ export function Panel() {
   const loadingMore = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
+  /** Card positions captured just before an animated reload, consumed by the next layout. */
+  const flipFrom = useRef<Map<number, number> | null>(null);
+  const openRef = useRef(open);
+  openRef.current = open;
 
   // While `@…` is being typed it names an app, not text to search for.
   const suggesting = app === null && query.startsWith("@");
@@ -39,10 +44,12 @@ export function Panel() {
 
   /** Reloads the first page. Responses from superseded searches are dropped. */
   const reload = useCallback(
-    async (keepSelection: boolean) => {
+    async (keepSelection: boolean, animate = false) => {
       const id = ++requestId.current;
       const page = await api.listClips(textQuery, filter, appId, 0, PAGE);
       if (id !== requestId.current) return;
+      // Only copies arriving while the panel is on screen animate — not searches or filters.
+      if (animate && openRef.current && !reducedMotion()) flipFrom.current = cardLefts(rowRef.current);
       setClips(page);
       setHasMore(page.length === PAGE);
       setSelected((s) => (keepSelection ? Math.max(0, Math.min(s, page.length - 1)) : 0));
@@ -96,7 +103,7 @@ export function Panel() {
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
   useEffect(() => {
-    const offChanged = listen("clips://changed", () => void reloadRef.current(true));
+    const offChanged = listen("clips://changed", () => void reloadRef.current(true, true));
     const offOpened = listen("panel://opened", () => {
       setClosing(false);
       inputRef.current?.focus();
@@ -128,6 +135,12 @@ export function Panel() {
       void offDragCancelled.then((off) => off());
     };
   }, []);
+
+  useLayoutEffect(() => {
+    const before = flipFrom.current;
+    flipFrom.current = null;
+    if (before && rowRef.current) playFlip(rowRef.current, before);
+  }, [clips]);
 
   useEffect(() => {
     rowRef.current?.children[selected]?.scrollIntoView({ block: "nearest", inline: "nearest" });
