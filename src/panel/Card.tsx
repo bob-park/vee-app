@@ -11,7 +11,8 @@ interface Props {
   selected: boolean;
   onSelect: () => void;
   onCopy: () => void;
-  onDragOut?: () => void;
+  /** Starts dragging the card out, from the card element and the cursor position. */
+  onDragOut?: (card: HTMLElement, x: number, y: number) => void;
   confirming: boolean;
   onConfirmDelete: () => void;
   onCancelDelete: () => void;
@@ -117,7 +118,7 @@ export function Card({ clip, selected, onSelect, onCopy, onDragOut, confirming, 
         }
         if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_THRESHOLD) return;
         press.current = null;
-        onDragOut();
+        onDragOut(e.currentTarget, e.clientX, e.clientY);
       }}
       onMouseUp={() => {
         press.current = null;

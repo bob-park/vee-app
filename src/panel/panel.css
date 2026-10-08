@@ -483,6 +483,26 @@
   margin: 0;
 }
 
+/* Where a floating card came from. */
+.card[data-slot] {
+  border: 2px dashed var(--accent-subtle);
+  background: transparent;
+  box-shadow: none;
+}
+
+.card[data-slot] > * {
+  visibility: hidden;
+}
+
+/* The copy that follows the cursor while dragging a card. */
+.card.ghost {
+  position: fixed;
+  z-index: 10;
+  margin: 0;
+  pointer-events: none;
+  box-shadow: 0 14px 34px rgba(16, 24, 40, 0.25);
+}
+
 /* Thumbnails must not start WebKit's own HTML drag. */
 .panel img {
   -webkit-user-drag: none;

@@ -5,7 +5,7 @@ import { usePrefs } from "../prefs.tsx";
 import { Card } from "./Card.tsx";
 import { dragFileName } from "./fileThumb.ts";
 import { panelKeyAction } from "./keys.ts";
-import { cardLefts, playFlip, reducedMotion } from "./motion.ts";
+import { cardLefts, floatCard, playFlip, reducedMotion } from "./motion.ts";
 import { FILTERS, Toolbar } from "./Toolbar.tsx";
 import "./panel.css";
 
@@ -156,6 +156,12 @@ export function Panel() {
     void api.startDrag(clip.id, dragFileName(clip.lastUsedAt)).catch(() => setDragging(false));
   };
 
+  /** Floats the card under the cursor first; the OS drag starts once it leaves the panel. */
+  const liftCard = (clip: Clip, card: HTMLElement, x: number, y: number) => {
+    if (reducedMotion()) dragOut(clip);
+    else floatCard(card, x, y, () => dragOut(clip));
+  };
+
   const remove = (clip: Clip | undefined) => {
     if (clip) void api.deleteClip(clip.id);
   };
@@ -296,7 +302,11 @@ export function Panel() {
                 setConfirmingId(null);
               }}
               onCopy={() => copy(clip)}
-              onDragOut={(clip.kind === "files" || clip.kind === "image") && !clip.missing ? () => dragOut(clip) : undefined}
+              onDragOut={
+                (clip.kind === "files" || clip.kind === "image") && !clip.missing
+                  ? (card, x, y) => liftCard(clip, card, x, y)
+                  : undefined
+              }
               confirming={clip.id === confirmingId}
               onConfirmDelete={() => {
                 remove(clip);
