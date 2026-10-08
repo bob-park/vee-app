@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type UIEvent, type WheelEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { api, type Clip, type Filter, type UpdateStatus } from "../api.ts";
+import { api, type App, type Clip, type Filter, type UpdateStatus } from "../api.ts";
 import { usePrefs } from "../prefs.tsx";
 import { Card } from "./Card.tsx";
 import { dragFileName } from "./fileThumb.ts";
@@ -24,16 +24,24 @@ export function Panel() {
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   const [updateConfirming, setUpdateConfirming] = useState(false);
   const [updateFailed, setUpdateFailed] = useState(false);
+  const [app, setApp] = useState<App | null>(null);
+  const [suggestions, setSuggestions] = useState<App[]>([]);
+  const [suggestIndex, setSuggestIndex] = useState(0);
   const requestId = useRef(0);
   const loadingMore = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
 
+  // While `@…` is being typed it names an app, not text to search for.
+  const suggesting = app === null && query.startsWith("@");
+  const textQuery = suggesting ? "" : query;
+  const appId = app?.id ?? null;
+
   /** Reloads the first page. Responses from superseded searches are dropped. */
   const reload = useCallback(
     async (keepSelection: boolean) => {
       const id = ++requestId.current;
-      const page = await api.listClips(query, filter, 0, PAGE);
+      const page = await api.listClips(textQuery, filter, appId, 0, PAGE);
       if (id !== requestId.current) return;
       setClips(page);
       setHasMore(page.length === PAGE);
@@ -43,7 +51,7 @@ export function Panel() {
         rowRef.current?.scrollTo({ left: 0 });
       }
     },
-    [query, filter],
+    [textQuery, filter, appId],
   );
 
   const loadMore = useCallback(async () => {
@@ -51,18 +59,31 @@ export function Panel() {
     loadingMore.current = true;
     const id = requestId.current;
     try {
-      const page = await api.listClips(query, filter, clips.length, PAGE);
+      const page = await api.listClips(textQuery, filter, appId, clips.length, PAGE);
       if (id !== requestId.current) return;
       setClips((prev) => [...prev, ...page]);
       setHasMore(page.length === PAGE);
     } finally {
       loadingMore.current = false;
     }
-  }, [query, filter, clips.length, hasMore]);
+  }, [textQuery, filter, appId, clips.length, hasMore]);
 
   useEffect(() => {
     void reload(false);
   }, [reload]);
+
+  useEffect(() => {
+    if (!suggesting) return;
+    let live = true;
+    void api.listApps(query.slice(1)).then((apps) => {
+      if (!live) return;
+      setSuggestions(apps);
+      setSuggestIndex(0);
+    });
+    return () => {
+      live = false;
+    };
+  }, [suggesting, query]);
 
   useEffect(() => {
     const apply = (s: UpdateStatus) => setUpdateVersion(s.status === "ready" ? s.version : null);
@@ -94,6 +115,7 @@ export function Panel() {
       setUpdateConfirming(false);
       setUpdateFailed(false);
       setQuery("");
+      setApp(null);
       setFilter("all");
       void reloadRef.current(false);
     });
@@ -125,6 +147,11 @@ export function Panel() {
     if (clip) void api.deleteClip(clip.id);
   };
 
+  const pickApp = (picked: App) => {
+    setApp(picked);
+    setQuery("");
+  };
+
   const installUpdate = () => {
     setUpdateFailed(false);
     void api.installUpdate().catch(() => setUpdateFailed(true));
@@ -144,6 +171,8 @@ export function Panel() {
       queryEmpty: query === "",
       repeat: e.repeat,
       confirming: confirmingId !== null || updateConfirming,
+      suggesting,
+      hasTag: app !== null,
     });
     if (!action) return;
     e.preventDefault();
@@ -175,6 +204,20 @@ export function Panel() {
         }
         remove(clips.find((c) => c.id === confirmingId));
         setConfirmingId(null);
+        break;
+      case "suggestMove":
+        setSuggestIndex((i) => Math.max(0, Math.min(i + action.delta, suggestions.length - 1)));
+        break;
+      case "suggestPick": {
+        const picked = suggestions[suggestIndex];
+        if (picked) pickApp(picked);
+        break;
+      }
+      case "suggestClose":
+        setQuery("");
+        break;
+      case "clearTag":
+        setApp(null);
         break;
       case "cancelDelete":
         setConfirmingId(null);
@@ -208,6 +251,12 @@ export function Panel() {
         filter={filter}
         onFilter={setFilter}
         inputRef={inputRef}
+        app={app}
+        onClearApp={() => setApp(null)}
+        suggesting={suggesting}
+        suggestions={suggestions}
+        suggestIndex={suggestIndex}
+        onPickApp={pickApp}
         onSettings={() => void api.openSettings()}
         updateVersion={updateVersion}
         updateConfirming={updateConfirming}
@@ -221,7 +270,7 @@ export function Panel() {
         onCancelUpdate={cancelUpdate}
       />
       {clips.length === 0 ? (
-        <div className="empty">{query || filter !== "all" ? t.noResults : t.empty}</div>
+        <div className="empty">{query || filter !== "all" || app ? t.noResults : t.empty}</div>
       ) : (
         <div className="row" ref={rowRef} role="listbox" onWheel={onWheel} onScroll={onScroll}>
           {clips.map((clip, i) => (

@@ -19,6 +19,14 @@ export interface Clip {
   stack: (string | null)[];
 }
 
+export interface App {
+  id: number;
+  name: string;
+  icon: string | null;
+  /** How many clips came from this app. */
+  count: number;
+}
+
 export const SOUND_NAMES = ["none", "pop", "click", "chime", "bubble", "tap"] as const;
 export type SoundName = (typeof SOUND_NAMES)[number];
 
@@ -49,8 +57,9 @@ export interface ToastPayload {
 }
 
 export const api = {
-  listClips: (query: string, kind: Filter, offset: number, limit: number) =>
-    invoke<Clip[]>("list_clips", { query, kind, offset, limit }),
+  listClips: (query: string, kind: Filter, appId: number | null, offset: number, limit: number) =>
+    invoke<Clip[]>("list_clips", { query, kind, appId, offset, limit }),
+  listApps: (query: string) => invoke<App[]>("list_apps", { query }),
   copyClip: (id: number) => invoke<void>("copy_clip", { id }),
   startDrag: (id: number, name: string) => invoke<void>("start_drag", { id, name }),
   deleteClip: (id: number) => invoke<void>("delete_clip", { id }),
