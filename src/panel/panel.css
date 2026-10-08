@@ -78,13 +78,25 @@
   z-index: 3;
   width: 240px;
   max-height: calc(100vh - 70px);
-  overflow-y: auto;
+  /* The list scrolls; the hint below it always stays visible. */
+  display: flex;
+  flex-direction: column;
   padding: 4px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--card);
   color: var(--text);
   box-shadow: rgba(0, 0, 0, 0.12) 0 8px 24px;
+}
+
+.suggest-list {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.suggest-list::-webkit-scrollbar {
+  display: none;
 }
 
 .suggest-item {
@@ -135,6 +147,7 @@
 }
 
 .suggest-hint {
+  flex: none;
   margin-top: 4px;
   padding: 6px 8px 4px;
   border-top: 1px solid var(--divider);

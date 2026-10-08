@@ -1000,8 +1000,6 @@ dependencies = [
 [[package]]
 name = "drag"
 version = "2.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e90b4a25ace5ce0561534b073943594cbcd21af936e64d09aec444568411f8c"
 dependencies = [
  "core-graphics 0.24.0",
  "dunce",
@@ -5002,7 +5000,7 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "vee-app"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "base64 0.22.1",
  "clipboard-rs",

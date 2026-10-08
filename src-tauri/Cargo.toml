@@ -1,6 +1,6 @@
 [package]
 name = "vee-app"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 
 [lib]
@@ -41,3 +41,8 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 
 [dev-dependencies]
 tempfile = "3"
+
+# drag 2.1.1 with one change: on Windows the drag image is held by its centre (ptOffset),
+# matching macOS. Drop this once upstream lets the offset be set.
+[patch.crates-io]
+drag = { path = "vendor/drag" }

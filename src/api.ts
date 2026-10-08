@@ -61,7 +61,8 @@ export const api = {
     invoke<Clip[]>("list_clips", { query, kind, appId, offset, limit }),
   listApps: (query: string) => invoke<App[]>("list_apps", { query }),
   copyClip: (id: number) => invoke<void>("copy_clip", { id }),
-  startDrag: (id: number, name: string) => invoke<void>("start_drag", { id, name }),
+  /** `image` is the dragged card as a base64 PNG (see cardImage.ts); without it the thumbnail is dragged. */
+  startDrag: (id: number, name: string, image: string | null) => invoke<void>("start_drag", { id, name, image }),
   deleteClip: (id: number) => invoke<void>("delete_clip", { id }),
   clearHistory: () => invoke<void>("clear_history"),
   hidePanel: () => invoke<void>("hide_panel"),

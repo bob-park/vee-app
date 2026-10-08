@@ -143,7 +143,13 @@ impl Handler {
 
 impl ClipboardHandler for Handler {
     fn on_clipboard_change(&mut self) {
-        if let Err(e) = self.capture() {
+        // This thread has no run loop, so nothing drains autoreleased Cocoa objects for it:
+        // without a pool every pasteboard buffer read here (an image is ~2MB) is kept forever.
+        #[cfg(target_os = "macos")]
+        let result = objc2::rc::autoreleasepool(|_| self.capture());
+        #[cfg(not(target_os = "macos"))]
+        let result = self.capture();
+        if let Err(e) = result {
             log::warn!("clipboard capture failed: {e}");
         }
     }

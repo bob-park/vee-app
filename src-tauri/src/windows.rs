@@ -361,6 +361,48 @@ fn drag_image(preview: Option<Vec<u8>>) -> Vec<u8> {
         .unwrap_or_else(|| DRAG_ICON.to_vec())
 }
 
+fn card_image(base64_png: Option<&str>) -> Option<Vec<u8>> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    png_at_retina(&STANDARD.decode(base64_png?).ok()?)
+}
+
+/// Marks a PNG as 144 dpi (a `pHYs` chunk right after `IHDR`, replacing any other), so macOS
+/// sizes a 2x-rendered drag image in points and it stays sharp on Retina. Windows ignores the
+/// chunk and draws pixels 1:1, which is why the card is drawn at device pixels there. None if
+/// not a PNG.
+fn png_at_retina(png: &[u8]) -> Option<Vec<u8>> {
+    const SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = !0u32;
+        for &b in bytes {
+            crc ^= b as u32;
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+            }
+        }
+        !crc
+    }
+    let mut rest = png.strip_prefix(SIGNATURE)?;
+    let mut out = SIGNATURE.to_vec();
+    while !rest.is_empty() {
+        let len = u32::from_be_bytes(rest.get(..4)?.try_into().ok()?) as usize;
+        let chunk = rest.get(..12 + len)?;
+        let kind = &chunk[4..8];
+        if kind != b"pHYs" {
+            out.extend_from_slice(chunk);
+        }
+        if kind == b"IHDR" {
+            let ppm = 5669u32.to_be_bytes(); // 144 dpi in pixels per metre
+            let body = [b"pHYs".as_slice(), &ppm, &ppm, &[1]].concat();
+            out.extend_from_slice(&9u32.to_be_bytes());
+            out.extend_from_slice(&body);
+            out.extend_from_slice(&crc32(&body).to_be_bytes());
+        }
+        rest = &rest[12 + len..];
+    }
+    Some(out)
+}
+
 /// A safe file name for a dragged image: no path parts, always `.png`.
 fn drag_file_name(name: &str) -> String {
     let clean: String = name.chars().map(|c| if c.is_alphanumeric() || " -._".contains(c) { c } else { '_' }).collect();
@@ -378,8 +420,10 @@ fn stage_image(src: &Path, dir: &Path, name: &str) -> std::io::Result<PathBuf> {
 }
 
 /// Starts dragging a files or image clip out of the panel. Drops always copy.
-/// `name` names the dropped file for image clips.
-pub fn start_drag(app: &AppHandle, id: i64, name: &str) -> Result<(), String> {
+/// `name` names the dropped file for image clips. `image` is the card itself as a base64 PNG
+/// laid out for this platform (see `dragImageLayout` in motion.ts); without it the clip's
+/// thumbnail is dragged.
+pub fn start_drag(app: &AppHandle, id: i64, name: &str, image: Option<&str>) -> Result<(), String> {
     let state = app.state::<AppState>();
     let (content, preview) = {
         let store = state.store.lock().unwrap();
@@ -406,7 +450,7 @@ pub fn start_drag(app: &AppHandle, id: i64, name: &str) -> Result<(), String> {
     let started = drag::start_drag(
         &panel,
         DragItem::Files(paths),
-        drag::Image::Raw(drag_image(preview)),
+        drag::Image::Raw(card_image(image).unwrap_or_else(|| drag_image(preview))),
         move |result, _cursor| finish_drag(&handle, id, &content, result),
         drag::Options { mode: DragMode::Copy, ..Default::default() },
     );
@@ -474,6 +518,25 @@ mod tests {
         assert!(drag_image(Some(pixel)).starts_with(b"\x89PNG"));
         assert_eq!(drag_image(None), DRAG_ICON);
         assert_eq!(drag_image(Some(vec![1, 2, 3])), DRAG_ICON);
+    }
+
+    #[test]
+    fn card_image_is_marked_as_retina_once_and_still_decodes() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        use clipboard_rs::{RustImageData, common::RustImage};
+        let pixel = STANDARD
+            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+            .unwrap();
+        let marked = png_at_retina(&pixel).unwrap();
+        // 144 dpi = 5669 pixels per metre, in both directions, unit = metre.
+        let phys = [b"pHYs".as_slice(), &5669u32.to_be_bytes(), &5669u32.to_be_bytes(), &[1]].concat();
+        assert!(marked.windows(phys.len()).any(|w| w == phys));
+        // The decoder checks every chunk's CRC.
+        assert_eq!(RustImageData::from_bytes(&marked).unwrap().get_size(), (1, 1));
+        // Marking twice replaces the chunk instead of adding a second one.
+        let twice = png_at_retina(&marked).unwrap();
+        assert_eq!(twice.windows(4).filter(|w| *w == b"pHYs").count(), 1);
+        assert_eq!(png_at_retina(&[1, 2, 3]), None);
     }
 
     // Geometry captured from a MacBook (Retina, scale 2) with a 1x 2560x1440

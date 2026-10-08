@@ -107,8 +107,8 @@ fn preview_sound(name: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn start_drag(app: AppHandle, id: i64, name: String) -> Result<(), String> {
-    windows::start_drag(&app, id, &name)
+fn start_drag(app: AppHandle, id: i64, name: String, image: Option<String>) -> Result<(), String> {
+    windows::start_drag(&app, id, &name, image.as_deref())
 }
 
 #[tauri::command]
