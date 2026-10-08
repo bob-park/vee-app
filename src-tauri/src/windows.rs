@@ -18,9 +18,11 @@ const PANEL_MAX: f64 = 360.0;
 const PANEL_MARGIN: f64 = 8.0;
 /// Window size; the card inside is smaller and the rest is room for its shadow.
 const TOAST_WIDTH: f64 = 420.0;
-const TOAST_HEIGHT: f64 = 96.0;
+const TOAST_HEIGHT: f64 = 132.0;
 const TOAST_BOTTOM: f64 = 14.0;
 const TOAST_MS: u64 = 1500;
+/// Time the toast's exit animation gets before the window hides.
+const TOAST_EXIT_MS: u64 = 180;
 /// How long the panel slides down before its window hides; matches `.panel.closing` in panel.css.
 const PANEL_CLOSE_MS: u64 = 200;
 /// Reveal the panel anyway if the webview hasn't confirmed its parked frame by then.
@@ -264,9 +266,15 @@ fn show_toast(app: &AppHandle, payload: ToastPayload) {
     let generation = TOAST_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let app = app.clone();
     std::thread::spawn(move || {
+        // A newer toast restarted the timer; let it run the exit and hide the window.
+        let current = || TOAST_GENERATION.load(Ordering::SeqCst) == generation;
         std::thread::sleep(Duration::from_millis(TOAST_MS));
-        // A newer toast restarted the timer; let it hide the window.
-        if TOAST_GENERATION.load(Ordering::SeqCst) == generation {
+        if !current() {
+            return;
+        }
+        let _ = app.emit_to(TOAST, "toast://hide", ());
+        std::thread::sleep(Duration::from_millis(TOAST_EXIT_MS));
+        if current() {
             if let Some(toast) = app.get_webview_window(TOAST) {
                 let _ = toast.hide();
             }
@@ -505,7 +513,7 @@ mod tests {
     fn panel_and_toast_sit_at_the_bottom_of_the_work_area() {
         let work = Rect { x: -2560.0, y: -241.0, w: 2560.0, h: 1410.0 };
         assert_eq!(panel_rect(work, 1.0), Rect { x: -2552.0, y: 801.0, w: 2544.0, h: 360.0 });
-        assert_eq!(toast_rect(work, 1.0), Rect { x: -1490.0, y: 1059.0, w: 420.0, h: 96.0 });
+        assert_eq!(toast_rect(work, 1.0), Rect { x: -1490.0, y: 1023.0, w: 420.0, h: 132.0 });
         // Windows: same layout in pixels at 150%.
         let px = Rect { x: 0.0, y: 0.0, w: 1920.0, h: 1040.0 };
         assert_eq!(panel_rect(px, 1.5), Rect { x: 12.0, y: 578.0, w: 1896.0, h: 450.0 });
