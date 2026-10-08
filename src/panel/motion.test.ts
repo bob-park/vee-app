@@ -45,11 +45,11 @@ test("on macOS the drag image is drawn at 2x and centred on the grabbed point", 
   });
 });
 
-test("on Windows the drag image is the card at device pixels, its corner under the cursor", () => {
-  // Windows draws the bitmap 1:1 in device pixels and pins its top-left corner to the cursor.
+test("on Windows the drag image is drawn at device pixels, also centred on the grabbed point", () => {
+  // Windows draws the bitmap 1:1 in device pixels; the patched drag crate holds it by its centre.
   assert.deepEqual(dragImageLayout(false, 200, 220, 30, 50, 1.5), {
     px: 1.5,
-    frame: { width: 200, height: 220, x: 0, y: 0 },
+    frame: { width: 340, height: 340, x: 140, y: 120 },
   });
 });
 
