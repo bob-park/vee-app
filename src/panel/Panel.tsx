@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type UIEvent, type WheelEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type UIEvent, type WheelEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { api, type Clip, type Filter, type UpdateStatus } from "../api.ts";
+import { api, type App, type Clip, type Filter, type UpdateStatus } from "../api.ts";
 import { usePrefs } from "../prefs.tsx";
 import { Card } from "./Card.tsx";
 import { dragFileName } from "./fileThumb.ts";
 import { panelKeyAction } from "./keys.ts";
+import { cancelFloat, cardLefts, floatCard, playFlip, reducedMotion } from "./motion.ts";
 import { FILTERS, Toolbar } from "./Toolbar.tsx";
 import "./panel.css";
 
@@ -24,17 +25,31 @@ export function Panel() {
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   const [updateConfirming, setUpdateConfirming] = useState(false);
   const [updateFailed, setUpdateFailed] = useState(false);
+  const [app, setApp] = useState<App | null>(null);
+  const [suggestions, setSuggestions] = useState<App[]>([]);
+  const [suggestIndex, setSuggestIndex] = useState(0);
   const requestId = useRef(0);
   const loadingMore = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
+  /** Card positions captured just before an animated reload, consumed by the next layout. */
+  const flipFrom = useRef<Map<number, number> | null>(null);
+  const openRef = useRef(open);
+  openRef.current = open;
+
+  // While `@…` is being typed it names an app, not text to search for.
+  const suggesting = app === null && query.startsWith("@");
+  const textQuery = suggesting ? "" : query;
+  const appId = app?.id ?? null;
 
   /** Reloads the first page. Responses from superseded searches are dropped. */
   const reload = useCallback(
-    async (keepSelection: boolean) => {
+    async (keepSelection: boolean, animate = false) => {
       const id = ++requestId.current;
-      const page = await api.listClips(query, filter, 0, PAGE);
+      const page = await api.listClips(textQuery, filter, appId, 0, PAGE);
       if (id !== requestId.current) return;
+      // Only copies arriving while the panel is on screen animate — not searches or filters.
+      if (animate && openRef.current && !reducedMotion()) flipFrom.current = cardLefts(rowRef.current);
       setClips(page);
       setHasMore(page.length === PAGE);
       setSelected((s) => (keepSelection ? Math.max(0, Math.min(s, page.length - 1)) : 0));
@@ -43,7 +58,7 @@ export function Panel() {
         rowRef.current?.scrollTo({ left: 0 });
       }
     },
-    [query, filter],
+    [textQuery, filter, appId],
   );
 
   const loadMore = useCallback(async () => {
@@ -51,18 +66,36 @@ export function Panel() {
     loadingMore.current = true;
     const id = requestId.current;
     try {
-      const page = await api.listClips(query, filter, clips.length, PAGE);
+      const page = await api.listClips(textQuery, filter, appId, clips.length, PAGE);
       if (id !== requestId.current) return;
       setClips((prev) => [...prev, ...page]);
       setHasMore(page.length === PAGE);
     } finally {
       loadingMore.current = false;
     }
-  }, [query, filter, clips.length, hasMore]);
+  }, [textQuery, filter, appId, clips.length, hasMore]);
 
   useEffect(() => {
     void reload(false);
   }, [reload]);
+
+  useEffect(() => {
+    // Closing the list (pick, esc, panel closed) drops its results so the next `@` never shows stale apps.
+    if (!suggesting) {
+      setSuggestions([]);
+      setSuggestIndex(0);
+      return;
+    }
+    let live = true;
+    void api.listApps(query.slice(1)).then((apps) => {
+      if (!live) return;
+      setSuggestions(apps);
+      setSuggestIndex(0);
+    });
+    return () => {
+      live = false;
+    };
+  }, [suggesting, query]);
 
   useEffect(() => {
     const apply = (s: UpdateStatus) => setUpdateVersion(s.status === "ready" ? s.version : null);
@@ -75,7 +108,7 @@ export function Panel() {
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
   useEffect(() => {
-    const offChanged = listen("clips://changed", () => void reloadRef.current(true));
+    const offChanged = listen("clips://changed", () => void reloadRef.current(true, true));
     const offOpened = listen("panel://opened", () => {
       setClosing(false);
       inputRef.current?.focus();
@@ -84,7 +117,11 @@ export function Panel() {
         requestAnimationFrame(() => void api.revealPanel().finally(() => setOpen(true))),
       );
     });
-    const offClosing = listen("panel://closing", () => setClosing(true));
+    const offClosing = listen("panel://closing", () => {
+      // A card floating under the cursor lives outside the panel; it must not outlast it.
+      cancelFloat();
+      setClosing(true);
+    });
     // Reset while hidden so the next open slides in finished content.
     const offClosed = listen("panel://closed", () => {
       setOpen(false);
@@ -94,6 +131,7 @@ export function Panel() {
       setUpdateConfirming(false);
       setUpdateFailed(false);
       setQuery("");
+      setApp(null);
       setFilter("all");
       void reloadRef.current(false);
     });
@@ -106,6 +144,12 @@ export function Panel() {
       void offDragCancelled.then((off) => off());
     };
   }, []);
+
+  useLayoutEffect(() => {
+    const before = flipFrom.current;
+    flipFrom.current = null;
+    if (before && rowRef.current) playFlip(rowRef.current, before);
+  }, [clips]);
 
   useEffect(() => {
     rowRef.current?.children[selected]?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -121,8 +165,19 @@ export function Panel() {
     void api.startDrag(clip.id, dragFileName(clip.lastUsedAt)).catch(() => setDragging(false));
   };
 
+  /** Floats the card under the cursor first; the OS drag starts once it leaves the panel. */
+  const liftCard = (clip: Clip, card: HTMLElement, x: number, y: number) => {
+    if (reducedMotion()) dragOut(clip);
+    else floatCard(card, x, y, () => dragOut(clip));
+  };
+
   const remove = (clip: Clip | undefined) => {
     if (clip) void api.deleteClip(clip.id);
+  };
+
+  const pickApp = (picked: App) => {
+    setApp(picked);
+    setQuery("");
   };
 
   const installUpdate = () => {
@@ -144,6 +199,8 @@ export function Panel() {
       queryEmpty: query === "",
       repeat: e.repeat,
       confirming: confirmingId !== null || updateConfirming,
+      suggesting,
+      hasTag: app !== null,
     });
     if (!action) return;
     e.preventDefault();
@@ -175,6 +232,20 @@ export function Panel() {
         }
         remove(clips.find((c) => c.id === confirmingId));
         setConfirmingId(null);
+        break;
+      case "suggestMove":
+        setSuggestIndex((i) => Math.max(0, Math.min(i + action.delta, suggestions.length - 1)));
+        break;
+      case "suggestPick": {
+        const picked = suggestions[suggestIndex];
+        if (picked) pickApp(picked);
+        break;
+      }
+      case "suggestClose":
+        setQuery("");
+        break;
+      case "clearTag":
+        setApp(null);
         break;
       case "cancelDelete":
         setConfirmingId(null);
@@ -208,6 +279,12 @@ export function Panel() {
         filter={filter}
         onFilter={setFilter}
         inputRef={inputRef}
+        app={app}
+        onClearApp={() => setApp(null)}
+        suggesting={suggesting}
+        suggestions={suggestions}
+        suggestIndex={suggestIndex}
+        onPickApp={pickApp}
         onSettings={() => void api.openSettings()}
         updateVersion={updateVersion}
         updateConfirming={updateConfirming}
@@ -221,7 +298,7 @@ export function Panel() {
         onCancelUpdate={cancelUpdate}
       />
       {clips.length === 0 ? (
-        <div className="empty">{query || filter !== "all" ? t.noResults : t.empty}</div>
+        <div className="empty">{query || filter !== "all" || app ? t.noResults : t.empty}</div>
       ) : (
         <div className="row" ref={rowRef} role="listbox" onWheel={onWheel} onScroll={onScroll}>
           {clips.map((clip, i) => (
@@ -234,7 +311,11 @@ export function Panel() {
                 setConfirmingId(null);
               }}
               onCopy={() => copy(clip)}
-              onDragOut={(clip.kind === "files" || clip.kind === "image") && !clip.missing ? () => dragOut(clip) : undefined}
+              onDragOut={
+                (clip.kind === "files" || clip.kind === "image") && !clip.missing
+                  ? (card, x, y) => liftCard(clip, card, x, y)
+                  : undefined
+              }
               confirming={clip.id === confirmingId}
               onConfirmDelete={() => {
                 remove(clip);

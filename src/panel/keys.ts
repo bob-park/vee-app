@@ -6,6 +6,10 @@ export type KeyAction =
   | { type: "delete" }
   | { type: "confirmDelete" }
   | { type: "cancelDelete" }
+  | { type: "suggestMove"; delta: 1 | -1 }
+  | { type: "suggestPick" }
+  | { type: "suggestClose" }
+  | { type: "clearTag" }
   | null;
 
 export interface KeyInput {
@@ -18,6 +22,10 @@ export interface KeyInput {
   repeat: boolean;
   /** A delete confirmation is showing on the selected card. */
   confirming: boolean;
+  /** The `@app` suggestion list is open. */
+  suggesting: boolean;
+  /** An app tag is set in the search box. */
+  hasTag: boolean;
 }
 
 const MODIFIERS = ["Shift", "Meta", "Control", "Alt"];
@@ -28,6 +36,18 @@ export function panelKeyAction(e: KeyInput): KeyAction {
     // Auto-repeat from the Delete that opened the confirmation must not dismiss it.
     if (e.repeat || MODIFIERS.includes(e.key)) return null;
     return e.key === "Enter" ? { type: "confirmDelete" } : { type: "cancelDelete" };
+  }
+  if (e.suggesting) {
+    switch (e.key) {
+      case "ArrowDown":
+        return { type: "suggestMove", delta: 1 };
+      case "ArrowUp":
+        return { type: "suggestMove", delta: -1 };
+      case "Enter":
+        return { type: "suggestPick" };
+      case "Escape":
+        return { type: "suggestClose" };
+    }
   }
   switch (e.key) {
     case "ArrowRight":
@@ -44,7 +64,8 @@ export function panelKeyAction(e: KeyInput): KeyAction {
     case "Delete":
       return e.repeat ? null : { type: "delete" };
     case "Backspace":
-      return e.queryEmpty && !e.repeat ? { type: "delete" } : null;
+      if (!e.queryEmpty || e.repeat) return null;
+      return e.hasTag ? { type: "clearTag" } : { type: "delete" };
     default:
       return null;
   }

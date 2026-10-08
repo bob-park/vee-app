@@ -17,6 +17,7 @@
 }
 
 .search {
+  position: relative;
   flex: 0 0 220px;
   display: flex;
   align-items: center;
@@ -35,6 +36,110 @@
   background: transparent;
   color: var(--text);
   font: inherit;
+}
+
+.app-tag {
+  flex: none;
+  max-width: 120px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 2px;
+  border-radius: 6px;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.app-tag img {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
+.app-tag-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-tag-x {
+  padding: 0 2px;
+  opacity: 0.6;
+  line-height: 1;
+}
+
+.suggest {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 3;
+  width: 240px;
+  max-height: calc(100vh - 70px);
+  overflow-y: auto;
+  padding: 4px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  box-shadow: rgba(0, 0, 0, 0.12) 0 8px 24px;
+}
+
+.suggest-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+
+.suggest-item.on {
+  background: var(--accent-subtle);
+}
+
+.suggest-item img,
+.suggest-noicon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+
+.suggest-noicon {
+  background: var(--subtle);
+  border: 1px solid var(--border);
+}
+
+.suggest-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.suggest-name b {
+  color: var(--accent);
+}
+
+.suggest-count {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.suggest-empty {
+  padding: 6px 8px;
+  color: var(--muted);
+}
+
+.suggest-hint {
+  margin-top: 4px;
+  padding: 6px 8px 4px;
+  border-top: 1px solid var(--divider);
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .chips {
@@ -174,22 +279,42 @@
 }
 
 .card-head {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px;
+  min-height: 40px;
+  /* The left 46px is where the backdrop icon shows through. */
+  padding: 8px 8px 8px 46px;
 }
 
-.app-icon {
-  width: 24px;
-  height: 24px;
-  flex: none;
-  border-radius: 6px;
+/* The source app's icon, faded in from the top-left corner like a watermark. */
+.card-bg {
+  position: absolute;
+  top: -14px;
+  left: -18px;
+  z-index: 0;
+  width: 72px;
+  height: 72px;
+  pointer-events: none;
+  opacity: 0.16;
+  -webkit-mask-image: linear-gradient(135deg, #000 30%, transparent 85%);
+  mask-image: linear-gradient(135deg, #000 30%, transparent 85%);
 }
 
-.app-icon-empty {
-  background: var(--subtle);
-  border: 1px solid var(--border);
+:root[data-theme="dark"] .card-bg {
+  opacity: 0.22;
+}
+
+.app-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .badge {
@@ -222,6 +347,7 @@
   padding: 0 8px;
   overflow: hidden;
   position: relative;
+  z-index: 1;
 }
 
 .preview {
@@ -295,6 +421,8 @@
 }
 
 .card-foot {
+  position: relative;
+  z-index: 1;
   display: flex;
   justify-content: space-between;
   gap: 6px;
@@ -355,6 +483,26 @@
   margin: 0;
 }
 
+/* Where a floating card came from. */
+.card[data-slot] {
+  border: 2px dashed var(--accent-subtle);
+  background: transparent;
+  box-shadow: none;
+}
+
+.card[data-slot] > * {
+  visibility: hidden;
+}
+
+/* The copy that follows the cursor while dragging a card. */
+.card.ghost {
+  position: fixed;
+  z-index: 10;
+  margin: 0;
+  pointer-events: none;
+  box-shadow: 0 14px 34px rgba(16, 24, 40, 0.25);
+}
+
 /* Thumbnails must not start WebKit's own HTML drag. */
 .panel img {
   -webkit-user-drag: none;
@@ -368,6 +516,7 @@
 .confirm {
   position: absolute;
   inset: 0;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;

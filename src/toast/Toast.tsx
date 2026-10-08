@@ -22,11 +22,17 @@ function Icon({ path }: { path: string }) {
 
 export function Toast() {
   const { t } = usePrefs();
-  const [toast, setToast] = useState<{ payload: ToastPayload; key: number } | null>(null);
+  const [toast, setToast] = useState<{ payload: ToastPayload; key: number; out: boolean } | null>(null);
 
   useEffect(() => {
-    const unlisten = listen<ToastPayload>("toast://show", (e) => setToast({ payload: e.payload, key: Date.now() }));
-    return () => void unlisten.then((off) => off());
+    const offShow = listen<ToastPayload>("toast://show", (e) =>
+      setToast({ payload: e.payload, key: Date.now(), out: false }),
+    );
+    const offHide = listen("toast://hide", () => setToast((cur) => cur && { ...cur, out: true }));
+    return () => {
+      void offShow.then((off) => off());
+      void offHide.then((off) => off());
+    };
   }, []);
 
   if (!toast) return null;
@@ -39,7 +45,11 @@ export function Toast() {
         ? t.filesCount(p.files)
         : p.text;
   return (
-    <div key={toast.key} className={p.ok ? "toast" : "toast toast-error"} role="status">
+    <div
+      key={toast.key}
+      className={["toast", !p.ok && "toast-error", toast.out && "out"].filter(Boolean).join(" ")}
+      role="status"
+    >
       <span className="toast-icon">
         {p.ok ? <Icon path={KIND_ICONS[p.kind]} /> : "!"}
         {p.ok && <span className="toast-check">✓</span>}

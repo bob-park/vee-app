@@ -11,7 +11,8 @@ interface Props {
   selected: boolean;
   onSelect: () => void;
   onCopy: () => void;
-  onDragOut?: () => void;
+  /** Starts dragging the card out, from the card element and the cursor position. */
+  onDragOut?: (card: HTMLElement, x: number, y: number) => void;
   confirming: boolean;
   onConfirmDelete: () => void;
   onCancelDelete: () => void;
@@ -100,6 +101,7 @@ export function Card({ clip, selected, onSelect, onCopy, onDragOut, confirming, 
   return (
     <div
       className={["card", selected && "selected", confirming && "confirming"].filter(Boolean).join(" ")}
+      data-id={clip.id}
       role="option"
       aria-selected={selected}
       onClick={onSelect}
@@ -116,18 +118,15 @@ export function Card({ clip, selected, onSelect, onCopy, onDragOut, confirming, 
         }
         if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_THRESHOLD) return;
         press.current = null;
-        onDragOut();
+        onDragOut(e.currentTarget, e.clientX, e.clientY);
       }}
       onMouseUp={() => {
         press.current = null;
       }}
     >
+      {clip.appIcon && <img className="card-bg" src={clip.appIcon} alt="" aria-hidden />}
       <div className="card-head">
-        {clip.appIcon ? (
-          <img className="app-icon" src={clip.appIcon} alt={clip.appName ?? ""} title={clip.appName ?? ""} />
-        ) : (
-          <span className="app-icon app-icon-empty" aria-hidden />
-        )}
+        <span className="app-name">{clip.appName ?? ""}</span>
         <span className={clip.kind === "files" ? "badge badge-file" : "badge"}>{badgeLabel(clip, t)}</span>
         <span className="time">{relativeTime(clip.lastUsedAt, locale)}</span>
       </div>

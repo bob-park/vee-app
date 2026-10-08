@@ -3,7 +3,17 @@ import assert from "node:assert/strict";
 import { panelKeyAction, type KeyInput } from "./keys.ts";
 
 const press = (key: string, extra: Partial<KeyInput> = {}) =>
-  panelKeyAction({ key, shiftKey: false, isComposing: false, queryEmpty: true, repeat: false, confirming: false, ...extra });
+  panelKeyAction({
+    key,
+    shiftKey: false,
+    isComposing: false,
+    queryEmpty: true,
+    repeat: false,
+    confirming: false,
+    suggesting: false,
+    hasTag: false,
+    ...extra,
+  });
 
 test("ignores every key while an IME composition is active", () => {
   for (const key of ["Enter", "ArrowLeft", "ArrowRight", "Backspace", "Tab", "Escape"]) {
@@ -52,4 +62,32 @@ test("modifiers and the held delete key don't cancel a confirmation", () => {
   }
   assert.equal(press("Delete", { confirming: true, repeat: true }), null);
   assert.equal(press("Backspace", { confirming: true, repeat: true }), null);
+});
+
+test("while suggesting apps, arrows, enter and escape drive the list", () => {
+  const s = { suggesting: true, queryEmpty: false };
+  assert.deepEqual(press("ArrowDown", s), { type: "suggestMove", delta: 1 });
+  assert.deepEqual(press("ArrowUp", s), { type: "suggestMove", delta: -1 });
+  assert.deepEqual(press("Enter", s), { type: "suggestPick" });
+  assert.deepEqual(press("Escape", s), { type: "suggestClose" });
+  assert.equal(press("a", s), null);
+  // Everything else keeps its usual meaning, so focus never leaves the search box.
+  assert.deepEqual(press("Tab", s), { type: "cycleFilter", delta: 1 });
+});
+
+test("an IME composition wins over the suggestion list", () => {
+  for (const key of ["Enter", "ArrowDown", "Escape"]) {
+    assert.equal(press(key, { suggesting: true, isComposing: true }), null, key);
+  }
+});
+
+test("backspace in an empty box removes the app tag before any card", () => {
+  assert.deepEqual(press("Backspace", { hasTag: true }), { type: "clearTag" });
+  assert.equal(press("Backspace", { hasTag: true, repeat: true }), null);
+  assert.equal(press("Backspace", { hasTag: true, queryEmpty: false }), null);
+  assert.deepEqual(press("Delete", { hasTag: true }), { type: "delete" });
+});
+
+test("escape with a tag but no open list still hides the panel", () => {
+  assert.deepEqual(press("Escape", { hasTag: true }), { type: "hide" });
 });
