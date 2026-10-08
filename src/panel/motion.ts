@@ -63,12 +63,22 @@ export function leftWindow(x: number, y: number, w: number, h: number, edge: num
   return x < 0 || y < edge || x >= w || y >= h;
 }
 
+/** Tears down the float (or its spring-back) in progress, if any. */
+let cancelActive: (() => void) | null = null;
+
+/** Drops any floating card at once, with no animation and no OS drag. */
+export function cancelFloat(): void {
+  cancelActive?.();
+}
+
 /**
  * Lifts a copy of `card` that follows the cursor, leaving a dashed slot behind. When the
  * cursor leaves the window the copy is dropped and `onLeave` starts the OS drag; when the
  * button is released inside, the copy springs back into the slot.
  */
 export function floatCard(card: HTMLElement, x0: number, y0: number, onLeave: () => void): void {
+  // A card grabbed again mid spring-back must not clone the previous float's slot marker.
+  cancelFloat();
   const r = card.getBoundingClientRect();
   const ghost = card.cloneNode(true) as HTMLElement;
   ghost.classList.add("ghost");
@@ -79,12 +89,14 @@ export function floatCard(card: HTMLElement, x0: number, y0: number, onLeave: ()
 
   let tilt = 0;
   let lastX = x0;
+  let back: Animation | null = null;
   const place = (x: number, y: number) => {
     ghost.style.transform = `translate(${x - x0}px, ${y - y0}px) rotate(${tilt}deg) scale(1.05)`;
   };
   const restore = () => {
     ghost.remove();
     delete card.dataset.slot;
+    cancelActive = null;
   };
   const stop = () => {
     window.removeEventListener("mousemove", move);
@@ -98,10 +110,11 @@ export function floatCard(card: HTMLElement, x0: number, y0: number, onLeave: ()
   }
   function drop() {
     stop();
-    ghost.animate([{ transform: ghost.style.transform }, { transform: "none" }], {
+    back = ghost.animate([{ transform: ghost.style.transform }, { transform: "none" }], {
       duration: 320,
       easing: EASE_SPRING,
-    }).onfinish = restore;
+    });
+    back.onfinish = restore;
   }
   function move(e: MouseEvent) {
     if ((e.buttons & 1) === 0) return drop();
@@ -111,6 +124,11 @@ export function floatCard(card: HTMLElement, x0: number, y0: number, onLeave: ()
     place(e.clientX, e.clientY);
   }
 
+  cancelActive = () => {
+    stop();
+    back?.cancel();
+    restore();
+  };
   place(x0, y0);
   window.addEventListener("mousemove", move);
   window.addEventListener("mouseup", drop);

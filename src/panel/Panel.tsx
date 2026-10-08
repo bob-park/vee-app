@@ -5,7 +5,7 @@ import { usePrefs } from "../prefs.tsx";
 import { Card } from "./Card.tsx";
 import { dragFileName } from "./fileThumb.ts";
 import { panelKeyAction } from "./keys.ts";
-import { cardLefts, floatCard, playFlip, reducedMotion } from "./motion.ts";
+import { cancelFloat, cardLefts, floatCard, playFlip, reducedMotion } from "./motion.ts";
 import { FILTERS, Toolbar } from "./Toolbar.tsx";
 import "./panel.css";
 
@@ -80,7 +80,12 @@ export function Panel() {
   }, [reload]);
 
   useEffect(() => {
-    if (!suggesting) return;
+    // Closing the list (pick, esc, panel closed) drops its results so the next `@` never shows stale apps.
+    if (!suggesting) {
+      setSuggestions([]);
+      setSuggestIndex(0);
+      return;
+    }
     let live = true;
     void api.listApps(query.slice(1)).then((apps) => {
       if (!live) return;
@@ -112,7 +117,11 @@ export function Panel() {
         requestAnimationFrame(() => void api.revealPanel().finally(() => setOpen(true))),
       );
     });
-    const offClosing = listen("panel://closing", () => setClosing(true));
+    const offClosing = listen("panel://closing", () => {
+      // A card floating under the cursor lives outside the panel; it must not outlast it.
+      cancelFloat();
+      setClosing(true);
+    });
     // Reset while hidden so the next open slides in finished content.
     const offClosed = listen("panel://closed", () => {
       setOpen(false);
