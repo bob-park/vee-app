@@ -145,6 +145,16 @@ pub struct ClipDto {
     pub stack: Vec<Option<String>>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppDto {
+    pub id: i64,
+    pub name: String,
+    pub icon: Option<String>,
+    /// How many clips came from this app.
+    pub count: i64,
+}
+
 /// A single URL (no whitespace inside) is a link; anything else is text.
 pub fn classify_text(text: &str) -> Kind {
     let t = text.trim();
@@ -292,7 +302,7 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    pub fn list(&self, query: &str, kind: Option<Kind>, offset: i64, limit: i64) -> Result<Vec<ClipDto>> {
+    pub fn list(&self, query: &str, kind: Option<Kind>, app_id: Option<i64>, offset: i64, limit: i64) -> Result<Vec<ClipDto>> {
         let mut sql = String::from(
             "SELECT c.id, c.kind, substr(c.text, 1, ?), COALESCE(length(c.text), 0), c.thumb_png, c.meta,
                     a.name, a.icon_png, c.last_used_at,
@@ -304,6 +314,10 @@ impl Store {
         if let Some(k) = kind {
             sql.push_str(" AND c.kind = ?");
             args.push(Value::Text(k.as_str().into()));
+        }
+        if let Some(a) = app_id {
+            sql.push_str(" AND c.app_id = ?");
+            args.push(Value::Integer(a));
         }
         let q = query.trim();
         match q.chars().count() {
@@ -348,6 +362,28 @@ impl Store {
             clip.stack = self.stack(clip.id, count)?;
         }
         Ok(clips)
+    }
+
+    /// Apps that have clips, whose name contains `query` (ASCII case-insensitive), most clips first.
+    pub fn apps(&self, query: &str, limit: i64) -> Result<Vec<AppDto>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT a.id, a.name, a.icon_png, COUNT(c.id) AS n
+             FROM apps a JOIN clips c ON c.app_id = a.id
+             WHERE a.name LIKE ?1 ESCAPE '\\'
+             GROUP BY a.id
+             ORDER BY n DESC, a.name ASC
+             LIMIT ?2",
+        )?;
+        let pattern = format!("%{}%", escape_like(query.trim()));
+        let rows = stmt.query_map(params![pattern, limit], |r| {
+            Ok(AppDto {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                icon: r.get::<_, Option<Vec<u8>>>(2)?.map(|b| data_url(&b)),
+                count: r.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     fn stack(&self, id: i64, files: usize) -> Result<Vec<Option<String>>> {
@@ -476,7 +512,7 @@ mod tests {
         s.upsert(text("hello"), None, 1).unwrap();
         s.upsert(text("world"), None, 2).unwrap();
         s.upsert(text("hello"), None, 3).unwrap();
-        let all = s.list("", None, 0, 50).unwrap();
+        let all = s.list("", None, None, 0, 50).unwrap();
         assert_eq!(texts(&all), vec!["hello", "world"]);
         assert_eq!(all[0].last_used_at, 3);
     }
@@ -497,8 +533,8 @@ mod tests {
         for i in 0..1100 {
             s.upsert(text(&format!("clip {i}")), None, i).unwrap();
         }
-        assert_eq!(s.list("", None, 0, 200).unwrap().len(), 200);
-        assert_eq!(s.list("", None, 1000, 200).unwrap().len(), 100);
+        assert_eq!(s.list("", None, None, 0, 200).unwrap().len(), 200);
+        assert_eq!(s.list("", None, None, 1000, 200).unwrap().len(), 100);
     }
 
     #[test]
@@ -507,10 +543,10 @@ mod tests {
         s.upsert(text("클립보드 히스토리 앱"), None, 1).unwrap();
         s.upsert(text("cargo tauri dev"), None, 2).unwrap();
         s.upsert(text("Vee"), None, 3).unwrap();
-        assert_eq!(texts(&s.list("히스토", None, 0, 50).unwrap()), vec!["클립보드 히스토리 앱"]);
-        assert_eq!(texts(&s.list("보드", None, 0, 50).unwrap()), vec!["클립보드 히스토리 앱"]);
-        assert_eq!(texts(&s.list("TAURI", None, 0, 50).unwrap()), vec!["cargo tauri dev"]);
-        assert_eq!(texts(&s.list("ve", None, 0, 50).unwrap()), vec!["Vee"]);
+        assert_eq!(texts(&s.list("히스토", None, None, 0, 50).unwrap()), vec!["클립보드 히스토리 앱"]);
+        assert_eq!(texts(&s.list("보드", None, None, 0, 50).unwrap()), vec!["클립보드 히스토리 앱"]);
+        assert_eq!(texts(&s.list("TAURI", None, None, 0, 50).unwrap()), vec!["cargo tauri dev"]);
+        assert_eq!(texts(&s.list("ve", None, None, 0, 50).unwrap()), vec!["Vee"]);
     }
 
     #[test]
@@ -520,11 +556,11 @@ mod tests {
         s.upsert(text("a_b"), None, 2).unwrap();
         s.upsert(text("say \"hi\" AND bye*"), None, 3).unwrap();
         s.upsert(text("plain"), None, 4).unwrap();
-        assert_eq!(texts(&s.list("%", None, 0, 50).unwrap()), vec!["100% done"]);
-        assert_eq!(texts(&s.list("_", None, 0, 50).unwrap()), vec!["a_b"]);
-        assert_eq!(texts(&s.list("\"hi\" AND", None, 0, 50).unwrap()), vec!["say \"hi\" AND bye*"]);
-        assert_eq!(texts(&s.list("bye*", None, 0, 50).unwrap()), vec!["say \"hi\" AND bye*"]);
-        assert!(s.list("NOT", None, 0, 50).unwrap().is_empty());
+        assert_eq!(texts(&s.list("%", None, None, 0, 50).unwrap()), vec!["100% done"]);
+        assert_eq!(texts(&s.list("_", None, None, 0, 50).unwrap()), vec!["a_b"]);
+        assert_eq!(texts(&s.list("\"hi\" AND", None, None, 0, 50).unwrap()), vec!["say \"hi\" AND bye*"]);
+        assert_eq!(texts(&s.list("bye*", None, None, 0, 50).unwrap()), vec!["say \"hi\" AND bye*"]);
+        assert!(s.list("NOT", None, None, 0, 50).unwrap().is_empty());
     }
 
     #[test]
@@ -533,11 +569,11 @@ mod tests {
         s.upsert(text("hello"), None, 1).unwrap();
         s.upsert(text("https://example.com"), None, 2).unwrap();
         s.upsert(files(&["/tmp/x"]), None, 3).unwrap();
-        let links = s.list("", Some(Kind::Link), 0, 50).unwrap();
+        let links = s.list("", Some(Kind::Link), None, 0, 50).unwrap();
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].kind, Kind::Link);
-        assert_eq!(s.list("", Some(Kind::Files), 0, 50).unwrap().len(), 1);
-        assert_eq!(s.list("", Some(Kind::Text), 0, 50).unwrap().len(), 1);
+        assert_eq!(s.list("", Some(Kind::Files), None, 0, 50).unwrap().len(), 1);
+        assert_eq!(s.list("", Some(Kind::Text), None, 0, 50).unwrap().len(), 1);
     }
 
     #[test]
@@ -549,7 +585,7 @@ mod tests {
         s.upsert(files(&[&path(&file)]), None, 1).unwrap();
         s.upsert(files(&[&path(d.path())]), None, 2).unwrap();
         s.upsert(files(&["/definitely/not/here.txt", &path(&file)]), None, 3).unwrap();
-        let all = s.list("", None, 0, 50).unwrap();
+        let all = s.list("", None, None, 0, 50).unwrap();
         assert_eq!((all[0].missing, all[0].is_dir, all[0].meta.as_deref()), (true, false, Some("2")));
         assert_eq!((all[1].missing, all[1].is_dir, all[1].meta.as_deref()), (false, true, Some("1")));
         assert_eq!((all[2].missing, all[2].is_dir, all[2].meta.as_deref()), (false, false, Some("1")));
@@ -559,7 +595,7 @@ mod tests {
     fn large_text_preview_is_capped_but_counted() {
         let (s, _d) = store();
         s.upsert(text(&"가".repeat(10_000)), None, 1).unwrap();
-        let clip = &s.list("", None, 0, 50).unwrap()[0];
+        let clip = &s.list("", None, None, 0, 50).unwrap()[0];
         assert_eq!(clip.text_preview.as_ref().unwrap().chars().count(), 500);
         assert_eq!(clip.char_count, 10_000);
     }
@@ -575,7 +611,7 @@ mod tests {
         let (s, _d) = store();
         s.upsert(text("hi"), None, 1).unwrap();
         s.upsert(files(&["/a", "/b"]), None, 2).unwrap();
-        let all = s.list("", None, 0, 50).unwrap();
+        let all = s.list("", None, None, 0, 50).unwrap();
         assert_eq!(s.content(all[0].id).unwrap(), Some(ClipContent::Files(vec!["/a".into(), "/b".into()])));
         assert_eq!(s.content(all[1].id).unwrap(), Some(ClipContent::Text("hi".into())));
     }
@@ -584,7 +620,7 @@ mod tests {
     fn image_has_thumb_and_dimensions() {
         let (s, _d) = store();
         s.upsert(image(1), None, 1).unwrap();
-        let clip = &s.list("", None, 0, 50).unwrap()[0];
+        let clip = &s.list("", None, None, 0, 50).unwrap()[0];
         assert_eq!(clip.kind, Kind::Image);
         assert_eq!(clip.meta.as_deref(), Some("10×20"));
         assert!(clip.thumb.as_ref().unwrap().starts_with("data:image/png;base64,"));
@@ -595,13 +631,13 @@ mod tests {
         let (s, _d) = store();
         s.upsert(image(1), None, 1).unwrap();
         s.upsert(image(2), None, 2).unwrap();
-        let all = s.list("", None, 0, 50).unwrap();
+        let all = s.list("", None, None, 0, 50).unwrap();
         let (a, b) = (image_path(&s, all[0].id), image_path(&s, all[1].id));
         s.delete(all[0].id).unwrap();
         assert!(!a.exists() && b.exists());
         s.clear().unwrap();
         assert!(!b.exists());
-        assert!(s.list("", None, 0, 50).unwrap().is_empty());
+        assert!(s.list("", None, None, 0, 50).unwrap().is_empty());
     }
 
     #[test]
@@ -609,9 +645,9 @@ mod tests {
         let (s, _d) = store();
         s.upsert(text("old"), None, 1).unwrap();
         s.upsert(text("new"), None, 2).unwrap();
-        let old = s.list("", None, 0, 50).unwrap()[1].id;
+        let old = s.list("", None, None, 0, 50).unwrap()[1].id;
         s.touch(old, 3).unwrap();
-        assert_eq!(texts(&s.list("", None, 0, 50).unwrap()), vec!["old", "new"]);
+        assert_eq!(texts(&s.list("", None, None, 0, 50).unwrap()), vec!["old", "new"]);
     }
 
     #[test]
@@ -623,9 +659,45 @@ mod tests {
         assert_eq!(first, second);
         assert!(s.app_known("com.a").unwrap());
         s.upsert(text("x"), Some(first), 1).unwrap();
-        let clip = &s.list("", None, 0, 50).unwrap()[0];
+        let clip = &s.list("", None, None, 0, 50).unwrap()[0];
         assert_eq!(clip.app_name.as_deref(), Some("A2"));
         assert!(clip.app_icon.is_some());
+    }
+
+    #[test]
+    fn list_filters_by_app() {
+        let (s, _d) = store();
+        let a = s.upsert_app("com.a", "A", None).unwrap();
+        let b = s.upsert_app("com.b", "B", None).unwrap();
+        s.upsert(text("from a"), Some(a), 1).unwrap();
+        s.upsert(text("from b"), Some(b), 2).unwrap();
+        s.upsert(text("also a"), Some(a), 3).unwrap();
+        assert_eq!(texts(&s.list("", None, Some(a), 0, 50).unwrap()), vec!["also a", "from a"]);
+        assert_eq!(texts(&s.list("also", None, Some(a), 0, 50).unwrap()), vec!["also a"]);
+        assert!(s.list("", None, Some(999), 0, 50).unwrap().is_empty());
+    }
+
+    #[test]
+    fn apps_match_name_and_rank_by_clip_count() {
+        let (s, _d) = store();
+        let safari = s.upsert_app("com.apple.Safari", "Safari", Some(&[1])).unwrap();
+        let notes = s.upsert_app("com.apple.Notes", "메모", None).unwrap();
+        let slack = s.upsert_app("com.tinyspeck.slackmacgap", "Slack", None).unwrap();
+        s.upsert_app("com.unused", "Sapling", None).unwrap(); // no clips → never suggested
+        s.upsert(text("a"), Some(safari), 1).unwrap();
+        s.upsert(text("b"), Some(slack), 2).unwrap();
+        s.upsert(text("c"), Some(slack), 3).unwrap();
+        s.upsert(text("d"), Some(notes), 4).unwrap();
+        let names = |q: &str, limit: i64| -> Vec<(String, i64)> {
+            s.apps(q, limit).unwrap().into_iter().map(|a| (a.name, a.count)).collect()
+        };
+        assert_eq!(names("s", 8), vec![("Slack".to_string(), 2), ("Safari".to_string(), 1)]);
+        assert_eq!(names("SA", 8), vec![("Safari".to_string(), 1)]);
+        assert_eq!(names("메", 8), vec![("메모".to_string(), 1)]);
+        assert_eq!(names("", 8), vec![("Slack".to_string(), 2), ("Safari".to_string(), 1), ("메모".to_string(), 1)]);
+        assert_eq!(names("", 1), vec![("Slack".to_string(), 2)]);
+        assert!(names("%", 8).is_empty());
+        assert!(s.apps("safari", 8).unwrap()[0].icon.as_deref().unwrap().starts_with("data:image/png;base64,"));
     }
 
     #[test]
@@ -644,7 +716,7 @@ mod tests {
         let images = dir.path().join("images");
         Store::open(&db, &images).unwrap().upsert(text("persist me"), None, 1).unwrap();
         let reopened = Store::open(&db, &images).unwrap();
-        assert_eq!(texts(&reopened.list("", None, 0, 50).unwrap()), vec!["persist me"]);
+        assert_eq!(texts(&reopened.list("", None, None, 0, 50).unwrap()), vec!["persist me"]);
     }
 
     #[test]
@@ -659,7 +731,7 @@ mod tests {
         )
         .unwrap();
         s.upsert(files(&["/f.txt", "/g.txt"]), None, 3).unwrap();
-        let all = s.list("", None, 0, 50).unwrap();
+        let all = s.list("", None, None, 0, 50).unwrap();
         assert!(all[0].stack.is_empty());
         assert_eq!(all[1].stack.iter().map(Option::is_some).collect::<Vec<_>>(), vec![true, false, true]);
         assert_eq!(all[2].stack.len(), 1);
@@ -672,7 +744,7 @@ mod tests {
         let (s, _d) = store();
         let app = s.upsert_app("com.a", "A", Some(&[7, 7])).unwrap();
         s.upsert(image(1), Some(app), 1).unwrap();
-        let id = s.list("", None, 0, 1).unwrap()[0].id;
+        let id = s.list("", None, None, 0, 1).unwrap()[0].id;
         assert_eq!(s.preview_png(id).unwrap(), Some(vec![9]));
     }
 
@@ -682,7 +754,7 @@ mod tests {
         let app = s.upsert_app("com.a", "A", Some(&[7, 7])).unwrap();
         s.upsert(files(&["/x.txt"]), Some(app), 1).unwrap();
         s.upsert(text("no app"), None, 2).unwrap();
-        let all = s.list("", None, 0, 50).unwrap();
+        let all = s.list("", None, None, 0, 50).unwrap();
         assert_eq!(s.preview_png(all[1].id).unwrap(), Some(vec![7, 7]));
         assert_eq!(s.preview_png(all[0].id).unwrap(), None);
     }
@@ -693,7 +765,7 @@ mod tests {
         let thumbs_left = |s: &Store| s.conn.query_row("SELECT count(*) FROM clip_thumbs", [], |r| r.get::<_, i64>(0)).unwrap();
         let one = |p: &str| NewClip::Files { paths: vec![p.into()], thumbs: vec![(0, vec![1])] };
         s.upsert(one("/a.png"), None, 1).unwrap();
-        s.delete(s.list("", None, 0, 1).unwrap()[0].id).unwrap();
+        s.delete(s.list("", None, None, 0, 1).unwrap()[0].id).unwrap();
         assert_eq!(thumbs_left(&s), 0);
         s.upsert(one("/b.png"), None, 2).unwrap();
         s.clear().unwrap();
@@ -714,7 +786,7 @@ mod tests {
             .unwrap();
         }
         let s = Store::open(&db, &dir.path().join("images")).unwrap();
-        assert!(s.list("", None, 0, 50).unwrap()[0].stack.is_empty());
+        assert!(s.list("", None, None, 0, 50).unwrap()[0].stack.is_empty());
         let version: i64 = s.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, 3);
     }

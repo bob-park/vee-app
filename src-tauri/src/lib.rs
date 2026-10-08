@@ -11,7 +11,7 @@ mod windows;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use store::{ClipDto, Kind, Store};
+use store::{AppDto, ClipDto, Kind, Store};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 
 pub struct AppState {
@@ -49,12 +49,29 @@ pub fn now_ms() -> i64 {
 }
 
 #[tauri::command]
-fn list_clips(state: State<AppState>, query: String, kind: String, offset: i64, limit: i64) -> Result<Vec<ClipDto>, String> {
+fn list_clips(
+    state: State<AppState>,
+    query: String,
+    kind: String,
+    app_id: Option<i64>,
+    offset: i64,
+    limit: i64,
+) -> Result<Vec<ClipDto>, String> {
     let kind = match kind.as_str() {
         "all" => None,
         k => Some(Kind::parse(k).ok_or_else(|| format!("unknown kind: {k}"))?),
     };
-    state.store.lock().unwrap().list(&query, kind, offset.max(0), limit.clamp(1, 200)).map_err(|e| e.to_string())
+    state
+        .store
+        .lock()
+        .unwrap()
+        .list(&query, kind, app_id, offset.max(0), limit.clamp(1, 200))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_apps(state: State<AppState>, query: String) -> Result<Vec<AppDto>, String> {
+    state.store.lock().unwrap().apps(&query, 8).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -165,6 +182,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             list_clips,
+            list_apps,
             delete_clip,
             clear_history,
             copy_clip,
