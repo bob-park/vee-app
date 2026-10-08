@@ -367,7 +367,9 @@ fn card_image(base64_png: Option<&str>) -> Option<Vec<u8>> {
 }
 
 /// Marks a PNG as 144 dpi (a `pHYs` chunk right after `IHDR`, replacing any other), so macOS
-/// sizes a 2x-rendered drag image in points and it stays sharp on Retina. None if not a PNG.
+/// sizes a 2x-rendered drag image in points and it stays sharp on Retina. Windows ignores the
+/// chunk and draws pixels 1:1, which is why the card is drawn at device pixels there. None if
+/// not a PNG.
 fn png_at_retina(png: &[u8]) -> Option<Vec<u8>> {
     const SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
     fn crc32(bytes: &[u8]) -> u32 {
@@ -418,8 +420,9 @@ fn stage_image(src: &Path, dir: &Path, name: &str) -> std::io::Result<PathBuf> {
 }
 
 /// Starts dragging a files or image clip out of the panel. Drops always copy.
-/// `name` names the dropped file for image clips. `image` is the card itself as a base64
-/// PNG drawn at 2x, centred on the cursor; without it the clip's thumbnail is dragged.
+/// `name` names the dropped file for image clips. `image` is the card itself as a base64 PNG
+/// laid out for this platform (see `dragImageLayout` in motion.ts); without it the clip's
+/// thumbnail is dragged.
 pub fn start_drag(app: &AppHandle, id: i64, name: &str, image: Option<&str>) -> Result<(), String> {
     let state = app.state::<AppState>();
     let (content, preview) = {

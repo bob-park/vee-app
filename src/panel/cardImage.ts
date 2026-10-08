@@ -1,4 +1,4 @@
-import { cursorCentredFrame } from "./motion.ts";
+import { dragImageLayout } from "./motion.ts";
 
 /**
  * Draws a card into a PNG for the OS drag image, so the card that floats inside the panel
@@ -6,8 +6,8 @@ import { cursorCentredFrame } from "./motion.ts";
  * of: boxes (background, border, radius), images, SVG icons and single-line text.
  *
  * Styles and positions are read immediately (before the card turns into a slot); only SVG
- * icons load asynchronously. The image is drawn at 2x and at the floating card's scale, padded
- * so the grabbed point is its centre, because the native drag centres the image on the cursor.
+ * icons load asynchronously. The image is drawn at the floating card's scale; see
+ * `dragImageLayout` for how each platform places and sizes it.
  */
 // async so that a failure while reading the card becomes a rejection, never a broken drag;
 // everything before the first await still runs immediately.
@@ -18,14 +18,13 @@ export async function cardImage(card: HTMLElement, cursorX: number, cursorY: num
   // The floating card is scaled around its centre, so that is where the cursor offset is measured from.
   const ox = cursorX - (r.left + r.width / 2) + w / 2;
   const oy = cursorY - (r.top + r.height / 2) + h / 2;
-  const frame = cursorCentredFrame(w, h, ox, oy);
+  const { px, frame } = dragImageLayout(navigator.userAgent.includes("Mac"), w, h, ox, oy, devicePixelRatio);
 
   const ops: ((ctx: CanvasRenderingContext2D) => void)[] = [];
   const loads: Promise<unknown>[] = [];
   paint(card, ops, loads);
 
   await Promise.all(loads);
-  const px = 2;
   const canvas = document.createElement("canvas");
   canvas.width = Math.ceil(frame.width * px);
   canvas.height = Math.ceil(frame.height * px);

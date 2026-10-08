@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cancelFloat, cursorCentredFrame, floatCard, ghostLeaves, nextTilt } from "./motion.ts";
+import { cancelFloat, cursorCentredFrame, dragImageLayout, floatCard, ghostLeaves, nextTilt } from "./motion.ts";
 
 test("tilt leans with horizontal motion and is capped at 10 degrees", () => {
   assert.equal(nextTilt(0, 5), 3);
@@ -36,6 +36,21 @@ test("the drag image is padded so the grabbed point sits at its centre", () => {
   assert.deepEqual(cursorCentredFrame(200, 220, 30, 50), { width: 340, height: 340, x: 140, y: 120 });
   // Grabbed dead centre: no padding.
   assert.deepEqual(cursorCentredFrame(200, 220, 100, 110), { width: 200, height: 220, x: 0, y: 0 });
+});
+
+test("on macOS the drag image is drawn at 2x and centred on the grabbed point", () => {
+  assert.deepEqual(dragImageLayout(true, 200, 220, 30, 50, 1), {
+    px: 2,
+    frame: { width: 340, height: 340, x: 140, y: 120 },
+  });
+});
+
+test("on Windows the drag image is the card at device pixels, its corner under the cursor", () => {
+  // Windows draws the bitmap 1:1 in device pixels and pins its top-left corner to the cursor.
+  assert.deepEqual(dragImageLayout(false, 200, 220, 30, 50, 1.5), {
+    px: 1.5,
+    frame: { width: 200, height: 220, x: 0, y: 0 },
+  });
 });
 
 /** Just enough DOM for floatCard: one card, its clone, and the listeners it registers. */

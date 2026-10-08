@@ -78,6 +78,18 @@ export function cursorCentredFrame(w: number, h: number, ox: number, oy: number)
   return { width: halfW * 2, height: halfH * 2, x: halfW - ox, y: halfH - oy };
 }
 
+/**
+ * Pixel density and canvas for a `w`×`h` drag image grabbed at (`ox`, `oy`). macOS centres the
+ * image on the cursor and sizes it from its 144 dpi, so it is drawn at 2x and padded. Windows
+ * draws the bitmap 1:1 in device pixels with its top-left corner at the cursor, so it is drawn
+ * at the screen's density with no padding (the card then hangs below-right of the cursor).
+ */
+export function dragImageLayout(mac: boolean, w: number, h: number, ox: number, oy: number, dpr: number) {
+  return mac
+    ? { px: 2, frame: cursorCentredFrame(w, h, ox, oy) }
+    : { px: dpr, frame: { width: w, height: h, x: 0, y: 0 } };
+}
+
 /** Tears down the float (or its spring-back) in progress, if any. */
 let cancelActive: (() => void) | null = null;
 
