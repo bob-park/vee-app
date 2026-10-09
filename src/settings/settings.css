@@ -1,7 +1,7 @@
 .settings {
   height: 100%;
   /* Extra bottom room so the app picker's popup near the end never runs past the window. */
-  padding: 24px 28px 240px;
+  padding: 24px 28px 128px;
   overflow-y: auto;
 }
 
@@ -332,7 +332,7 @@
 
 .app-search .suggest {
   width: 100%;
-  max-height: 260px;
+  max-height: 200px;
 }
 
 .stat {
