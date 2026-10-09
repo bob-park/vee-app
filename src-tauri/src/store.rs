@@ -281,13 +281,22 @@ impl Store {
     }
 
     pub fn excluded_apps(&self) -> Result<Vec<AppDto>> {
-        let mut stmt = self.conn.prepare(
+        self.apps_with_counts("a.excluded = 1", "a.name")
+    }
+
+    /// Every app not excluded, including ones whose clips are all gone, most clips first.
+    pub fn known_apps(&self) -> Result<Vec<AppDto>> {
+        self.apps_with_counts("a.excluded = 0", "COUNT(c.id) DESC, a.name")
+    }
+
+    fn apps_with_counts(&self, cond: &str, order: &str) -> Result<Vec<AppDto>> {
+        let mut stmt = self.conn.prepare(&format!(
             "SELECT a.id, a.name, a.icon_png, COUNT(c.id)
              FROM apps a LEFT JOIN clips c ON c.app_id = a.id
-             WHERE a.excluded = 1
+             WHERE {cond}
              GROUP BY a.id
-             ORDER BY a.name",
-        )?;
+             ORDER BY {order}"
+        ))?;
         let rows = stmt.query_map([], |r| {
             Ok(AppDto {
                 id: r.get(0)?,
@@ -1024,5 +1033,21 @@ mod tests {
         assert_eq!(s.set_excluded(a, false).unwrap(), 0);
         assert!(!s.is_excluded("com.agilebits.onepassword").unwrap());
         assert!(s.excluded_apps().unwrap().is_empty());
+    }
+
+    #[test]
+    fn known_apps_include_apps_without_clips_but_not_excluded_ones() {
+        let (s, _d) = store();
+        let a = s.upsert_app("com.agilebits.onepassword", "1Password", None).unwrap();
+        let b = s.upsert_app("com.apple.Notes", "Notes", None).unwrap();
+        s.upsert_app("com.apple.Terminal", "Terminal", None).unwrap();
+        s.upsert(text("note"), Some(b), 1).unwrap();
+        s.upsert(text("secret"), Some(a), 2).unwrap();
+        s.set_excluded(a, true).unwrap();
+        let names = |apps: Vec<AppDto>| apps.into_iter().map(|a| a.name).collect::<Vec<_>>();
+        assert_eq!(names(s.known_apps().unwrap()), vec!["Notes", "Terminal"]);
+        // Un-excluding an app whose clips were all deleted must still offer it again.
+        s.set_excluded(a, false).unwrap();
+        assert_eq!(names(s.known_apps().unwrap()), vec!["Notes", "1Password", "Terminal"]);
     }
 }

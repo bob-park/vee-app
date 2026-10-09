@@ -71,8 +71,13 @@ fn list_clips(
 }
 
 #[tauri::command]
-fn list_apps(state: State<AppState>, query: String, limit: Option<i64>) -> Result<Vec<AppDto>, String> {
-    state.store.lock().unwrap().apps(&query, limit.unwrap_or(8).clamp(1, 500)).map_err(|e| e.to_string())
+fn list_apps(state: State<AppState>, query: String) -> Result<Vec<AppDto>, String> {
+    state.store.lock().unwrap().apps(&query, 8).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_known_apps(state: State<AppState>) -> Result<Vec<AppDto>, String> {
+    state.store.lock().unwrap().known_apps().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -224,6 +229,7 @@ pub fn run() {
             count_app_clips,
             set_app_excluded,
             list_excluded_apps,
+            list_known_apps,
             get_stats,
             copy_clip,
             start_drag,

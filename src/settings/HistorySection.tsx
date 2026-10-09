@@ -55,7 +55,7 @@ export function HistorySection({ run }: { run: (p: Promise<unknown>) => void }) 
   const [stats, setStats] = useState<Stats | null>(null);
 
   const refresh = useCallback(() => {
-    void Promise.all([api.listExcludedApps(), api.listApps("", 500), api.getStats()]).then(([ex, all, st]) => {
+    void Promise.all([api.listExcludedApps(), api.listKnownApps(), api.getStats()]).then(([ex, all, st]) => {
       setExcluded(ex);
       setApps(all);
       setStats(st);
@@ -102,8 +102,6 @@ export function HistorySection({ run }: { run: (p: Promise<unknown>) => void }) 
     if (await ask(message, { title: "Vee", kind: "warning" })) run(api.clearHistory());
   };
 
-  const excludedIds = new Set(excluded.map((a) => a.id));
-  const choices = apps.filter((a) => !excludedIds.has(a.id));
 
   return (
     <>
@@ -149,13 +147,13 @@ export function HistorySection({ run }: { run: (p: Promise<unknown>) => void }) 
               className="select add-app"
               aria-label={s.addApp}
               value=""
-              disabled={choices.length === 0}
+              disabled={apps.length === 0}
               onChange={(e) => void pickApp(Number(e.target.value))}
             >
               <option value="" disabled>
                 {s.addApp}
               </option>
-              {choices.map((a) => (
+              {apps.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
                 </option>

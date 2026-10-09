@@ -70,7 +70,9 @@ export interface ToastPayload {
 export const api = {
   listClips: (query: string, kind: Filter, appId: number | null, offset: number, limit: number) =>
     invoke<Clip[]>("list_clips", { query, kind, appId, offset, limit }),
-  listApps: (query: string, limit?: number) => invoke<App[]>("list_apps", { query, limit }),
+  listApps: (query: string) => invoke<App[]>("list_apps", { query }),
+  /** Apps that aren't excluded, including ones with no clips left. */
+  listKnownApps: () => invoke<App[]>("list_known_apps"),
   copyClip: (id: number, plain = false) => invoke<void>("copy_clip", { id, plain }),
   setPinned: (id: number, pinned: boolean) => invoke<void>("set_pinned", { id, pinned }),
   countPrunable: (value: Retention) => invoke<number>("count_prunable", { value }),
