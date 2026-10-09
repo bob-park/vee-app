@@ -1,6 +1,7 @@
 export type KeyAction =
   | { type: "move"; delta: 1 | -1 }
-  | { type: "copy" }
+  | { type: "copy"; plain: boolean }
+  | { type: "togglePin" }
   | { type: "hide" }
   | { type: "cycleFilter"; delta: 1 | -1 }
   | { type: "delete" }
@@ -26,6 +27,8 @@ export interface KeyInput {
   suggesting: boolean;
   /** An app tag is set in the search box. */
   hasTag: boolean;
+  /** Cmd on macOS or Ctrl on Windows is held. */
+  metaOrCtrl: boolean;
 }
 
 const MODIFIERS = ["Shift", "Meta", "Control", "Alt"];
@@ -49,13 +52,14 @@ export function panelKeyAction(e: KeyInput): KeyAction {
         return { type: "suggestClose" };
     }
   }
+  if (e.metaOrCtrl && e.key.toLowerCase() === "p") return e.repeat ? null : { type: "togglePin" };
   switch (e.key) {
     case "ArrowRight":
       return { type: "move", delta: 1 };
     case "ArrowLeft":
       return { type: "move", delta: -1 };
     case "Enter":
-      return { type: "copy" };
+      return { type: "copy", plain: e.shiftKey };
     case "Escape":
       return { type: "hide" };
     case "Tab":
