@@ -2,6 +2,7 @@ export type KeyAction =
   | { type: "move"; delta: 1 | -1 }
   | { type: "copy"; plain: boolean }
   | { type: "togglePin" }
+  | { type: "openSettings" }
   | { type: "hide" }
   | { type: "cycleFilter"; delta: 1 | -1 }
   | { type: "delete" }
@@ -55,6 +56,7 @@ export function panelKeyAction(e: KeyInput): KeyAction {
     }
   }
   if (e.metaOrCtrl && e.code === "KeyP") return e.repeat ? null : { type: "togglePin" };
+  if (e.metaOrCtrl && e.code === "Comma") return e.repeat ? null : { type: "openSettings" };
   switch (e.key) {
     case "ArrowRight":
       return { type: "move", delta: 1 };
