@@ -6,7 +6,7 @@ import { Card } from "./Card.tsx";
 import { dragFileName } from "./fileThumb.ts";
 import { panelKeyAction } from "./keys.ts";
 import { cancelFloat, cardLefts, floatCard, playFlip, reducedMotion } from "./motion.ts";
-import { clampSelection, defaultSelection } from "./selection.ts";
+import { clampSelection, defaultSelection, followSelection } from "./selection.ts";
 import { FILTERS, Toolbar } from "./Toolbar.tsx";
 import "./panel.css";
 
@@ -43,6 +43,9 @@ export function Panel() {
   openRef.current = open;
   /** Every card in screen order; `selected` indexes this. */
   const items = [...pinned, ...clips];
+  /** Lets a reload follow the selected card when pinning moves it to the other area. */
+  const selectedIdRef = useRef<number | undefined>(undefined);
+  selectedIdRef.current = items[selected]?.id;
 
   // While `@…` is being typed it names an app, not text to search for.
   const suggesting = app === null && query.startsWith("@");
@@ -60,8 +63,9 @@ export function Panel() {
       setPinnedClips(pins);
       setClips(page);
       setHasMore(page.length === PAGE);
+      const ids = [...pins, ...page].map((c) => c.id);
       setSelected((s) =>
-        keepSelection ? clampSelection(s, pins.length + page.length) : defaultSelection(pins.length, page.length),
+        keepSelection ? followSelection(selectedIdRef.current, s, ids) : defaultSelection(pins.length, page.length),
       );
       if (!keepSelection) {
         setConfirmingId(null);
