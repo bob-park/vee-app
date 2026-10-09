@@ -5,7 +5,7 @@ import { usePrefs } from "../prefs.tsx";
 export const FILTERS: Filter[] = ["all", "pinned", "text", "image", "files", "link"];
 
 /** The app name with the part matching `q` in bold. */
-function highlight(name: string, q: string) {
+export function highlight(name: string, q: string) {
   const i = q ? name.toLowerCase().indexOf(q.toLowerCase()) : -1;
   if (i < 0) return name;
   return (

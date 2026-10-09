@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { api, type App, type Retention, type Stats } from "../api.ts";
 import { usePrefs } from "../prefs.tsx";
-import { Dropdown } from "./Dropdown.tsx";
+import { AppPicker } from "./AppPicker.tsx";
 import { Segmented } from "./Settings.tsx";
 
 const RETENTIONS: Retention[] = ["off", "7", "30", "90"];
@@ -142,26 +142,20 @@ export function HistorySection({ run }: { run: (p: Promise<unknown>) => void }) 
             {s.excludedApps}
             <small>{s.excludedAppsHint}</small>
           </div>
-          <div className="app-tags">
-            {excluded.map((a) => (
-              <span key={a.id} className="app-chip">
-                {a.icon && <img src={a.icon} alt="" />}
-                {a.name}
-                <button aria-label={s.includeApp(a.name)} onClick={() => run(api.setAppExcluded(a.id, false))}>
-                  ×
-                </button>
-              </span>
-            ))}
-            <Dropdown
-              className="add-app"
-              ariaLabel={s.addApp}
-              placeholder={s.addApp}
-              value={null}
-              disabled={apps.length === 0}
-              options={apps.map((a) => ({ value: a.id, label: a.name, icon: a.icon }))}
-              onChange={(id) => void pickApp(id)}
-            />
-          </div>
+          {excluded.length > 0 && (
+            <div className="app-tags">
+              {excluded.map((a) => (
+                <span key={a.id} className="app-chip">
+                  {a.icon && <img src={a.icon} alt="" />}
+                  {a.name}
+                  <button aria-label={s.includeApp(a.name)} onClick={() => run(api.setAppExcluded(a.id, false))}>
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <AppPicker apps={apps} onPick={(a) => void pickApp(a.id)} />
           {pending?.kind === "exclude" && (
             <ConfirmBox
               message={s.excludeConfirm(pending.app.name, pending.count)}

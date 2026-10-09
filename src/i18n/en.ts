@@ -68,7 +68,7 @@ export const en = {
     deleteAndApply: "Delete and apply",
     excludedApps: "Don't record these apps",
     excludedAppsHint: "Anything copied in these apps isn't saved",
-    addApp: "Add app",
+    searchApps: "Search apps",
     includeApp: (name: string) => `Record ${name} again`,
     excludeConfirm: (name: string, n: number) =>
       `${n.toLocaleString("en")} ${n === 1 ? "item" : "items"} from "${name}" will also be deleted. Pinned cards stay.`,
