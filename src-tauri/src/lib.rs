@@ -57,17 +57,21 @@ fn list_clips(
     offset: i64,
     limit: i64,
 ) -> Result<Vec<ClipDto>, String> {
-    let (kind, pinned_only) = match kind.as_str() {
-        "all" => (None, false),
-        "pinned" => (None, true),
-        k => (Some(Kind::parse(k).ok_or_else(|| format!("unknown kind: {k}"))?), false),
+    let kind = match kind.as_str() {
+        "all" => None,
+        k => Some(Kind::parse(k).ok_or_else(|| format!("unknown kind: {k}"))?),
     };
     state
         .store
         .lock()
         .unwrap()
-        .list(&query, kind, app_id, pinned_only, offset.max(0), limit.clamp(1, 200))
+        .list(&query, kind, app_id, offset.max(0), limit.clamp(1, 200))
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_pinned(state: State<AppState>) -> Result<Vec<ClipDto>, String> {
+    state.store.lock().unwrap().list_pinned().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -101,7 +105,10 @@ fn copy_clip(app: AppHandle, id: i64, plain: bool) -> Result<(), String> {
 
 #[tauri::command]
 fn set_pinned(app: AppHandle, state: State<AppState>, id: i64, pinned: bool) -> Result<(), String> {
-    state.store.lock().unwrap().set_pinned(id, pinned).map_err(|e| e.to_string())?;
+    let ok = state.store.lock().unwrap().set_pinned(id, pinned, now_ms()).map_err(|e| e.to_string())?;
+    if !ok {
+        return Err("pin_limit".into());
+    }
     let _ = app.emit("clips://changed", ());
     Ok(())
 }
@@ -222,6 +229,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             list_clips,
+            list_pinned,
             list_apps,
             delete_clip,
             clear_history,
