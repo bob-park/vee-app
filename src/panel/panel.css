@@ -229,7 +229,10 @@
 
 .card {
   /* The window is exactly the panel's height; 72px is the toolbar, paddings and borders. */
-  flex: 0 0 calc((100vh - 72px) * 0.95);
+  --card-w: calc((100vh - 72px) * 0.95);
+  flex: 0 0 var(--card-w);
+  /* WebKit sizes the pinned area from its cards' widths, not their flex-basis; without this a long preview widens it. */
+  width: var(--card-w);
   position: relative;
   display: flex;
   flex-direction: column;
