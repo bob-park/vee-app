@@ -59,9 +59,25 @@ export const en = {
     updateReady: (v: string) => `v${v} is ready`,
     checkNow: "Check now",
     restartToUpdate: "Restart to update",
-    history: "History",
-    clearHistory: "Clear history",
+    historySection: "Clipboard history",
+    retention: "Keep history",
+    retentionHint: "Items not used for longer than this are removed automatically",
+    retentionOptions: { off: "Forever", "7": "7 days", "30": "30 days", "90": "90 days" },
+    retentionConfirm: (label: string, n: number) =>
+      `Switching to "${label}" deletes ${n.toLocaleString("en")} older ${n === 1 ? "item" : "items"} right away. This can't be undone.`,
+    deleteAndApply: "Delete and apply",
+    excludedApps: "Don't record these apps",
+    excludedAppsHint: "Anything copied in these apps isn't saved",
+    addApp: "Add app",
+    includeApp: (name: string) => `Record ${name} again`,
+    excludeConfirm: (name: string, n: number) =>
+      `${n.toLocaleString("en")} ${n === 1 ? "item" : "items"} from "${name}" will also be deleted. Pinned cards stay.`,
+    deleteAndExclude: "Delete and exclude",
+    stats: (count: number, size: string) => `${count.toLocaleString("en")} items · images ${size}`,
+    clearHistory: "Delete all",
     clearConfirm: "Delete all clipboard history? This can't be undone.",
+    clearConfirmKeepPinned: (n: number) =>
+      `Delete everything except ${n} pinned ${n === 1 ? "card" : "cards"}? This can't be undone.`,
   },
 };
 
