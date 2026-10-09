@@ -2,7 +2,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import type { App, Filter } from "../api.ts";
 import { usePrefs } from "../prefs.tsx";
 
-export const FILTERS: Filter[] = ["all", "pinned", "text", "image", "files", "link"];
+export const FILTERS: Filter[] = ["all", "text", "image", "files", "link"];
 
 /** The app name with the part matching `q` in bold. */
 export function highlight(name: string, q: string) {
