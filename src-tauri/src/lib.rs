@@ -164,6 +164,7 @@ pub fn run() {
             }
             disk_access::prompt_once(app.handle());
             tray::create(app.handle())?;
+            settings::spawn_pruner(app.handle().clone());
             watcher::spawn(app.handle().clone());
             settings::register_stored_shortcut(app.handle());
             updater::spawn_periodic(app.handle().clone());
@@ -196,6 +197,7 @@ pub fn run() {
             settings::set_setting,
             settings::set_autostart,
             settings::set_shortcut,
+            settings::count_prunable,
             disk_access::get_disk_access,
             disk_access::open_disk_access_settings,
             updater::check_update,
