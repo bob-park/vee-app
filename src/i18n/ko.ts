@@ -70,7 +70,7 @@ export const ko: Dict = {
     deleteAndApply: "삭제하고 적용",
     excludedApps: "기록하지 않을 앱",
     excludedAppsHint: "이 앱에서 복사한 내용은 저장하지 않아요",
-    addApp: "앱 추가",
+    searchApps: "앱 검색",
     includeApp: (name: string) => `${name} 다시 기록`,
     excludeConfirm: (name: string, n: number) =>
       `'${name}'의 기록 ${n.toLocaleString("ko")}개도 삭제돼요. 고정한 카드는 남아요.`,
