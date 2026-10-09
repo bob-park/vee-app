@@ -89,9 +89,17 @@ export function HistorySection({ run }: { run: (p: Promise<unknown>) => void }) 
     else setPending({ kind: "exclude", app, count });
   };
 
-  const confirm = () => {
-    if (pending?.kind === "retention") run(api.setSetting("retention", pending.value));
-    if (pending?.kind === "exclude") run(api.setAppExcluded(pending.app.id, true));
+  /** Recounts first: the box may have sat open while more items aged out or were copied. */
+  const confirm = async () => {
+    if (!pending) return;
+    const count =
+      pending.kind === "retention" ? await api.countPrunable(pending.value) : await api.countAppClips(pending.app.id);
+    if (count > pending.count) {
+      setPending({ ...pending, count });
+      return;
+    }
+    if (pending.kind === "retention") run(api.setSetting("retention", pending.value));
+    else run(api.setAppExcluded(pending.app.id, true));
     setPending(null);
   };
 
@@ -123,7 +131,7 @@ export function HistorySection({ run }: { run: (p: Promise<unknown>) => void }) 
             <ConfirmBox
               message={s.retentionConfirm(s.retentionOptions[pending.value], pending.count)}
               confirmLabel={s.deleteAndApply}
-              onConfirm={confirm}
+              onConfirm={() => void confirm()}
               onCancel={() => setPending(null)}
             />
           )}
@@ -164,7 +172,7 @@ export function HistorySection({ run }: { run: (p: Promise<unknown>) => void }) 
             <ConfirmBox
               message={s.excludeConfirm(pending.app.name, pending.count)}
               confirmLabel={s.deleteAndExclude}
-              onConfirm={confirm}
+              onConfirm={() => void confirm()}
               onCancel={() => setPending(null)}
             />
           )}
