@@ -118,3 +118,9 @@ test("cmd/ctrl+p pins by physical key, so the Korean input source works too", ()
   assert.deepEqual(press("ㅔ", { code: "KeyP", metaOrCtrl: true }), { type: "togglePin" });
   assert.equal(press("ㅔ", { code: "KeyP" }), null);
 });
+
+test("cmd/ctrl+comma opens settings once per press", () => {
+  assert.deepEqual(press(",", { code: "Comma", metaOrCtrl: true }), { type: "openSettings" });
+  assert.equal(press(",", { code: "Comma", metaOrCtrl: true, repeat: true }), null);
+  assert.equal(press(",", { code: "Comma" }), null);
+});

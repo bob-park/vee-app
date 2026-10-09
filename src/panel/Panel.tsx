@@ -223,6 +223,9 @@ export function Panel() {
       case "hide":
         void api.hidePanel();
         break;
+      case "openSettings":
+        void api.openSettings();
+        break;
       case "cycleFilter": {
         const n = FILTERS.length;
         setFilter(FILTERS[(FILTERS.indexOf(filter) + action.delta + n) % n]);
