@@ -2,7 +2,7 @@ import type { Dict } from "./en.ts";
 
 export const ko: Dict = {
   search: "검색",
-  filters: { all: "전체", pinned: "📌 고정", text: "텍스트", image: "이미지", files: "파일", link: "링크" },
+  filters: { all: "전체", text: "텍스트", image: "이미지", files: "파일", link: "링크" },
   kinds: { text: "텍스트", link: "링크", image: "이미지", folder: "폴더" },
   filesCount: (n: number) => `파일 ${n}개`,
   moreFiles: (name: string, more: number) => (more > 0 ? `${name} 외 ${more}개` : name),
@@ -18,6 +18,7 @@ export const ko: Dict = {
   copiedPlain: "서식 없이 복사됨",
   pin: "고정",
   unpin: "고정 해제",
+  pinLimit: "최대 3개까지 고정할 수 있어요",
   copyFailed: "복사하지 못했어요",
   copyFailedDetail: "원본이 없어요",
   deleteConfirm: "이 항목을 삭제할까요?",

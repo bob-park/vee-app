@@ -9,11 +9,10 @@ export function reducedMotion(): boolean {
   return matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** Each card's left edge on screen, by clip id. */
-export function cardLefts(row: HTMLElement | null): Map<number, number> {
+/** Each card's left edge on screen, by clip id, across every card area inside `container`. */
+export function cardLefts(container: HTMLElement | null): Map<number, number> {
   const lefts = new Map<number, number>();
-  for (const el of row?.children ?? []) {
-    const card = el as HTMLElement;
+  for (const card of container?.querySelectorAll<HTMLElement>(".card[data-id]") ?? []) {
     lefts.set(Number(card.dataset.id), card.getBoundingClientRect().left);
   }
   return lefts;
@@ -23,9 +22,8 @@ export function cardLefts(row: HTMLElement | null): Map<number, number> {
  * Slides cards that moved from their old place (FLIP) and pops in cards that are new,
  * ringing them once in the accent colour so a copy made elsewhere is easy to spot.
  */
-export function playFlip(row: HTMLElement, before: Map<number, number>): void {
-  for (const el of row.children) {
-    const card = el as HTMLElement;
+export function playFlip(container: HTMLElement, before: Map<number, number>): void {
+  for (const card of container.querySelectorAll<HTMLElement>(".card[data-id]")) {
     const prev = before.get(Number(card.dataset.id));
     if (prev === undefined) {
       card.animate([{ transform: "scale(0.86)", opacity: 0 }, { transform: "none", opacity: 1 }], {

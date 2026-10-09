@@ -92,6 +92,22 @@ PRAGMA user_version = 4;
 COMMIT;
 ";
 
+/// Pins are capped at `MAX_PINNED` and keep the order they were pinned in.
+/// Existing users keep their most recently used pins; the rest are unpinned, not deleted.
+const SCHEMA_V5: &str = "
+BEGIN;
+ALTER TABLE clips ADD COLUMN pinned_at INTEGER;
+UPDATE clips SET pinned = 0
+ WHERE pinned = 1
+   AND id NOT IN (SELECT id FROM clips WHERE pinned = 1 ORDER BY last_used_at DESC, id DESC LIMIT 3);
+UPDATE clips SET pinned_at = last_used_at WHERE pinned = 1;
+PRAGMA user_version = 5;
+COMMIT;
+";
+
+/// How many clips can be pinned at once.
+pub const MAX_PINNED: i64 = 3;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
@@ -234,6 +250,9 @@ impl Store {
         if version < 4 {
             conn.execute_batch(SCHEMA_V4)?;
         }
+        if version < 5 {
+            conn.execute_batch(SCHEMA_V5)?;
+        }
         Ok(Store { conn, images_dir: images_dir.to_path_buf() })
     }
 
@@ -374,23 +393,22 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    const CLIP_COLUMNS: &str = "SELECT c.id, c.kind, substr(c.text, 1, ?), COALESCE(length(c.text), 0), c.thumb_png, c.meta,
+                    a.name, a.icon_png, c.last_used_at,
+                    CASE c.kind WHEN 'files' THEN c.text WHEN 'image' THEN c.image_path END,
+                    c.pinned
+             FROM clips c LEFT JOIN apps a ON a.id = c.app_id";
+
+    /// The history row: unpinned clips only, newest first. Pins live in `list_pinned`.
     pub fn list(
         &self,
         query: &str,
         kind: Option<Kind>,
         app_id: Option<i64>,
-        pinned_only: bool,
         offset: i64,
         limit: i64,
     ) -> Result<Vec<ClipDto>> {
-        let mut sql = String::from(
-            "SELECT c.id, c.kind, substr(c.text, 1, ?), COALESCE(length(c.text), 0), c.thumb_png, c.meta,
-                    a.name, a.icon_png, c.last_used_at,
-                    CASE c.kind WHEN 'files' THEN c.text WHEN 'image' THEN c.image_path END,
-                    c.pinned
-             FROM clips c LEFT JOIN apps a ON a.id = c.app_id
-             WHERE 1 = 1",
-        );
+        let mut sql = format!("{} WHERE c.pinned = 0", Self::CLIP_COLUMNS);
         let mut args = vec![Value::Integer(PREVIEW_CHARS)];
         if let Some(k) = kind {
             sql.push_str(" AND c.kind = ?");
@@ -399,9 +417,6 @@ impl Store {
         if let Some(a) = app_id {
             sql.push_str(" AND c.app_id = ?");
             args.push(Value::Integer(a));
-        }
-        if pinned_only {
-            sql.push_str(" AND c.pinned = 1");
         }
         let q = query.trim();
         match q.chars().count() {
@@ -418,8 +433,17 @@ impl Store {
         sql.push_str(" ORDER BY c.last_used_at DESC, c.id DESC LIMIT ? OFFSET ?");
         args.push(Value::Integer(limit));
         args.push(Value::Integer(offset));
+        self.query_clips(&sql, args)
+    }
 
-        let mut stmt = self.conn.prepare(&sql)?;
+    /// Pinned clips in the order they were pinned, regardless of any search or filter.
+    pub fn list_pinned(&self) -> Result<Vec<ClipDto>> {
+        let sql = format!("{} WHERE c.pinned = 1 ORDER BY c.pinned_at ASC, c.id ASC LIMIT ?", Self::CLIP_COLUMNS);
+        self.query_clips(&sql, vec![Value::Integer(PREVIEW_CHARS), Value::Integer(MAX_PINNED)])
+    }
+
+    fn query_clips(&self, sql: &str, args: Vec<Value>) -> Result<Vec<ClipDto>> {
+        let mut stmt = self.conn.prepare(sql)?;
         let rows = stmt.query_map(params_from_iter(args), |r| {
             let kind = Kind::parse(&r.get::<_, String>(1)?).unwrap_or(Kind::Text);
             let paths: Option<String> = r.get(9)?;
@@ -520,9 +544,25 @@ impl Store {
         Ok(())
     }
 
-    pub fn set_pinned(&self, id: i64, pinned: bool) -> Result<()> {
-        self.conn.execute("UPDATE clips SET pinned = ?1 WHERE id = ?2", params![pinned, id])?;
-        Ok(())
+    /// Pins or unpins a clip. Returns false, changing nothing, when pinning would go past `MAX_PINNED`.
+    pub fn set_pinned(&self, id: i64, pinned: bool, now: i64) -> Result<bool> {
+        if !pinned {
+            self.conn.execute("UPDATE clips SET pinned = 0, pinned_at = NULL WHERE id = ?1", [id])?;
+            return Ok(true);
+        }
+        let (already, count): (bool, i64) = self.conn.query_row(
+            "SELECT COALESCE(MAX(id = ?1), 0), COUNT(*) FROM clips WHERE pinned = 1",
+            [id],
+            |r| Ok((r.get::<_, i64>(0)? != 0, r.get(1)?)),
+        )?;
+        if already {
+            return Ok(true);
+        }
+        if count >= MAX_PINNED {
+            return Ok(false);
+        }
+        self.conn.execute("UPDATE clips SET pinned = 1, pinned_at = ?1 WHERE id = ?2", params![now, id])?;
+        Ok(true)
     }
 
     pub fn delete(&self, id: i64) -> Result<()> {
@@ -643,7 +683,7 @@ mod tests {
         s.upsert(text("hello"), None, 1).unwrap();
         s.upsert(text("world"), None, 2).unwrap();
         s.upsert(text("hello"), None, 3).unwrap();
-        let all = s.list("", None, None, false, 0, 50).unwrap();
+        let all = s.list("", None, None, 0, 50).unwrap();
         assert_eq!(texts(&all), vec!["hello", "world"]);
         assert_eq!(all[0].last_used_at, 3);
     }
@@ -664,8 +704,8 @@ mod tests {
         for i in 0..1100 {
             s.upsert(text(&format!("clip {i}")), None, i).unwrap();
         }
-        assert_eq!(s.list("", None, None, false, 0, 200).unwrap().len(), 200);
-        assert_eq!(s.list("", None, None, false, 1000, 200).unwrap().len(), 100);
+        assert_eq!(s.list("", None, None, 0, 200).unwrap().len(), 200);
+        assert_eq!(s.list("", None, None, 1000, 200).unwrap().len(), 100);
     }
 
     #[test]
@@ -674,10 +714,10 @@ mod tests {
         s.upsert(text("클립보드 히스토리 앱"), None, 1).unwrap();
         s.upsert(text("cargo tauri dev"), None, 2).unwrap();
         s.upsert(text("Vee"), None, 3).unwrap();
-        assert_eq!(texts(&s.list("히스토", None, None, false, 0, 50).unwrap()), vec!["클립보드 히스토리 앱"]);
-        assert_eq!(texts(&s.list("보드", None, None, false, 0, 50).unwrap()), vec!["클립보드 히스토리 앱"]);
-        assert_eq!(texts(&s.list("TAURI", None, None, false, 0, 50).unwrap()), vec!["cargo tauri dev"]);
-        assert_eq!(texts(&s.list("ve", None, None, false, 0, 50).unwrap()), vec!["Vee"]);
+        assert_eq!(texts(&s.list("히스토", None, None, 0, 50).unwrap()), vec!["클립보드 히스토리 앱"]);
+        assert_eq!(texts(&s.list("보드", None, None, 0, 50).unwrap()), vec!["클립보드 히스토리 앱"]);
+        assert_eq!(texts(&s.list("TAURI", None, None, 0, 50).unwrap()), vec!["cargo tauri dev"]);
+        assert_eq!(texts(&s.list("ve", None, None, 0, 50).unwrap()), vec!["Vee"]);
     }
 
     #[test]
@@ -687,11 +727,11 @@ mod tests {
         s.upsert(text("a_b"), None, 2).unwrap();
         s.upsert(text("say \"hi\" AND bye*"), None, 3).unwrap();
         s.upsert(text("plain"), None, 4).unwrap();
-        assert_eq!(texts(&s.list("%", None, None, false, 0, 50).unwrap()), vec!["100% done"]);
-        assert_eq!(texts(&s.list("_", None, None, false, 0, 50).unwrap()), vec!["a_b"]);
-        assert_eq!(texts(&s.list("\"hi\" AND", None, None, false, 0, 50).unwrap()), vec!["say \"hi\" AND bye*"]);
-        assert_eq!(texts(&s.list("bye*", None, None, false, 0, 50).unwrap()), vec!["say \"hi\" AND bye*"]);
-        assert!(s.list("NOT", None, None, false, 0, 50).unwrap().is_empty());
+        assert_eq!(texts(&s.list("%", None, None, 0, 50).unwrap()), vec!["100% done"]);
+        assert_eq!(texts(&s.list("_", None, None, 0, 50).unwrap()), vec!["a_b"]);
+        assert_eq!(texts(&s.list("\"hi\" AND", None, None, 0, 50).unwrap()), vec!["say \"hi\" AND bye*"]);
+        assert_eq!(texts(&s.list("bye*", None, None, 0, 50).unwrap()), vec!["say \"hi\" AND bye*"]);
+        assert!(s.list("NOT", None, None, 0, 50).unwrap().is_empty());
     }
 
     #[test]
@@ -700,11 +740,11 @@ mod tests {
         s.upsert(text("hello"), None, 1).unwrap();
         s.upsert(text("https://example.com"), None, 2).unwrap();
         s.upsert(files(&["/tmp/x"]), None, 3).unwrap();
-        let links = s.list("", Some(Kind::Link), None, false, 0, 50).unwrap();
+        let links = s.list("", Some(Kind::Link), None, 0, 50).unwrap();
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].kind, Kind::Link);
-        assert_eq!(s.list("", Some(Kind::Files), None, false, 0, 50).unwrap().len(), 1);
-        assert_eq!(s.list("", Some(Kind::Text), None, false, 0, 50).unwrap().len(), 1);
+        assert_eq!(s.list("", Some(Kind::Files), None, 0, 50).unwrap().len(), 1);
+        assert_eq!(s.list("", Some(Kind::Text), None, 0, 50).unwrap().len(), 1);
     }
 
     #[test]
@@ -716,7 +756,7 @@ mod tests {
         s.upsert(files(&[&path(&file)]), None, 1).unwrap();
         s.upsert(files(&[&path(d.path())]), None, 2).unwrap();
         s.upsert(files(&["/definitely/not/here.txt", &path(&file)]), None, 3).unwrap();
-        let all = s.list("", None, None, false, 0, 50).unwrap();
+        let all = s.list("", None, None, 0, 50).unwrap();
         assert_eq!((all[0].missing, all[0].is_dir, all[0].meta.as_deref()), (true, false, Some("2")));
         assert_eq!((all[1].missing, all[1].is_dir, all[1].meta.as_deref()), (false, true, Some("1")));
         assert_eq!((all[2].missing, all[2].is_dir, all[2].meta.as_deref()), (false, false, Some("1")));
@@ -726,7 +766,7 @@ mod tests {
     fn large_text_preview_is_capped_but_counted() {
         let (s, _d) = store();
         s.upsert(text(&"가".repeat(10_000)), None, 1).unwrap();
-        let clip = &s.list("", None, None, false, 0, 50).unwrap()[0];
+        let clip = &s.list("", None, None, 0, 50).unwrap()[0];
         assert_eq!(clip.text_preview.as_ref().unwrap().chars().count(), 500);
         assert_eq!(clip.char_count, 10_000);
     }
@@ -742,7 +782,7 @@ mod tests {
         let (s, _d) = store();
         s.upsert(text("hi"), None, 1).unwrap();
         s.upsert(files(&["/a", "/b"]), None, 2).unwrap();
-        let all = s.list("", None, None, false, 0, 50).unwrap();
+        let all = s.list("", None, None, 0, 50).unwrap();
         assert_eq!(s.content(all[0].id).unwrap(), Some(ClipContent::Files(vec!["/a".into(), "/b".into()])));
         assert_eq!(s.content(all[1].id).unwrap(), Some(ClipContent::Text("hi".into())));
     }
@@ -751,7 +791,7 @@ mod tests {
     fn image_has_thumb_and_dimensions() {
         let (s, _d) = store();
         s.upsert(image(1), None, 1).unwrap();
-        let clip = &s.list("", None, None, false, 0, 50).unwrap()[0];
+        let clip = &s.list("", None, None, 0, 50).unwrap()[0];
         assert_eq!(clip.kind, Kind::Image);
         assert_eq!(clip.meta.as_deref(), Some("10×20"));
         assert!(clip.thumb.as_ref().unwrap().starts_with("data:image/png;base64,"));
@@ -762,13 +802,13 @@ mod tests {
         let (s, _d) = store();
         s.upsert(image(1), None, 1).unwrap();
         s.upsert(image(2), None, 2).unwrap();
-        let all = s.list("", None, None, false, 0, 50).unwrap();
+        let all = s.list("", None, None, 0, 50).unwrap();
         let (a, b) = (image_path(&s, all[0].id), image_path(&s, all[1].id));
         s.delete(all[0].id).unwrap();
         assert!(!a.exists() && b.exists());
         s.clear().unwrap();
         assert!(!b.exists());
-        assert!(s.list("", None, None, false, 0, 50).unwrap().is_empty());
+        assert!(s.list("", None, None, 0, 50).unwrap().is_empty());
     }
 
     #[test]
@@ -776,9 +816,9 @@ mod tests {
         let (s, _d) = store();
         s.upsert(text("old"), None, 1).unwrap();
         s.upsert(text("new"), None, 2).unwrap();
-        let old = s.list("", None, None, false, 0, 50).unwrap()[1].id;
+        let old = s.list("", None, None, 0, 50).unwrap()[1].id;
         s.touch(old, 3).unwrap();
-        assert_eq!(texts(&s.list("", None, None, false, 0, 50).unwrap()), vec!["old", "new"]);
+        assert_eq!(texts(&s.list("", None, None, 0, 50).unwrap()), vec!["old", "new"]);
     }
 
     #[test]
@@ -790,7 +830,7 @@ mod tests {
         assert_eq!(first, second);
         assert!(s.app_known("com.a").unwrap());
         s.upsert(text("x"), Some(first), 1).unwrap();
-        let clip = &s.list("", None, None, false, 0, 50).unwrap()[0];
+        let clip = &s.list("", None, None, 0, 50).unwrap()[0];
         assert_eq!(clip.app_name.as_deref(), Some("A2"));
         assert!(clip.app_icon.is_some());
     }
@@ -803,9 +843,9 @@ mod tests {
         s.upsert(text("from a"), Some(a), 1).unwrap();
         s.upsert(text("from b"), Some(b), 2).unwrap();
         s.upsert(text("also a"), Some(a), 3).unwrap();
-        assert_eq!(texts(&s.list("", None, Some(a), false, 0, 50).unwrap()), vec!["also a", "from a"]);
-        assert_eq!(texts(&s.list("also", None, Some(a), false, 0, 50).unwrap()), vec!["also a"]);
-        assert!(s.list("", None, Some(999), false, 0, 50).unwrap().is_empty());
+        assert_eq!(texts(&s.list("", None, Some(a), 0, 50).unwrap()), vec!["also a", "from a"]);
+        assert_eq!(texts(&s.list("also", None, Some(a), 0, 50).unwrap()), vec!["also a"]);
+        assert!(s.list("", None, Some(999), 0, 50).unwrap().is_empty());
     }
 
     #[test]
@@ -847,7 +887,7 @@ mod tests {
         let images = dir.path().join("images");
         Store::open(&db, &images).unwrap().upsert(text("persist me"), None, 1).unwrap();
         let reopened = Store::open(&db, &images).unwrap();
-        assert_eq!(texts(&reopened.list("", None, None, false, 0, 50).unwrap()), vec!["persist me"]);
+        assert_eq!(texts(&reopened.list("", None, None, 0, 50).unwrap()), vec!["persist me"]);
     }
 
     #[test]
@@ -862,7 +902,7 @@ mod tests {
         )
         .unwrap();
         s.upsert(files(&["/f.txt", "/g.txt"]), None, 3).unwrap();
-        let all = s.list("", None, None, false, 0, 50).unwrap();
+        let all = s.list("", None, None, 0, 50).unwrap();
         assert!(all[0].stack.is_empty());
         assert_eq!(all[1].stack.iter().map(Option::is_some).collect::<Vec<_>>(), vec![true, false, true]);
         assert_eq!(all[2].stack.len(), 1);
@@ -875,7 +915,7 @@ mod tests {
         let (s, _d) = store();
         let app = s.upsert_app("com.a", "A", Some(&[7, 7])).unwrap();
         s.upsert(image(1), Some(app), 1).unwrap();
-        let id = s.list("", None, None, false, 0, 1).unwrap()[0].id;
+        let id = s.list("", None, None, 0, 1).unwrap()[0].id;
         assert_eq!(s.preview_png(id).unwrap(), Some(vec![9]));
     }
 
@@ -885,7 +925,7 @@ mod tests {
         let app = s.upsert_app("com.a", "A", Some(&[7, 7])).unwrap();
         s.upsert(files(&["/x.txt"]), Some(app), 1).unwrap();
         s.upsert(text("no app"), None, 2).unwrap();
-        let all = s.list("", None, None, false, 0, 50).unwrap();
+        let all = s.list("", None, None, 0, 50).unwrap();
         assert_eq!(s.preview_png(all[1].id).unwrap(), Some(vec![7, 7]));
         assert_eq!(s.preview_png(all[0].id).unwrap(), None);
     }
@@ -896,7 +936,7 @@ mod tests {
         let thumbs_left = |s: &Store| s.conn.query_row("SELECT count(*) FROM clip_thumbs", [], |r| r.get::<_, i64>(0)).unwrap();
         let one = |p: &str| NewClip::Files { paths: vec![p.into()], thumbs: vec![(0, vec![1])] };
         s.upsert(one("/a.png"), None, 1).unwrap();
-        s.delete(s.list("", None, None, false, 0, 1).unwrap()[0].id).unwrap();
+        s.delete(s.list("", None, None, 0, 1).unwrap()[0].id).unwrap();
         assert_eq!(thumbs_left(&s), 0);
         s.upsert(one("/b.png"), None, 2).unwrap();
         s.clear().unwrap();
@@ -917,11 +957,11 @@ mod tests {
             .unwrap();
         }
         let s = Store::open(&db, &dir.path().join("images")).unwrap();
-        let clip = &s.list("", None, None, false, 0, 50).unwrap()[0];
+        let clip = &s.list("", None, None, 0, 50).unwrap()[0];
         assert!(clip.stack.is_empty());
         assert!(!clip.pinned);
         let version: i64 = s.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
     }
 
     #[test]
@@ -942,20 +982,21 @@ mod tests {
     }
 
     #[test]
-    fn pinned_clips_filter_and_survive_a_bump() {
+    fn pinned_clips_leave_the_history_and_survive_a_bump() {
         let (s, _d) = store();
         let a = s.upsert(text("keep"), None, 1).unwrap();
         s.upsert(text("other"), None, 2).unwrap();
-        s.set_pinned(a, true).unwrap();
-        assert_eq!(texts(&s.list("", None, None, true, 0, 50).unwrap()), vec!["keep"]);
+        assert!(s.set_pinned(a, true, 10).unwrap());
+        assert_eq!(texts(&s.list_pinned().unwrap()), vec!["keep"]);
+        assert_eq!(texts(&s.list("", None, None, 0, 50).unwrap()), vec!["other"]);
         // Copying the same content again bumps it but must not unpin it.
         s.upsert(text("keep"), None, 3).unwrap();
-        let all = s.list("", None, None, false, 0, 50).unwrap();
-        assert_eq!(texts(&all), vec!["keep", "other"]);
-        assert!(all[0].pinned);
-        assert!(!all[1].pinned);
-        s.set_pinned(a, false).unwrap();
-        assert!(s.list("", None, None, true, 0, 50).unwrap().is_empty());
+        let pins = s.list_pinned().unwrap();
+        assert_eq!(texts(&pins), vec!["keep"]);
+        assert!(pins[0].pinned);
+        assert!(s.set_pinned(a, false, 11).unwrap());
+        assert!(s.list_pinned().unwrap().is_empty());
+        assert_eq!(texts(&s.list("", None, None, 0, 50).unwrap()), vec!["keep", "other"]);
     }
 
     #[test]
@@ -965,12 +1006,13 @@ mod tests {
         let old_img_path = image_path(&s, old_img);
         s.upsert(text("old"), None, 20).unwrap();
         let pinned = s.upsert(text("old but pinned"), None, 30).unwrap();
-        s.set_pinned(pinned, true).unwrap();
+        s.set_pinned(pinned, true, 1).unwrap();
         s.upsert(text("at cutoff"), None, 100).unwrap();
         s.upsert(text("new"), None, 200).unwrap();
         assert_eq!(s.prunable_count(100).unwrap(), 2);
         assert_eq!(s.prune(100).unwrap(), 2);
-        assert_eq!(texts(&s.list("", None, None, false, 0, 50).unwrap()), vec!["new", "at cutoff", "old but pinned"]);
+        assert_eq!(texts(&s.list("", None, None, 0, 50).unwrap()), vec!["new", "at cutoff"]);
+        assert_eq!(texts(&s.list_pinned().unwrap()), vec!["old but pinned"]);
         assert!(!old_img_path.exists());
         assert_eq!(s.prunable_count(100).unwrap(), 0);
     }
@@ -983,7 +1025,7 @@ mod tests {
         s.upsert(text("recopied"), None, 20).unwrap();
         s.upsert(text("recopied"), None, 600).unwrap();
         assert_eq!(s.prune(100).unwrap(), 0);
-        assert_eq!(s.list("", None, None, false, 0, 50).unwrap().len(), 2);
+        assert_eq!(s.list("", None, None, 0, 50).unwrap().len(), 2);
     }
 
     #[test]
@@ -991,12 +1033,13 @@ mod tests {
         let (s, _d) = store();
         let kept = s.upsert(image(1), None, 1).unwrap();
         let kept_path = image_path(&s, kept);
-        s.set_pinned(kept, true).unwrap();
+        s.set_pinned(kept, true, 1).unwrap();
         let gone = s.upsert(image(2), None, 2).unwrap();
         let gone_path = image_path(&s, gone);
         s.upsert(text("gone"), None, 3).unwrap();
         assert_eq!(s.clear().unwrap(), 2);
-        let left = s.list("", None, None, false, 0, 50).unwrap();
+        assert!(s.list("", None, None, 0, 50).unwrap().is_empty());
+        let left = s.list_pinned().unwrap();
         assert_eq!(left.len(), 1);
         assert_eq!(left[0].id, kept);
         assert!(kept_path.exists());
@@ -1008,7 +1051,7 @@ mod tests {
         let (s, _d) = store();
         let id = s.upsert(image(1), None, 1).unwrap(); // 8-byte png
         s.upsert(text("a"), None, 2).unwrap();
-        s.set_pinned(id, true).unwrap();
+        s.set_pinned(id, true, 1).unwrap();
         let st = s.stats().unwrap();
         assert_eq!((st.count, st.pinned, st.image_bytes), (2, 1, 8));
     }
@@ -1020,14 +1063,15 @@ mod tests {
         let b = s.upsert_app("com.apple.Notes", "Notes", None).unwrap();
         s.upsert(text("secret"), Some(a), 1).unwrap();
         let kept = s.upsert(text("pinned secret"), Some(a), 2).unwrap();
-        s.set_pinned(kept, true).unwrap();
+        s.set_pinned(kept, true, 1).unwrap();
         s.upsert(text("note"), Some(b), 3).unwrap();
         assert!(!s.is_excluded("com.agilebits.onepassword").unwrap());
         assert!(!s.is_excluded("never.seen.app").unwrap());
         assert_eq!(s.app_clip_count(a).unwrap(), 1);
         assert_eq!(s.set_excluded(a, true).unwrap(), 1);
         assert!(s.is_excluded("com.agilebits.onepassword").unwrap());
-        assert_eq!(texts(&s.list("", None, None, false, 0, 50).unwrap()), vec!["note", "pinned secret"]);
+        assert_eq!(texts(&s.list("", None, None, 0, 50).unwrap()), vec!["note"]);
+        assert_eq!(texts(&s.list_pinned().unwrap()), vec!["pinned secret"]);
         let ex = s.excluded_apps().unwrap();
         assert_eq!((ex.len(), ex[0].name.as_str(), ex[0].count), (1, "1Password", 1));
         assert_eq!(s.set_excluded(a, false).unwrap(), 0);
@@ -1049,5 +1093,74 @@ mod tests {
         // Un-excluding an app whose clips were all deleted must still offer it again.
         s.set_excluded(a, false).unwrap();
         assert_eq!(names(s.known_apps().unwrap()), vec!["Notes", "1Password", "Terminal"]);
+    }
+
+    #[test]
+    fn pin_limit_rejects_fourth() {
+        let (s, _d) = store();
+        let ids: Vec<i64> = (1..=4).map(|n| s.upsert(text(&format!("c{n}")), None, n).unwrap()).collect();
+        for &id in &ids[..3] {
+            assert!(s.set_pinned(id, true, 100).unwrap());
+        }
+        assert!(!s.set_pinned(ids[3], true, 101).unwrap());
+        assert_eq!(s.list_pinned().unwrap().len(), 3);
+        // Re-pinning a pinned clip at the limit is a no-op success, not a rejection.
+        assert!(s.set_pinned(ids[0], true, 102).unwrap());
+        // Unpinning an unpinned clip is a no-op success too.
+        assert!(s.set_pinned(ids[3], false, 103).unwrap());
+        // Freeing a slot lets the fourth in.
+        assert!(s.set_pinned(ids[1], false, 104).unwrap());
+        assert!(s.set_pinned(ids[3], true, 105).unwrap());
+        assert_eq!(texts(&s.list_pinned().unwrap()), vec!["c1", "c3", "c4"]);
+    }
+
+    #[test]
+    fn list_excludes_pinned() {
+        let (s, _d) = store();
+        let a = s.upsert(text("alpha pinned"), None, 1).unwrap();
+        s.upsert(text("alpha loose"), None, 2).unwrap();
+        s.set_pinned(a, true, 3).unwrap();
+        // Searches and kind filters only ever see the history.
+        assert_eq!(texts(&s.list("alpha", None, None, 0, 50).unwrap()), vec!["alpha loose"]);
+        assert_eq!(texts(&s.list("", Some(Kind::Text), None, 0, 50).unwrap()), vec!["alpha loose"]);
+        assert_eq!(texts(&s.list_pinned().unwrap()), vec!["alpha pinned"]);
+    }
+
+    #[test]
+    fn list_pinned_keeps_pin_order() {
+        let (s, _d) = store();
+        let first = s.upsert(text("first"), None, 1).unwrap();
+        let second = s.upsert(text("second"), None, 2).unwrap();
+        s.set_pinned(second, true, 10).unwrap();
+        s.set_pinned(first, true, 20).unwrap();
+        s.touch(second, 30).unwrap(); // using a pin must not reorder the pinned area
+        assert_eq!(texts(&s.list_pinned().unwrap()), vec!["second", "first"]);
+        // Re-pinning keeps the original slot.
+        s.set_pinned(second, true, 40).unwrap();
+        assert_eq!(texts(&s.list_pinned().unwrap()), vec!["second", "first"]);
+    }
+
+    #[test]
+    fn v5_migration_keeps_three_most_recent() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("vee.db");
+        {
+            let conn = Connection::open(&db).unwrap();
+            for schema in [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4] {
+                conn.execute_batch(schema).unwrap();
+            }
+            for n in 1..=5i64 {
+                conn.execute(
+                    "INSERT INTO clips (kind, hash, text, created_at, last_used_at, pinned)
+                     VALUES ('text', ?1, ?2, ?3, ?3, 1)",
+                    params![format!("h{n}"), format!("pin {n}"), n],
+                )
+                .unwrap();
+            }
+        }
+        let s = Store::open(&db, &dir.path().join("images")).unwrap();
+        assert_eq!(texts(&s.list_pinned().unwrap()), vec!["pin 3", "pin 4", "pin 5"]);
+        // The rest are unpinned, not deleted.
+        assert_eq!(texts(&s.list("", None, None, 0, 50).unwrap()), vec!["pin 2", "pin 1"]);
     }
 }

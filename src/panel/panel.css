@@ -166,8 +166,47 @@
   background: var(--subtle);
 }
 
+/* Pins on the left, history scrolling on the right. */
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.pinned-row {
+  position: relative;
+  flex: none;
+  display: flex;
+  gap: 10px;
+  padding: 4px;
+}
+
+.pin-divider {
+  flex: none;
+  width: 1px;
+  margin: 8px 6px;
+  background: var(--border);
+}
+
+.pin-notice {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: rgba(0, 0, 0, 0.12) 0 8px 24px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .row {
   flex: 1;
+  min-width: 0;
   display: flex;
   gap: 10px;
   padding: 4px;
@@ -190,7 +229,10 @@
 
 .card {
   /* The window is exactly the panel's height; 72px is the toolbar, paddings and borders. */
-  flex: 0 0 calc((100vh - 72px) * 0.95);
+  --card-w: calc((100vh - 72px) * 0.95);
+  flex: 0 0 var(--card-w);
+  /* WebKit sizes the pinned area from its cards' widths, not their flex-basis; without this a long preview widens it. */
+  width: var(--card-w);
   position: relative;
   display: flex;
   flex-direction: column;

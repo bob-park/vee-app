@@ -1,6 +1,6 @@
 export const en = {
   search: "Search",
-  filters: { all: "All", pinned: "📌 Pinned", text: "Text", image: "Images", files: "Files", link: "Links" },
+  filters: { all: "All", text: "Text", image: "Images", files: "Files", link: "Links" },
   kinds: { text: "Text", link: "Link", image: "Image", folder: "Folder" },
   filesCount: (n: number) => (n === 1 ? "1 file" : `${n} files`),
   moreFiles: (name: string, more: number) => (more > 0 ? `${name} +${more}` : name),
@@ -16,6 +16,7 @@ export const en = {
   copiedPlain: "Copied as plain text",
   pin: "Pin",
   unpin: "Unpin",
+  pinLimit: "You can pin up to 3 cards",
   copyFailed: "Couldn't copy",
   copyFailedDetail: "The original is gone",
   deleteConfirm: "Delete this item?",

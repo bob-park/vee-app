@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export type Kind = "text" | "link" | "image" | "files";
-export type Filter = Kind | "all" | "pinned";
+export type Filter = Kind | "all";
 export type Retention = "off" | "7" | "30" | "90";
 
 export interface Clip {
@@ -74,6 +74,9 @@ export const api = {
   /** Apps that aren't excluded, including ones with no clips left. */
   listKnownApps: () => invoke<App[]>("list_known_apps"),
   copyClip: (id: number, plain = false) => invoke<void>("copy_clip", { id, plain }),
+  /** Pinned clips in pin order; searches and filters never apply. */
+  listPinned: () => invoke<Clip[]>("list_pinned"),
+  /** Rejects with "pin_limit" when 3 clips are already pinned. */
   setPinned: (id: number, pinned: boolean) => invoke<void>("set_pinned", { id, pinned }),
   countPrunable: (value: Retention) => invoke<number>("count_prunable", { value }),
   countAppClips: (appId: number) => invoke<number>("count_app_clips", { appId }),
