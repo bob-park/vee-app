@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, SOUND_NAMES, type SoundName, type UpdateStatus } from "../api.ts";
 import { relativeTime } from "../i18n/index.ts";
 import { usePrefs } from "../prefs.tsx";
+import { Dropdown } from "./Dropdown.tsx";
 import { HistorySection } from "./HistorySection.tsx";
 import { ShortcutRecorder } from "./ShortcutRecorder.tsx";
 import "./settings.css";
@@ -182,23 +183,16 @@ export function Settings() {
         </Row>
         <Row label={s.soundName} hint={s.soundNameHint} dim={settings.sound !== "on"}>
           <div className="sound-pick">
-            <select
-              className="select"
-              aria-label={s.soundName}
+            <Dropdown
+              ariaLabel={s.soundName}
               value={settings.soundName}
               disabled={settings.sound !== "on"}
-              onChange={(e) => {
-                const name = e.target.value as SoundName;
+              options={SOUND_NAMES.map((name) => ({ value: name, label: s.sounds[name] }))}
+              onChange={(name: SoundName) => {
                 run(api.setSetting("soundName", name));
                 void api.previewSound(name);
               }}
-            >
-              {SOUND_NAMES.map((name) => (
-                <option key={name} value={name}>
-                  {s.sounds[name]}
-                </option>
-              ))}
-            </select>
+            />
             <button
               className="btn play"
               aria-label={s.preview}

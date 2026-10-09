@@ -5,6 +5,7 @@
 }
 
 :root[data-theme="light"] {
+  color-scheme: light;
   --surface: #ffffff;
   --card: #ffffff;
   --border: #dedee5;
@@ -25,6 +26,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --surface: #16171c;
   --card: #1f2027;
   --border: #2e2f39;
