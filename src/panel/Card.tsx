@@ -10,7 +10,9 @@ interface Props {
   clip: Clip;
   selected: boolean;
   onSelect: () => void;
-  onCopy: () => void;
+  /** `plain` copies text without its formatting (shift held). */
+  onCopy: (plain: boolean) => void;
+  onTogglePin: () => void;
   /** Starts dragging the card out, from the card element and the cursor position. */
   onDragOut?: (card: HTMLElement, x: number, y: number) => void;
   confirming: boolean;
@@ -95,17 +97,29 @@ function Body({ clip }: { clip: Clip }) {
   return <p className={clip.kind === "link" ? "preview link" : "preview"}>{clip.textPreview}</p>;
 }
 
-export function Card({ clip, selected, onSelect, onCopy, onDragOut, confirming, onConfirmDelete, onCancelDelete }: Props) {
+export function Card({
+  clip,
+  selected,
+  onSelect,
+  onCopy,
+  onTogglePin,
+  onDragOut,
+  confirming,
+  onConfirmDelete,
+  onCancelDelete,
+}: Props) {
   const { t, locale } = usePrefs();
   const press = useRef<{ x: number; y: number } | null>(null);
   return (
     <div
-      className={["card", selected && "selected", confirming && "confirming"].filter(Boolean).join(" ")}
+      className={["card", selected && "selected", confirming && "confirming", clip.pinned && "pinned"]
+        .filter(Boolean)
+        .join(" ")}
       data-id={clip.id}
       role="option"
       aria-selected={selected}
       onClick={onSelect}
-      onDoubleClick={onCopy}
+      onDoubleClick={(e) => onCopy(e.shiftKey)}
       onMouseDown={(e) => {
         press.current = onDragOut ? { x: e.clientX, y: e.clientY } : null;
       }}
@@ -129,6 +143,24 @@ export function Card({ clip, selected, onSelect, onCopy, onDragOut, confirming, 
         <span className="app-name">{clip.appName ?? ""}</span>
         <span className={clip.kind === "files" ? "badge badge-file" : "badge"}>{badgeLabel(clip, t)}</span>
         <span className="time">{relativeTime(clip.lastUsedAt, locale)}</span>
+        <button
+          className="pin"
+          aria-label={clip.pinned ? t.unpin : t.pin}
+          title={clip.pinned ? t.unpin : t.pin}
+          tabIndex={-1}
+          // Don't start a drag, select the card or copy it.
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onTogglePin();
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          📌
+        </button>
       </div>
       <div className="card-body">
         <Body clip={clip} />

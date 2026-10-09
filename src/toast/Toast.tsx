@@ -55,7 +55,7 @@ export function Toast() {
         {p.ok && <span className="toast-check">✓</span>}
       </span>
       <span className="toast-text">
-        <b>{p.ok ? t.copied : t.copyFailed}</b>
+        <b>{p.ok ? (p.plain ? t.copiedPlain : t.copied) : t.copyFailed}</b>
         {summary && <span className="toast-summary">{summary}</span>}
       </span>
     </div>

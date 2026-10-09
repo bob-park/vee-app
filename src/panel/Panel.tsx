@@ -156,8 +156,12 @@ export function Panel() {
     if (selected >= clips.length - 5) void loadMore();
   }, [selected, clips.length, loadMore]);
 
-  const copy = (clip: Clip | undefined) => {
-    if (clip) void api.copyClip(clip.id).catch(() => {});
+  const copy = (clip: Clip | undefined, plain = false) => {
+    if (clip) void api.copyClip(clip.id, plain).catch(() => {});
+  };
+
+  const togglePin = (clip: Clip | undefined) => {
+    if (clip) void api.setPinned(clip.id, !clip.pinned);
   };
 
   const dragOut = (clip: Clip, image: string | null = null) => {
@@ -201,6 +205,7 @@ export function Panel() {
       confirming: confirmingId !== null || updateConfirming,
       suggesting,
       hasTag: app !== null,
+      metaOrCtrl: e.metaKey || e.ctrlKey,
     });
     if (!action) return;
     e.preventDefault();
@@ -209,7 +214,10 @@ export function Panel() {
         setSelected((s) => Math.max(0, Math.min(s + action.delta, clips.length - 1)));
         break;
       case "copy":
-        copy(clips[selected]);
+        copy(clips[selected], action.plain);
+        break;
+      case "togglePin":
+        togglePin(clips[selected]);
         break;
       case "hide":
         void api.hidePanel();
@@ -310,7 +318,8 @@ export function Panel() {
                 setSelected(i);
                 setConfirmingId(null);
               }}
-              onCopy={() => copy(clip)}
+              onCopy={(plain) => copy(clip, plain)}
+              onTogglePin={() => togglePin(clip)}
               onDragOut={
                 (clip.kind === "files" || clip.kind === "image") && !clip.missing
                   ? (card, x, y) => liftCard(clip, card, x, y)
