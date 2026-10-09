@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { api, type App, type Retention, type Stats } from "../api.ts";
 import { usePrefs } from "../prefs.tsx";
+import { Dropdown } from "./Dropdown.tsx";
 import { Segmented } from "./Settings.tsx";
 
 const RETENTIONS: Retention[] = ["off", "7", "30", "90"];
@@ -151,22 +152,15 @@ export function HistorySection({ run }: { run: (p: Promise<unknown>) => void }) 
                 </button>
               </span>
             ))}
-            <select
-              className="select add-app"
-              aria-label={s.addApp}
-              value=""
+            <Dropdown
+              className="add-app"
+              ariaLabel={s.addApp}
+              placeholder={s.addApp}
+              value={null}
               disabled={apps.length === 0}
-              onChange={(e) => void pickApp(Number(e.target.value))}
-            >
-              <option value="" disabled>
-                {s.addApp}
-              </option>
-              {apps.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
+              options={apps.map((a) => ({ value: a.id, label: a.name, icon: a.icon }))}
+              onChange={(id) => void pickApp(id)}
+            />
           </div>
           {pending?.kind === "exclude" && (
             <ConfirmBox
