@@ -257,6 +257,48 @@ impl Store {
         )?)
     }
 
+    /// Unknown apps are not excluded.
+    pub fn is_excluded(&self, bundle_id: &str) -> Result<bool> {
+        let excluded: Option<bool> = self
+            .conn
+            .query_row("SELECT excluded FROM apps WHERE bundle_id = ?1", [bundle_id], |r| r.get(0))
+            .optional()?;
+        Ok(excluded.unwrap_or(false))
+    }
+
+    /// Excluding an app also deletes its unpinned clips; returns how many.
+    pub fn set_excluded(&self, app_id: i64, excluded: bool) -> Result<usize> {
+        self.conn.execute("UPDATE apps SET excluded = ?1 WHERE id = ?2", params![excluded, app_id])?;
+        if !excluded {
+            return Ok(0);
+        }
+        self.delete_unpinned("app_id = ?", &[Value::Integer(app_id)])
+    }
+
+    /// Unpinned clips from this app, i.e. what excluding it would delete.
+    pub fn app_clip_count(&self, app_id: i64) -> Result<i64> {
+        self.count_unpinned("app_id = ?", &[Value::Integer(app_id)])
+    }
+
+    pub fn excluded_apps(&self) -> Result<Vec<AppDto>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT a.id, a.name, a.icon_png, COUNT(c.id)
+             FROM apps a LEFT JOIN clips c ON c.app_id = a.id
+             WHERE a.excluded = 1
+             GROUP BY a.id
+             ORDER BY a.name",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(AppDto {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                icon: r.get::<_, Option<Vec<u8>>>(2)?.map(|b| data_url(&b)),
+                count: r.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// Inserts a new clip, or moves an identical one to the front. Returns its id.
     pub fn upsert(&self, clip: NewClip, app_id: Option<i64>, now: i64) -> Result<i64> {
         let hash = match &clip {
@@ -960,5 +1002,27 @@ mod tests {
         s.set_pinned(id, true).unwrap();
         let st = s.stats().unwrap();
         assert_eq!((st.count, st.pinned, st.image_bytes), (2, 1, 8));
+    }
+
+    #[test]
+    fn excluding_an_app_deletes_its_unpinned_clips_and_marks_it() {
+        let (s, _d) = store();
+        let a = s.upsert_app("com.agilebits.onepassword", "1Password", None).unwrap();
+        let b = s.upsert_app("com.apple.Notes", "Notes", None).unwrap();
+        s.upsert(text("secret"), Some(a), 1).unwrap();
+        let kept = s.upsert(text("pinned secret"), Some(a), 2).unwrap();
+        s.set_pinned(kept, true).unwrap();
+        s.upsert(text("note"), Some(b), 3).unwrap();
+        assert!(!s.is_excluded("com.agilebits.onepassword").unwrap());
+        assert!(!s.is_excluded("never.seen.app").unwrap());
+        assert_eq!(s.app_clip_count(a).unwrap(), 1);
+        assert_eq!(s.set_excluded(a, true).unwrap(), 1);
+        assert!(s.is_excluded("com.agilebits.onepassword").unwrap());
+        assert_eq!(texts(&s.list("", None, None, false, 0, 50).unwrap()), vec!["note", "pinned secret"]);
+        let ex = s.excluded_apps().unwrap();
+        assert_eq!((ex.len(), ex[0].name.as_str(), ex[0].count), (1, "1Password", 1));
+        assert_eq!(s.set_excluded(a, false).unwrap(), 0);
+        assert!(!s.is_excluded("com.agilebits.onepassword").unwrap());
+        assert!(s.excluded_apps().unwrap().is_empty());
     }
 }
