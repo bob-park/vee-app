@@ -6,6 +6,7 @@ import { Card } from "./Card.tsx";
 import { dragFileName } from "./fileThumb.ts";
 import { panelKeyAction } from "./keys.ts";
 import { cancelFloat, cardLefts, floatCard, playFlip, reducedMotion } from "./motion.ts";
+import { clampSelection, defaultSelection } from "./selection.ts";
 import { FILTERS, Toolbar } from "./Toolbar.tsx";
 import "./panel.css";
 
@@ -16,6 +17,10 @@ export function Panel() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [clips, setClips] = useState<Clip[]>([]);
+  const [pinned, setPinnedClips] = useState<Clip[]>([]);
+  const [pinNotice, setPinNotice] = useState(false);
+  const noticeTimer = useRef<number | undefined>(undefined);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [open, setOpen] = useState(false);
@@ -36,6 +41,8 @@ export function Panel() {
   const flipFrom = useRef<Map<number, number> | null>(null);
   const openRef = useRef(open);
   openRef.current = open;
+  /** Every card in screen order; `selected` indexes this. */
+  const items = [...pinned, ...clips];
 
   // While `@…` is being typed it names an app, not text to search for.
   const suggesting = app === null && query.startsWith("@");
@@ -46,13 +53,16 @@ export function Panel() {
   const reload = useCallback(
     async (keepSelection: boolean, animate = false) => {
       const id = ++requestId.current;
-      const page = await api.listClips(textQuery, filter, appId, 0, PAGE);
+      const [page, pins] = await Promise.all([api.listClips(textQuery, filter, appId, 0, PAGE), api.listPinned()]);
       if (id !== requestId.current) return;
       // Only copies arriving while the panel is on screen animate — not searches or filters.
-      if (animate && openRef.current && !reducedMotion()) flipFrom.current = cardLefts(rowRef.current);
+      if (animate && openRef.current && !reducedMotion()) flipFrom.current = cardLefts(bodyRef.current);
+      setPinnedClips(pins);
       setClips(page);
       setHasMore(page.length === PAGE);
-      setSelected((s) => (keepSelection ? Math.max(0, Math.min(s, page.length - 1)) : 0));
+      setSelected((s) =>
+        keepSelection ? clampSelection(s, pins.length + page.length) : defaultSelection(pins.length, page.length),
+      );
       if (!keepSelection) {
         setConfirmingId(null);
         rowRef.current?.scrollTo({ left: 0 });
@@ -130,6 +140,7 @@ export function Panel() {
       setConfirmingId(null);
       setUpdateConfirming(false);
       setUpdateFailed(false);
+      setPinNotice(false);
       setQuery("");
       setApp(null);
       setFilter("all");
@@ -148,20 +159,32 @@ export function Panel() {
   useLayoutEffect(() => {
     const before = flipFrom.current;
     flipFrom.current = null;
-    if (before && rowRef.current) playFlip(rowRef.current, before);
-  }, [clips]);
+    if (before && bodyRef.current) playFlip(bodyRef.current, before);
+  }, [clips, pinned]);
 
+  const selectedId = items[selected]?.id;
   useEffect(() => {
-    rowRef.current?.children[selected]?.scrollIntoView({ block: "nearest", inline: "nearest" });
-    if (selected >= clips.length - 5) void loadMore();
-  }, [selected, clips.length, loadMore]);
+    bodyRef.current
+      ?.querySelector(`[data-id="${selectedId}"]`)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (selected >= items.length - 5) void loadMore();
+  }, [selectedId, selected, items.length, loadMore]);
 
   const copy = (clip: Clip | undefined, plain = false) => {
     if (clip) void api.copyClip(clip.id, plain).catch(() => {});
   };
 
+  const showPinNotice = () => {
+    window.clearTimeout(noticeTimer.current);
+    setPinNotice(true);
+    noticeTimer.current = window.setTimeout(() => setPinNotice(false), 2000);
+  };
+
   const togglePin = (clip: Clip | undefined) => {
-    if (clip) void api.setPinned(clip.id, !clip.pinned);
+    if (!clip) return;
+    api.setPinned(clip.id, !clip.pinned).catch((e) => {
+      if (e === "pin_limit") showPinNotice();
+    });
   };
 
   const dragOut = (clip: Clip, image: string | null = null) => {
@@ -212,13 +235,13 @@ export function Panel() {
     e.preventDefault();
     switch (action.type) {
       case "move":
-        setSelected((s) => Math.max(0, Math.min(s + action.delta, clips.length - 1)));
+        setSelected((s) => clampSelection(s + action.delta, items.length));
         break;
       case "copy":
-        copy(clips[selected], action.plain);
+        copy(items[selected], action.plain);
         break;
       case "togglePin":
-        togglePin(clips[selected]);
+        togglePin(items[selected]);
         break;
       case "hide":
         void api.hidePanel();
@@ -232,7 +255,7 @@ export function Panel() {
         break;
       }
       case "delete": {
-        const clip = clips[selected];
+        const clip = items[selected];
         if (settings.confirmDelete === "on") setConfirmingId(clip?.id ?? null);
         else remove(clip);
         break;
@@ -242,7 +265,7 @@ export function Panel() {
           installUpdate();
           break;
         }
-        remove(clips.find((c) => c.id === confirmingId));
+        remove(items.find((c) => c.id === confirmingId));
         setConfirmingId(null);
         break;
       case "suggestMove":
@@ -274,6 +297,32 @@ export function Panel() {
     const el = e.currentTarget;
     if (el.scrollLeft + el.clientWidth > el.scrollWidth - 400) void loadMore();
   };
+
+  /** `i` is the card's index in `items`. */
+  const renderCard = (clip: Clip, i: number) => (
+    <Card
+      key={clip.id}
+      clip={clip}
+      selected={i === selected}
+      onSelect={() => {
+        setSelected(i);
+        setConfirmingId(null);
+      }}
+      onCopy={(plain) => copy(clip, plain)}
+      onTogglePin={() => togglePin(clip)}
+      onDragOut={
+        (clip.kind === "files" || clip.kind === "image") && !clip.missing
+          ? (card, x, y) => liftCard(clip, card, x, y)
+          : undefined
+      }
+      confirming={clip.id === confirmingId}
+      onConfirmDelete={() => {
+        remove(clip);
+        setConfirmingId(null);
+      }}
+      onCancelDelete={() => setConfirmingId(null)}
+    />
+  );
 
   return (
     <div
@@ -309,36 +358,28 @@ export function Panel() {
         onConfirmUpdate={installUpdate}
         onCancelUpdate={cancelUpdate}
       />
-      {clips.length === 0 ? (
-        <div className="empty">{query || filter !== "all" || app ? t.noResults : t.empty}</div>
-      ) : (
-        <div className="row" ref={rowRef} role="listbox" onWheel={onWheel} onScroll={onScroll}>
-          {clips.map((clip, i) => (
-            <Card
-              key={clip.id}
-              clip={clip}
-              selected={i === selected}
-              onSelect={() => {
-                setSelected(i);
-                setConfirmingId(null);
-              }}
-              onCopy={(plain) => copy(clip, plain)}
-              onTogglePin={() => togglePin(clip)}
-              onDragOut={
-                (clip.kind === "files" || clip.kind === "image") && !clip.missing
-                  ? (card, x, y) => liftCard(clip, card, x, y)
-                  : undefined
-              }
-              confirming={clip.id === confirmingId}
-              onConfirmDelete={() => {
-                remove(clip);
-                setConfirmingId(null);
-              }}
-              onCancelDelete={() => setConfirmingId(null)}
-            />
-          ))}
-        </div>
-      )}
+      <div className="body" ref={bodyRef}>
+        {pinned.length > 0 && (
+          <>
+            <div className="pinned-row" role="listbox">
+              {pinned.map((clip, i) => renderCard(clip, i))}
+              {pinNotice && (
+                <div className="pin-notice" role="status">
+                  {t.pinLimit}
+                </div>
+              )}
+            </div>
+            <div className="pin-divider" aria-hidden />
+          </>
+        )}
+        {clips.length === 0 ? (
+          <div className="empty">{query || filter !== "all" || app ? t.noResults : t.empty}</div>
+        ) : (
+          <div className="row" ref={rowRef} role="listbox" onWheel={onWheel} onScroll={onScroll}>
+            {clips.map((clip, i) => renderCard(clip, pinned.length + i))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
