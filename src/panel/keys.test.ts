@@ -12,6 +12,8 @@ const press = (key: string, extra: Partial<KeyInput> = {}) =>
     confirming: false,
     suggesting: false,
     hasTag: false,
+    metaOrCtrl: false,
+    code: "",
     ...extra,
   });
 
@@ -22,7 +24,7 @@ test("ignores every key while an IME composition is active", () => {
 });
 
 test("enter copies, escape hides, arrows move", () => {
-  assert.deepEqual(press("Enter"), { type: "copy" });
+  assert.deepEqual(press("Enter"), { type: "copy", plain: false });
   assert.deepEqual(press("Escape"), { type: "hide" });
   assert.deepEqual(press("ArrowRight"), { type: "move", delta: 1 });
   assert.deepEqual(press("ArrowLeft"), { type: "move", delta: -1 });
@@ -90,4 +92,29 @@ test("backspace in an empty box removes the app tag before any card", () => {
 
 test("escape with a tag but no open list still hides the panel", () => {
   assert.deepEqual(press("Escape", { hasTag: true }), { type: "hide" });
+});
+
+test("shift+enter copies as plain text", () => {
+  assert.deepEqual(press("Enter", { shiftKey: true }), { type: "copy", plain: true });
+  // In the app list, shift+enter still picks the app.
+  assert.deepEqual(press("Enter", { shiftKey: true, suggesting: true }), { type: "suggestPick" });
+});
+
+test("cmd/ctrl+p toggles the pin; a plain p is typed into search", () => {
+  assert.deepEqual(press("p", { code: "KeyP", metaOrCtrl: true }), { type: "togglePin" });
+  assert.deepEqual(press("P", { code: "KeyP", metaOrCtrl: true, shiftKey: true }), { type: "togglePin" });
+  assert.equal(press("p"), null);
+  // Holding the shortcut must not flip the pin back and forth.
+  assert.equal(press("p", { code: "KeyP", metaOrCtrl: true, repeat: true }), null);
+});
+
+test("pin and plain copy keys are ignored while composing or confirming", () => {
+  assert.equal(press("p", { code: "KeyP", metaOrCtrl: true, isComposing: true }), null);
+  assert.equal(press("Enter", { shiftKey: true, isComposing: true }), null);
+  assert.deepEqual(press("p", { code: "KeyP", metaOrCtrl: true, confirming: true }), { type: "cancelDelete" });
+});
+
+test("cmd/ctrl+p pins by physical key, so the Korean input source works too", () => {
+  assert.deepEqual(press("ㅔ", { code: "KeyP", metaOrCtrl: true }), { type: "togglePin" });
+  assert.equal(press("ㅔ", { code: "KeyP" }), null);
 });

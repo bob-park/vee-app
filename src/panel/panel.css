@@ -286,6 +286,10 @@
   cursor: default;
 }
 
+.card.pinned {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
 .card.selected {
   border: 2px solid var(--accent);
   box-shadow: 0 0 0 4px var(--accent-subtle);
@@ -328,6 +332,24 @@
   font-weight: 600;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.pin {
+  flex: none;
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.card:hover .pin {
+  opacity: 0.5;
+}
+
+.card.pinned .pin,
+.card .pin:hover {
+  opacity: 1;
 }
 
 .badge {

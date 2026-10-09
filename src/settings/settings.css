@@ -167,3 +167,86 @@
   color: var(--danger);
   font-size: 12px;
 }
+
+.settings .sec-title {
+  margin: 0 0 6px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.setting-row.col {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.seg.wide {
+  display: flex;
+}
+
+.seg.wide button {
+  flex: 1;
+}
+
+.seg button.pending {
+  outline: 1.5px dashed var(--danger);
+  color: var(--danger);
+}
+
+.confirm-box {
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 6%, transparent);
+  font-size: 12px;
+}
+
+.confirm-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.btn.gray {
+  background: var(--subtle);
+  color: var(--text);
+}
+
+.app-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 8px;
+  border-radius: 8px;
+  background: var(--badge-bg);
+  color: var(--badge-fg);
+  font-size: 12px;
+}
+
+.app-chip img {
+  width: 14px;
+  height: 14px;
+}
+
+.app-chip button {
+  padding: 0 4px;
+  color: var(--muted);
+}
+
+.select.add-app {
+  margin-left: auto;
+}
+
+.stat {
+  color: var(--muted);
+  font-size: 11px;
+}

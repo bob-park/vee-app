@@ -123,6 +123,9 @@ impl Handler {
         let store = state.store.lock().unwrap();
         let app_id = match front {
             Some(front) => {
+                if store.is_excluded(&front.bundle_id)? {
+                    return Ok(());
+                }
                 let icon = if store.app_known(&front.bundle_id)? { None } else { source_app::icon_png(&front) };
                 Some(store.upsert_app(&front.bundle_id, &front.name, icon.as_deref())?)
             }

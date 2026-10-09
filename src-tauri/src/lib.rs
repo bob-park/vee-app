@@ -11,7 +11,7 @@ mod windows;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use store::{AppDto, ClipDto, Kind, Store};
+use store::{AppDto, ClipDto, Kind, StatsDto, Store};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 
 pub struct AppState {
@@ -57,21 +57,27 @@ fn list_clips(
     offset: i64,
     limit: i64,
 ) -> Result<Vec<ClipDto>, String> {
-    let kind = match kind.as_str() {
-        "all" => None,
-        k => Some(Kind::parse(k).ok_or_else(|| format!("unknown kind: {k}"))?),
+    let (kind, pinned_only) = match kind.as_str() {
+        "all" => (None, false),
+        "pinned" => (None, true),
+        k => (Some(Kind::parse(k).ok_or_else(|| format!("unknown kind: {k}"))?), false),
     };
     state
         .store
         .lock()
         .unwrap()
-        .list(&query, kind, app_id, offset.max(0), limit.clamp(1, 200))
+        .list(&query, kind, app_id, pinned_only, offset.max(0), limit.clamp(1, 200))
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn list_apps(state: State<AppState>, query: String) -> Result<Vec<AppDto>, String> {
     state.store.lock().unwrap().apps(&query, 8).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_known_apps(state: State<AppState>) -> Result<Vec<AppDto>, String> {
+    state.store.lock().unwrap().known_apps().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -89,8 +95,41 @@ fn clear_history(app: AppHandle, state: State<AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn copy_clip(app: AppHandle, id: i64) -> Result<(), String> {
-    windows::copy_clip(&app, id)
+fn copy_clip(app: AppHandle, id: i64, plain: bool) -> Result<(), String> {
+    windows::copy_clip(&app, id, plain)
+}
+
+#[tauri::command]
+fn set_pinned(app: AppHandle, state: State<AppState>, id: i64, pinned: bool) -> Result<(), String> {
+    state.store.lock().unwrap().set_pinned(id, pinned).map_err(|e| e.to_string())?;
+    let _ = app.emit("clips://changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn count_app_clips(state: State<AppState>, app_id: i64) -> Result<i64, String> {
+    state.store.lock().unwrap().app_clip_count(app_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_app_excluded(app: AppHandle, state: State<AppState>, app_id: i64, excluded: bool) -> Result<(), String> {
+    let n = state.store.lock().unwrap().set_excluded(app_id, excluded).map_err(|e| e.to_string())?;
+    if n > 0 {
+        log::info!("deleted {n} clips from an excluded app");
+    }
+    let _ = app.emit("clips://changed", ());
+    let _ = app.emit("settings://changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn list_excluded_apps(state: State<AppState>) -> Result<Vec<AppDto>, String> {
+    state.store.lock().unwrap().excluded_apps().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_stats(state: State<AppState>) -> Result<StatsDto, String> {
+    state.store.lock().unwrap().stats().map_err(|e| e.to_string())
 }
 
 /// Plays a built-in copy sound for the settings preview, regardless of the on/off setting.
@@ -163,6 +202,7 @@ pub fn run() {
             }
             disk_access::prompt_once(app.handle());
             tray::create(app.handle())?;
+            settings::spawn_pruner(app.handle().clone());
             watcher::spawn(app.handle().clone());
             settings::register_stored_shortcut(app.handle());
             updater::spawn_periodic(app.handle().clone());
@@ -185,6 +225,12 @@ pub fn run() {
             list_apps,
             delete_clip,
             clear_history,
+            set_pinned,
+            count_app_clips,
+            set_app_excluded,
+            list_excluded_apps,
+            list_known_apps,
+            get_stats,
             copy_clip,
             start_drag,
             hide_panel,
@@ -195,6 +241,7 @@ pub fn run() {
             settings::set_setting,
             settings::set_autostart,
             settings::set_shortcut,
+            settings::count_prunable,
             disk_access::get_disk_access,
             disk_access::open_disk_access_settings,
             updater::check_update,

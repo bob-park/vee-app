@@ -83,6 +83,15 @@ PRAGMA user_version = 3;
 COMMIT;
 ";
 
+/// Pinned clips are never removed automatically; excluded apps are never recorded.
+const SCHEMA_V4: &str = "
+BEGIN;
+ALTER TABLE clips ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE apps ADD COLUMN excluded INTEGER NOT NULL DEFAULT 0;
+PRAGMA user_version = 4;
+COMMIT;
+";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
@@ -141,6 +150,7 @@ pub struct ClipDto {
     pub last_used_at: i64,
     pub missing: bool,
     pub is_dir: bool,
+    pub pinned: bool,
     /// Preview layers of a files clip; empty when none of its files has a thumbnail.
     pub stack: Vec<Option<String>>,
 }
@@ -153,6 +163,14 @@ pub struct AppDto {
     pub icon: Option<String>,
     /// How many clips came from this app.
     pub count: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatsDto {
+    pub count: i64,
+    pub pinned: i64,
+    pub image_bytes: u64,
 }
 
 /// A single URL (no whitespace inside) is a link; anything else is text.
@@ -213,6 +231,9 @@ impl Store {
         if version < 3 {
             conn.execute_batch(SCHEMA_V3)?;
         }
+        if version < 4 {
+            conn.execute_batch(SCHEMA_V4)?;
+        }
         Ok(Store { conn, images_dir: images_dir.to_path_buf() })
     }
 
@@ -234,6 +255,57 @@ impl Store {
             params![bundle_id, name, icon_png],
             |r| r.get(0),
         )?)
+    }
+
+    /// Unknown apps are not excluded.
+    pub fn is_excluded(&self, bundle_id: &str) -> Result<bool> {
+        let excluded: Option<bool> = self
+            .conn
+            .query_row("SELECT excluded FROM apps WHERE bundle_id = ?1", [bundle_id], |r| r.get(0))
+            .optional()?;
+        Ok(excluded.unwrap_or(false))
+    }
+
+    /// Excluding an app also deletes its unpinned clips; returns how many.
+    pub fn set_excluded(&self, app_id: i64, excluded: bool) -> Result<usize> {
+        self.conn.execute("UPDATE apps SET excluded = ?1 WHERE id = ?2", params![excluded, app_id])?;
+        if !excluded {
+            return Ok(0);
+        }
+        self.delete_unpinned("app_id = ?", &[Value::Integer(app_id)])
+    }
+
+    /// Unpinned clips from this app, i.e. what excluding it would delete.
+    pub fn app_clip_count(&self, app_id: i64) -> Result<i64> {
+        self.count_unpinned("app_id = ?", &[Value::Integer(app_id)])
+    }
+
+    pub fn excluded_apps(&self) -> Result<Vec<AppDto>> {
+        self.apps_with_counts("a.excluded = 1", "a.name")
+    }
+
+    /// Every app not excluded, including ones whose clips are all gone, most clips first.
+    pub fn known_apps(&self) -> Result<Vec<AppDto>> {
+        self.apps_with_counts("a.excluded = 0", "COUNT(c.id) DESC, a.name")
+    }
+
+    fn apps_with_counts(&self, cond: &str, order: &str) -> Result<Vec<AppDto>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT a.id, a.name, a.icon_png, COUNT(c.id)
+             FROM apps a LEFT JOIN clips c ON c.app_id = a.id
+             WHERE {cond}
+             GROUP BY a.id
+             ORDER BY {order}"
+        ))?;
+        let rows = stmt.query_map([], |r| {
+            Ok(AppDto {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                icon: r.get::<_, Option<Vec<u8>>>(2)?.map(|b| data_url(&b)),
+                count: r.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// Inserts a new clip, or moves an identical one to the front. Returns its id.
@@ -302,11 +374,20 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    pub fn list(&self, query: &str, kind: Option<Kind>, app_id: Option<i64>, offset: i64, limit: i64) -> Result<Vec<ClipDto>> {
+    pub fn list(
+        &self,
+        query: &str,
+        kind: Option<Kind>,
+        app_id: Option<i64>,
+        pinned_only: bool,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<ClipDto>> {
         let mut sql = String::from(
             "SELECT c.id, c.kind, substr(c.text, 1, ?), COALESCE(length(c.text), 0), c.thumb_png, c.meta,
                     a.name, a.icon_png, c.last_used_at,
-                    CASE c.kind WHEN 'files' THEN c.text WHEN 'image' THEN c.image_path END
+                    CASE c.kind WHEN 'files' THEN c.text WHEN 'image' THEN c.image_path END,
+                    c.pinned
              FROM clips c LEFT JOIN apps a ON a.id = c.app_id
              WHERE 1 = 1",
         );
@@ -318,6 +399,9 @@ impl Store {
         if let Some(a) = app_id {
             sql.push_str(" AND c.app_id = ?");
             args.push(Value::Integer(a));
+        }
+        if pinned_only {
+            sql.push_str(" AND c.pinned = 1");
         }
         let q = query.trim();
         match q.chars().count() {
@@ -352,6 +436,7 @@ impl Store {
                 last_used_at: r.get(8)?,
                 missing: paths.iter().any(|p| !p.exists()),
                 is_dir: kind == Kind::Files && paths.len() == 1 && paths[0].is_dir(),
+                pinned: r.get::<_, i64>(10)? != 0,
                 stack: Vec::new(),
             })
         })?;
@@ -435,6 +520,11 @@ impl Store {
         Ok(())
     }
 
+    pub fn set_pinned(&self, id: i64, pinned: bool) -> Result<()> {
+        self.conn.execute("UPDATE clips SET pinned = ?1 WHERE id = ?2", params![pinned, id])?;
+        Ok(())
+    }
+
     pub fn delete(&self, id: i64) -> Result<()> {
         let image_path: Option<Option<String>> = self
             .conn
@@ -447,12 +537,53 @@ impl Store {
         Ok(())
     }
 
-    pub fn clear(&self) -> Result<()> {
-        self.conn.execute("DELETE FROM clips", [])?;
-        for entry in std::fs::read_dir(&self.images_dir)? {
-            let _ = std::fs::remove_file(entry?.path());
+    /// Deletes unpinned clips matching `cond`, then their image files. Returns how many went.
+    fn delete_unpinned(&self, cond: &str, args: &[Value]) -> Result<usize> {
+        let tx = self.conn.unchecked_transaction()?;
+        let paths: Vec<String> = {
+            let mut stmt = tx.prepare(&format!(
+                "SELECT image_path FROM clips WHERE pinned = 0 AND ({cond}) AND image_path IS NOT NULL"
+            ))?;
+            stmt.query_map(params_from_iter(args.iter()), |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+        };
+        let n = tx.execute(&format!("DELETE FROM clips WHERE pinned = 0 AND ({cond})"), params_from_iter(args.iter()))?;
+        tx.commit()?;
+        for path in paths {
+            let _ = std::fs::remove_file(path);
         }
-        Ok(())
+        Ok(n)
+    }
+
+    fn count_unpinned(&self, cond: &str, args: &[Value]) -> Result<i64> {
+        Ok(self.conn.query_row(
+            &format!("SELECT COUNT(*) FROM clips WHERE pinned = 0 AND ({cond})"),
+            params_from_iter(args.iter()),
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Unpinned clips last used before `cutoff` (ms), i.e. what `prune` would remove.
+    pub fn prunable_count(&self, cutoff: i64) -> Result<i64> {
+        self.count_unpinned("last_used_at < ?", &[Value::Integer(cutoff)])
+    }
+
+    pub fn prune(&self, cutoff: i64) -> Result<usize> {
+        self.delete_unpinned("last_used_at < ?", &[Value::Integer(cutoff)])
+    }
+
+    /// Deletes every clip except pinned ones.
+    pub fn clear(&self) -> Result<usize> {
+        self.delete_unpinned("1 = 1", &[])
+    }
+
+    pub fn stats(&self) -> Result<StatsDto> {
+        let (count, pinned) =
+            self.conn.query_row("SELECT COUNT(*), COALESCE(SUM(pinned), 0) FROM clips", [], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let mut image_bytes = 0;
+        for entry in std::fs::read_dir(&self.images_dir)? {
+            image_bytes += entry?.metadata()?.len();
+        }
+        Ok(StatsDto { count, pinned, image_bytes })
     }
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
@@ -512,7 +643,7 @@ mod tests {
         s.upsert(text("hello"), None, 1).unwrap();
         s.upsert(text("world"), None, 2).unwrap();
         s.upsert(text("hello"), None, 3).unwrap();
-        let all = s.list("", None, None, 0, 50).unwrap();
+        let all = s.list("", None, None, false, 0, 50).unwrap();
         assert_eq!(texts(&all), vec!["hello", "world"]);
         assert_eq!(all[0].last_used_at, 3);
     }
@@ -533,8 +664,8 @@ mod tests {
         for i in 0..1100 {
             s.upsert(text(&format!("clip {i}")), None, i).unwrap();
         }
-        assert_eq!(s.list("", None, None, 0, 200).unwrap().len(), 200);
-        assert_eq!(s.list("", None, None, 1000, 200).unwrap().len(), 100);
+        assert_eq!(s.list("", None, None, false, 0, 200).unwrap().len(), 200);
+        assert_eq!(s.list("", None, None, false, 1000, 200).unwrap().len(), 100);
     }
 
     #[test]
@@ -543,10 +674,10 @@ mod tests {
         s.upsert(text("클립보드 히스토리 앱"), None, 1).unwrap();
         s.upsert(text("cargo tauri dev"), None, 2).unwrap();
         s.upsert(text("Vee"), None, 3).unwrap();
-        assert_eq!(texts(&s.list("히스토", None, None, 0, 50).unwrap()), vec!["클립보드 히스토리 앱"]);
-        assert_eq!(texts(&s.list("보드", None, None, 0, 50).unwrap()), vec!["클립보드 히스토리 앱"]);
-        assert_eq!(texts(&s.list("TAURI", None, None, 0, 50).unwrap()), vec!["cargo tauri dev"]);
-        assert_eq!(texts(&s.list("ve", None, None, 0, 50).unwrap()), vec!["Vee"]);
+        assert_eq!(texts(&s.list("히스토", None, None, false, 0, 50).unwrap()), vec!["클립보드 히스토리 앱"]);
+        assert_eq!(texts(&s.list("보드", None, None, false, 0, 50).unwrap()), vec!["클립보드 히스토리 앱"]);
+        assert_eq!(texts(&s.list("TAURI", None, None, false, 0, 50).unwrap()), vec!["cargo tauri dev"]);
+        assert_eq!(texts(&s.list("ve", None, None, false, 0, 50).unwrap()), vec!["Vee"]);
     }
 
     #[test]
@@ -556,11 +687,11 @@ mod tests {
         s.upsert(text("a_b"), None, 2).unwrap();
         s.upsert(text("say \"hi\" AND bye*"), None, 3).unwrap();
         s.upsert(text("plain"), None, 4).unwrap();
-        assert_eq!(texts(&s.list("%", None, None, 0, 50).unwrap()), vec!["100% done"]);
-        assert_eq!(texts(&s.list("_", None, None, 0, 50).unwrap()), vec!["a_b"]);
-        assert_eq!(texts(&s.list("\"hi\" AND", None, None, 0, 50).unwrap()), vec!["say \"hi\" AND bye*"]);
-        assert_eq!(texts(&s.list("bye*", None, None, 0, 50).unwrap()), vec!["say \"hi\" AND bye*"]);
-        assert!(s.list("NOT", None, None, 0, 50).unwrap().is_empty());
+        assert_eq!(texts(&s.list("%", None, None, false, 0, 50).unwrap()), vec!["100% done"]);
+        assert_eq!(texts(&s.list("_", None, None, false, 0, 50).unwrap()), vec!["a_b"]);
+        assert_eq!(texts(&s.list("\"hi\" AND", None, None, false, 0, 50).unwrap()), vec!["say \"hi\" AND bye*"]);
+        assert_eq!(texts(&s.list("bye*", None, None, false, 0, 50).unwrap()), vec!["say \"hi\" AND bye*"]);
+        assert!(s.list("NOT", None, None, false, 0, 50).unwrap().is_empty());
     }
 
     #[test]
@@ -569,11 +700,11 @@ mod tests {
         s.upsert(text("hello"), None, 1).unwrap();
         s.upsert(text("https://example.com"), None, 2).unwrap();
         s.upsert(files(&["/tmp/x"]), None, 3).unwrap();
-        let links = s.list("", Some(Kind::Link), None, 0, 50).unwrap();
+        let links = s.list("", Some(Kind::Link), None, false, 0, 50).unwrap();
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].kind, Kind::Link);
-        assert_eq!(s.list("", Some(Kind::Files), None, 0, 50).unwrap().len(), 1);
-        assert_eq!(s.list("", Some(Kind::Text), None, 0, 50).unwrap().len(), 1);
+        assert_eq!(s.list("", Some(Kind::Files), None, false, 0, 50).unwrap().len(), 1);
+        assert_eq!(s.list("", Some(Kind::Text), None, false, 0, 50).unwrap().len(), 1);
     }
 
     #[test]
@@ -585,7 +716,7 @@ mod tests {
         s.upsert(files(&[&path(&file)]), None, 1).unwrap();
         s.upsert(files(&[&path(d.path())]), None, 2).unwrap();
         s.upsert(files(&["/definitely/not/here.txt", &path(&file)]), None, 3).unwrap();
-        let all = s.list("", None, None, 0, 50).unwrap();
+        let all = s.list("", None, None, false, 0, 50).unwrap();
         assert_eq!((all[0].missing, all[0].is_dir, all[0].meta.as_deref()), (true, false, Some("2")));
         assert_eq!((all[1].missing, all[1].is_dir, all[1].meta.as_deref()), (false, true, Some("1")));
         assert_eq!((all[2].missing, all[2].is_dir, all[2].meta.as_deref()), (false, false, Some("1")));
@@ -595,7 +726,7 @@ mod tests {
     fn large_text_preview_is_capped_but_counted() {
         let (s, _d) = store();
         s.upsert(text(&"가".repeat(10_000)), None, 1).unwrap();
-        let clip = &s.list("", None, None, 0, 50).unwrap()[0];
+        let clip = &s.list("", None, None, false, 0, 50).unwrap()[0];
         assert_eq!(clip.text_preview.as_ref().unwrap().chars().count(), 500);
         assert_eq!(clip.char_count, 10_000);
     }
@@ -611,7 +742,7 @@ mod tests {
         let (s, _d) = store();
         s.upsert(text("hi"), None, 1).unwrap();
         s.upsert(files(&["/a", "/b"]), None, 2).unwrap();
-        let all = s.list("", None, None, 0, 50).unwrap();
+        let all = s.list("", None, None, false, 0, 50).unwrap();
         assert_eq!(s.content(all[0].id).unwrap(), Some(ClipContent::Files(vec!["/a".into(), "/b".into()])));
         assert_eq!(s.content(all[1].id).unwrap(), Some(ClipContent::Text("hi".into())));
     }
@@ -620,7 +751,7 @@ mod tests {
     fn image_has_thumb_and_dimensions() {
         let (s, _d) = store();
         s.upsert(image(1), None, 1).unwrap();
-        let clip = &s.list("", None, None, 0, 50).unwrap()[0];
+        let clip = &s.list("", None, None, false, 0, 50).unwrap()[0];
         assert_eq!(clip.kind, Kind::Image);
         assert_eq!(clip.meta.as_deref(), Some("10×20"));
         assert!(clip.thumb.as_ref().unwrap().starts_with("data:image/png;base64,"));
@@ -631,13 +762,13 @@ mod tests {
         let (s, _d) = store();
         s.upsert(image(1), None, 1).unwrap();
         s.upsert(image(2), None, 2).unwrap();
-        let all = s.list("", None, None, 0, 50).unwrap();
+        let all = s.list("", None, None, false, 0, 50).unwrap();
         let (a, b) = (image_path(&s, all[0].id), image_path(&s, all[1].id));
         s.delete(all[0].id).unwrap();
         assert!(!a.exists() && b.exists());
         s.clear().unwrap();
         assert!(!b.exists());
-        assert!(s.list("", None, None, 0, 50).unwrap().is_empty());
+        assert!(s.list("", None, None, false, 0, 50).unwrap().is_empty());
     }
 
     #[test]
@@ -645,9 +776,9 @@ mod tests {
         let (s, _d) = store();
         s.upsert(text("old"), None, 1).unwrap();
         s.upsert(text("new"), None, 2).unwrap();
-        let old = s.list("", None, None, 0, 50).unwrap()[1].id;
+        let old = s.list("", None, None, false, 0, 50).unwrap()[1].id;
         s.touch(old, 3).unwrap();
-        assert_eq!(texts(&s.list("", None, None, 0, 50).unwrap()), vec!["old", "new"]);
+        assert_eq!(texts(&s.list("", None, None, false, 0, 50).unwrap()), vec!["old", "new"]);
     }
 
     #[test]
@@ -659,7 +790,7 @@ mod tests {
         assert_eq!(first, second);
         assert!(s.app_known("com.a").unwrap());
         s.upsert(text("x"), Some(first), 1).unwrap();
-        let clip = &s.list("", None, None, 0, 50).unwrap()[0];
+        let clip = &s.list("", None, None, false, 0, 50).unwrap()[0];
         assert_eq!(clip.app_name.as_deref(), Some("A2"));
         assert!(clip.app_icon.is_some());
     }
@@ -672,9 +803,9 @@ mod tests {
         s.upsert(text("from a"), Some(a), 1).unwrap();
         s.upsert(text("from b"), Some(b), 2).unwrap();
         s.upsert(text("also a"), Some(a), 3).unwrap();
-        assert_eq!(texts(&s.list("", None, Some(a), 0, 50).unwrap()), vec!["also a", "from a"]);
-        assert_eq!(texts(&s.list("also", None, Some(a), 0, 50).unwrap()), vec!["also a"]);
-        assert!(s.list("", None, Some(999), 0, 50).unwrap().is_empty());
+        assert_eq!(texts(&s.list("", None, Some(a), false, 0, 50).unwrap()), vec!["also a", "from a"]);
+        assert_eq!(texts(&s.list("also", None, Some(a), false, 0, 50).unwrap()), vec!["also a"]);
+        assert!(s.list("", None, Some(999), false, 0, 50).unwrap().is_empty());
     }
 
     #[test]
@@ -716,7 +847,7 @@ mod tests {
         let images = dir.path().join("images");
         Store::open(&db, &images).unwrap().upsert(text("persist me"), None, 1).unwrap();
         let reopened = Store::open(&db, &images).unwrap();
-        assert_eq!(texts(&reopened.list("", None, None, 0, 50).unwrap()), vec!["persist me"]);
+        assert_eq!(texts(&reopened.list("", None, None, false, 0, 50).unwrap()), vec!["persist me"]);
     }
 
     #[test]
@@ -731,7 +862,7 @@ mod tests {
         )
         .unwrap();
         s.upsert(files(&["/f.txt", "/g.txt"]), None, 3).unwrap();
-        let all = s.list("", None, None, 0, 50).unwrap();
+        let all = s.list("", None, None, false, 0, 50).unwrap();
         assert!(all[0].stack.is_empty());
         assert_eq!(all[1].stack.iter().map(Option::is_some).collect::<Vec<_>>(), vec![true, false, true]);
         assert_eq!(all[2].stack.len(), 1);
@@ -744,7 +875,7 @@ mod tests {
         let (s, _d) = store();
         let app = s.upsert_app("com.a", "A", Some(&[7, 7])).unwrap();
         s.upsert(image(1), Some(app), 1).unwrap();
-        let id = s.list("", None, None, 0, 1).unwrap()[0].id;
+        let id = s.list("", None, None, false, 0, 1).unwrap()[0].id;
         assert_eq!(s.preview_png(id).unwrap(), Some(vec![9]));
     }
 
@@ -754,7 +885,7 @@ mod tests {
         let app = s.upsert_app("com.a", "A", Some(&[7, 7])).unwrap();
         s.upsert(files(&["/x.txt"]), Some(app), 1).unwrap();
         s.upsert(text("no app"), None, 2).unwrap();
-        let all = s.list("", None, None, 0, 50).unwrap();
+        let all = s.list("", None, None, false, 0, 50).unwrap();
         assert_eq!(s.preview_png(all[1].id).unwrap(), Some(vec![7, 7]));
         assert_eq!(s.preview_png(all[0].id).unwrap(), None);
     }
@@ -765,7 +896,7 @@ mod tests {
         let thumbs_left = |s: &Store| s.conn.query_row("SELECT count(*) FROM clip_thumbs", [], |r| r.get::<_, i64>(0)).unwrap();
         let one = |p: &str| NewClip::Files { paths: vec![p.into()], thumbs: vec![(0, vec![1])] };
         s.upsert(one("/a.png"), None, 1).unwrap();
-        s.delete(s.list("", None, None, 0, 1).unwrap()[0].id).unwrap();
+        s.delete(s.list("", None, None, false, 0, 1).unwrap()[0].id).unwrap();
         assert_eq!(thumbs_left(&s), 0);
         s.upsert(one("/b.png"), None, 2).unwrap();
         s.clear().unwrap();
@@ -786,9 +917,11 @@ mod tests {
             .unwrap();
         }
         let s = Store::open(&db, &dir.path().join("images")).unwrap();
-        assert!(s.list("", None, None, 0, 50).unwrap()[0].stack.is_empty());
+        let clip = &s.list("", None, None, false, 0, 50).unwrap()[0];
+        assert!(clip.stack.is_empty());
+        assert!(!clip.pinned);
         let version: i64 = s.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 
     #[test]
@@ -806,5 +939,115 @@ mod tests {
         assert_eq!(s.formats(id).unwrap().len(), 1);
         s.delete(id).unwrap();
         assert!(s.formats(id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn pinned_clips_filter_and_survive_a_bump() {
+        let (s, _d) = store();
+        let a = s.upsert(text("keep"), None, 1).unwrap();
+        s.upsert(text("other"), None, 2).unwrap();
+        s.set_pinned(a, true).unwrap();
+        assert_eq!(texts(&s.list("", None, None, true, 0, 50).unwrap()), vec!["keep"]);
+        // Copying the same content again bumps it but must not unpin it.
+        s.upsert(text("keep"), None, 3).unwrap();
+        let all = s.list("", None, None, false, 0, 50).unwrap();
+        assert_eq!(texts(&all), vec!["keep", "other"]);
+        assert!(all[0].pinned);
+        assert!(!all[1].pinned);
+        s.set_pinned(a, false).unwrap();
+        assert!(s.list("", None, None, true, 0, 50).unwrap().is_empty());
+    }
+
+    #[test]
+    fn prune_removes_only_unpinned_clips_older_than_the_cutoff() {
+        let (s, _d) = store();
+        let old_img = s.upsert(image(1), None, 10).unwrap();
+        let old_img_path = image_path(&s, old_img);
+        s.upsert(text("old"), None, 20).unwrap();
+        let pinned = s.upsert(text("old but pinned"), None, 30).unwrap();
+        s.set_pinned(pinned, true).unwrap();
+        s.upsert(text("at cutoff"), None, 100).unwrap();
+        s.upsert(text("new"), None, 200).unwrap();
+        assert_eq!(s.prunable_count(100).unwrap(), 2);
+        assert_eq!(s.prune(100).unwrap(), 2);
+        assert_eq!(texts(&s.list("", None, None, false, 0, 50).unwrap()), vec!["new", "at cutoff", "old but pinned"]);
+        assert!(!old_img_path.exists());
+        assert_eq!(s.prunable_count(100).unwrap(), 0);
+    }
+
+    #[test]
+    fn using_a_clip_again_keeps_it_from_being_pruned() {
+        let (s, _d) = store();
+        let id = s.upsert(text("reused"), None, 10).unwrap();
+        s.touch(id, 500).unwrap();
+        s.upsert(text("recopied"), None, 20).unwrap();
+        s.upsert(text("recopied"), None, 600).unwrap();
+        assert_eq!(s.prune(100).unwrap(), 0);
+        assert_eq!(s.list("", None, None, false, 0, 50).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn clear_keeps_pinned_clips_and_their_images() {
+        let (s, _d) = store();
+        let kept = s.upsert(image(1), None, 1).unwrap();
+        let kept_path = image_path(&s, kept);
+        s.set_pinned(kept, true).unwrap();
+        let gone = s.upsert(image(2), None, 2).unwrap();
+        let gone_path = image_path(&s, gone);
+        s.upsert(text("gone"), None, 3).unwrap();
+        assert_eq!(s.clear().unwrap(), 2);
+        let left = s.list("", None, None, false, 0, 50).unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].id, kept);
+        assert!(kept_path.exists());
+        assert!(!gone_path.exists());
+    }
+
+    #[test]
+    fn stats_count_clips_pins_and_image_bytes() {
+        let (s, _d) = store();
+        let id = s.upsert(image(1), None, 1).unwrap(); // 8-byte png
+        s.upsert(text("a"), None, 2).unwrap();
+        s.set_pinned(id, true).unwrap();
+        let st = s.stats().unwrap();
+        assert_eq!((st.count, st.pinned, st.image_bytes), (2, 1, 8));
+    }
+
+    #[test]
+    fn excluding_an_app_deletes_its_unpinned_clips_and_marks_it() {
+        let (s, _d) = store();
+        let a = s.upsert_app("com.agilebits.onepassword", "1Password", None).unwrap();
+        let b = s.upsert_app("com.apple.Notes", "Notes", None).unwrap();
+        s.upsert(text("secret"), Some(a), 1).unwrap();
+        let kept = s.upsert(text("pinned secret"), Some(a), 2).unwrap();
+        s.set_pinned(kept, true).unwrap();
+        s.upsert(text("note"), Some(b), 3).unwrap();
+        assert!(!s.is_excluded("com.agilebits.onepassword").unwrap());
+        assert!(!s.is_excluded("never.seen.app").unwrap());
+        assert_eq!(s.app_clip_count(a).unwrap(), 1);
+        assert_eq!(s.set_excluded(a, true).unwrap(), 1);
+        assert!(s.is_excluded("com.agilebits.onepassword").unwrap());
+        assert_eq!(texts(&s.list("", None, None, false, 0, 50).unwrap()), vec!["note", "pinned secret"]);
+        let ex = s.excluded_apps().unwrap();
+        assert_eq!((ex.len(), ex[0].name.as_str(), ex[0].count), (1, "1Password", 1));
+        assert_eq!(s.set_excluded(a, false).unwrap(), 0);
+        assert!(!s.is_excluded("com.agilebits.onepassword").unwrap());
+        assert!(s.excluded_apps().unwrap().is_empty());
+    }
+
+    #[test]
+    fn known_apps_include_apps_without_clips_but_not_excluded_ones() {
+        let (s, _d) = store();
+        let a = s.upsert_app("com.agilebits.onepassword", "1Password", None).unwrap();
+        let b = s.upsert_app("com.apple.Notes", "Notes", None).unwrap();
+        s.upsert_app("com.apple.Terminal", "Terminal", None).unwrap();
+        s.upsert(text("note"), Some(b), 1).unwrap();
+        s.upsert(text("secret"), Some(a), 2).unwrap();
+        s.set_excluded(a, true).unwrap();
+        let names = |apps: Vec<AppDto>| apps.into_iter().map(|a| a.name).collect::<Vec<_>>();
+        assert_eq!(names(s.known_apps().unwrap()), vec!["Notes", "Terminal"]);
+        // Un-excluding an app whose clips were all deleted must still offer it again.
+        s.set_excluded(a, false).unwrap();
+        assert_eq!(names(s.known_apps().unwrap()), vec!["Notes", "1Password", "Terminal"]);
     }
 }

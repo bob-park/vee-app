@@ -1,10 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ask } from "@tauri-apps/plugin-dialog";
 import { api, SOUND_NAMES, type SoundName, type UpdateStatus } from "../api.ts";
 import { relativeTime } from "../i18n/index.ts";
 import { usePrefs } from "../prefs.tsx";
+import { HistorySection } from "./HistorySection.tsx";
 import { ShortcutRecorder } from "./ShortcutRecorder.tsx";
 import "./settings.css";
 
@@ -30,23 +30,28 @@ export function Row({
   );
 }
 
-function Segmented<T extends string>({
+export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  className,
+  pending,
 }: {
   value: T;
   options: { value: T; label: string }[];
   onChange: (value: T) => void;
+  className?: string;
+  /** An option waiting for confirmation, outlined in red. */
+  pending?: T;
 }) {
   return (
-    <div className="seg" role="radiogroup">
+    <div className={className ? `seg ${className}` : "seg"} role="radiogroup">
       {options.map((o) => (
         <button
           key={o.value}
           role="radio"
           aria-checked={o.value === value}
-          className={o.value === value ? "on" : ""}
+          className={[o.value === value && "on", o.value === pending && "pending"].filter(Boolean).join(" ")}
           onClick={() => onChange(o.value)}
         >
           {o.label}
@@ -128,10 +133,6 @@ export function Settings() {
   const s = t.settings;
   const [error, setError] = useState<string | null>(null);
   const run = (p: Promise<unknown>) => void p.then(() => setError(null)).catch((e) => setError(String(e)));
-
-  const clear = async () => {
-    if (await ask(s.clearConfirm, { title: "Vee", kind: "warning" })) run(api.clearHistory());
-  };
 
   return (
     <main className="settings">
@@ -223,15 +224,9 @@ export function Settings() {
         <Row label={s.shortcut} hint={s.shortcutHint}>
           <ShortcutRecorder value={settings.shortcut} />
         </Row>
-      </section>
-      <section>
         <UpdateRow />
-        <Row label={s.history}>
-          <button className="btn danger" onClick={() => void clear()}>
-            {s.clearHistory}
-          </button>
-        </Row>
       </section>
+      <HistorySection run={run} />
       {error && (
         <p className="error" role="alert">
           {error}
