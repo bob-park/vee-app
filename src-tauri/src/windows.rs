@@ -43,19 +43,23 @@ pub struct ToastPayload {
     pub kind: Kind,
     pub text: Option<String>,
     pub files: usize,
+    /// Copied as plain text, without the source app's formatting.
+    pub plain: bool,
 }
 
 impl ToastPayload {
-    fn copied(content: &ClipContent) -> Self {
+    fn copied(content: &ClipContent, plain: bool) -> Self {
         match content {
-            ClipContent::Text(t) => Self { ok: true, kind: classify_text(t), text: Some(toast_preview(t)), files: 0 },
-            ClipContent::Image(_) => Self { ok: true, kind: Kind::Image, text: None, files: 0 },
-            ClipContent::Files(f) => Self { ok: true, kind: Kind::Files, text: None, files: f.len() },
+            ClipContent::Text(t) => {
+                Self { ok: true, kind: classify_text(t), text: Some(toast_preview(t)), files: 0, plain }
+            }
+            ClipContent::Image(_) => Self { ok: true, kind: Kind::Image, text: None, files: 0, plain: false },
+            ClipContent::Files(f) => Self { ok: true, kind: Kind::Files, text: None, files: f.len(), plain: false },
         }
     }
 
     fn failed() -> Self {
-        Self { ok: false, kind: Kind::Text, text: None, files: 0 }
+        Self { ok: false, kind: Kind::Text, text: None, files: 0, plain: false }
     }
 }
 
@@ -308,11 +312,13 @@ fn write_clipboard(state: &AppState, content: &ClipContent, formats: Vec<(String
 }
 
 /// Copies a clip back to the clipboard, closes the panel and confirms with a toast.
-pub fn copy_clip(app: &AppHandle, id: i64) -> Result<(), String> {
+/// `plain` skips the saved raw formats so only the text goes back.
+pub fn copy_clip(app: &AppHandle, id: i64, plain: bool) -> Result<(), String> {
     let state = app.state::<AppState>();
     let (content, formats) = {
         let store = state.store.lock().unwrap();
-        (store.content(id).map_err(|e| e.to_string())?, store.formats(id).map_err(|e| e.to_string())?)
+        let formats = if plain { Vec::new() } else { store.formats(id).map_err(|e| e.to_string())? };
+        (store.content(id).map_err(|e| e.to_string())?, formats)
     };
     let result = match content {
         Some(content) => write_clipboard(&state, &content, formats).map(|()| content),
@@ -321,7 +327,7 @@ pub fn copy_clip(app: &AppHandle, id: i64) -> Result<(), String> {
     hide_panel(app, true);
     match result {
         Ok(content) => {
-            confirm_copy(app, id, &content);
+            confirm_copy(app, id, &content, plain);
             Ok(())
         }
         Err(e) => {
@@ -333,7 +339,7 @@ pub fn copy_clip(app: &AppHandle, id: i64) -> Result<(), String> {
 }
 
 /// Bumps the clip, plays the copy sound and confirms with a toast.
-fn confirm_copy(app: &AppHandle, id: i64, content: &ClipContent) {
+fn confirm_copy(app: &AppHandle, id: i64, content: &ClipContent, plain: bool) {
     let state = app.state::<AppState>();
     let sound = {
         let store = state.store.lock().unwrap();
@@ -344,7 +350,7 @@ fn confirm_copy(app: &AppHandle, id: i64, content: &ClipContent) {
         crate::sound::play(&name);
     }
     let _ = app.emit("clips://changed", ());
-    show_toast(app, ToastPayload::copied(content));
+    show_toast(app, ToastPayload::copied(content, plain));
 }
 
 const DRAG_ICON: &[u8] = include_bytes!("../icons/128x128.png");
@@ -473,7 +479,7 @@ fn finish_drag(app: &AppHandle, id: i64, content: &ClipContent, result: DragResu
     match result {
         DragResult::Dropped => {
             hide_panel(app, true);
-            confirm_copy(app, id, content);
+            confirm_copy(app, id, content, false);
         }
         DragResult::Cancel => {
             if let Some(panel) = panel {
@@ -584,11 +590,20 @@ mod tests {
 
     #[test]
     fn toast_names_what_was_copied() {
-        assert_eq!(ToastPayload::copied(&ClipContent::Text("hi".into())).kind, Kind::Text);
-        assert_eq!(ToastPayload::copied(&ClipContent::Text("https://a.com".into())).kind, Kind::Link);
-        assert_eq!(ToastPayload::copied(&ClipContent::Image(PathBuf::from("/x.png"))).kind, Kind::Image);
-        let files = ToastPayload::copied(&ClipContent::Files(vec!["/a".into(), "/b".into()]));
+        assert_eq!(ToastPayload::copied(&ClipContent::Text("hi".into()), false).kind, Kind::Text);
+        assert_eq!(ToastPayload::copied(&ClipContent::Text("https://a.com".into()), false).kind, Kind::Link);
+        assert_eq!(ToastPayload::copied(&ClipContent::Image(PathBuf::from("/x.png")), false).kind, Kind::Image);
+        let files = ToastPayload::copied(&ClipContent::Files(vec!["/a".into(), "/b".into()]), false);
         assert_eq!((files.kind, files.files), (Kind::Files, 2));
+    }
+
+    #[test]
+    fn toast_says_plain_only_for_text() {
+        assert!(ToastPayload::copied(&ClipContent::Text("hi".into()), true).plain);
+        assert!(!ToastPayload::copied(&ClipContent::Text("hi".into()), false).plain);
+        // Images and files have no formatting to strip, so they copy as usual.
+        assert!(!ToastPayload::copied(&ClipContent::Image(PathBuf::from("/x.png")), true).plain);
+        assert!(!ToastPayload::copied(&ClipContent::Files(vec!["/a".into()]), true).plain);
     }
 
     #[test]
