@@ -165,6 +165,14 @@ pub struct AppDto {
     pub count: i64,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatsDto {
+    pub count: i64,
+    pub pinned: i64,
+    pub image_bytes: u64,
+}
+
 /// A single URL (no whitespace inside) is a link; anything else is text.
 pub fn classify_text(text: &str) -> Kind {
     let t = text.trim();
@@ -478,12 +486,53 @@ impl Store {
         Ok(())
     }
 
-    pub fn clear(&self) -> Result<()> {
-        self.conn.execute("DELETE FROM clips", [])?;
-        for entry in std::fs::read_dir(&self.images_dir)? {
-            let _ = std::fs::remove_file(entry?.path());
+    /// Deletes unpinned clips matching `cond`, then their image files. Returns how many went.
+    fn delete_unpinned(&self, cond: &str, args: &[Value]) -> Result<usize> {
+        let tx = self.conn.unchecked_transaction()?;
+        let paths: Vec<String> = {
+            let mut stmt = tx.prepare(&format!(
+                "SELECT image_path FROM clips WHERE pinned = 0 AND ({cond}) AND image_path IS NOT NULL"
+            ))?;
+            stmt.query_map(params_from_iter(args.iter()), |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+        };
+        let n = tx.execute(&format!("DELETE FROM clips WHERE pinned = 0 AND ({cond})"), params_from_iter(args.iter()))?;
+        tx.commit()?;
+        for path in paths {
+            let _ = std::fs::remove_file(path);
         }
-        Ok(())
+        Ok(n)
+    }
+
+    fn count_unpinned(&self, cond: &str, args: &[Value]) -> Result<i64> {
+        Ok(self.conn.query_row(
+            &format!("SELECT COUNT(*) FROM clips WHERE pinned = 0 AND ({cond})"),
+            params_from_iter(args.iter()),
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Unpinned clips last used before `cutoff` (ms), i.e. what `prune` would remove.
+    pub fn prunable_count(&self, cutoff: i64) -> Result<i64> {
+        self.count_unpinned("last_used_at < ?", &[Value::Integer(cutoff)])
+    }
+
+    pub fn prune(&self, cutoff: i64) -> Result<usize> {
+        self.delete_unpinned("last_used_at < ?", &[Value::Integer(cutoff)])
+    }
+
+    /// Deletes every clip except pinned ones.
+    pub fn clear(&self) -> Result<usize> {
+        self.delete_unpinned("1 = 1", &[])
+    }
+
+    pub fn stats(&self) -> Result<StatsDto> {
+        let (count, pinned) =
+            self.conn.query_row("SELECT COUNT(*), COALESCE(SUM(pinned), 0) FROM clips", [], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let mut image_bytes = 0;
+        for entry in std::fs::read_dir(&self.images_dir)? {
+            image_bytes += entry?.metadata()?.len();
+        }
+        Ok(StatsDto { count, pinned, image_bytes })
     }
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
@@ -856,5 +905,60 @@ mod tests {
         assert!(!all[1].pinned);
         s.set_pinned(a, false).unwrap();
         assert!(s.list("", None, None, true, 0, 50).unwrap().is_empty());
+    }
+
+    #[test]
+    fn prune_removes_only_unpinned_clips_older_than_the_cutoff() {
+        let (s, _d) = store();
+        let old_img = s.upsert(image(1), None, 10).unwrap();
+        let old_img_path = image_path(&s, old_img);
+        s.upsert(text("old"), None, 20).unwrap();
+        let pinned = s.upsert(text("old but pinned"), None, 30).unwrap();
+        s.set_pinned(pinned, true).unwrap();
+        s.upsert(text("at cutoff"), None, 100).unwrap();
+        s.upsert(text("new"), None, 200).unwrap();
+        assert_eq!(s.prunable_count(100).unwrap(), 2);
+        assert_eq!(s.prune(100).unwrap(), 2);
+        assert_eq!(texts(&s.list("", None, None, false, 0, 50).unwrap()), vec!["new", "at cutoff", "old but pinned"]);
+        assert!(!old_img_path.exists());
+        assert_eq!(s.prunable_count(100).unwrap(), 0);
+    }
+
+    #[test]
+    fn using_a_clip_again_keeps_it_from_being_pruned() {
+        let (s, _d) = store();
+        let id = s.upsert(text("reused"), None, 10).unwrap();
+        s.touch(id, 500).unwrap();
+        s.upsert(text("recopied"), None, 20).unwrap();
+        s.upsert(text("recopied"), None, 600).unwrap();
+        assert_eq!(s.prune(100).unwrap(), 0);
+        assert_eq!(s.list("", None, None, false, 0, 50).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn clear_keeps_pinned_clips_and_their_images() {
+        let (s, _d) = store();
+        let kept = s.upsert(image(1), None, 1).unwrap();
+        let kept_path = image_path(&s, kept);
+        s.set_pinned(kept, true).unwrap();
+        let gone = s.upsert(image(2), None, 2).unwrap();
+        let gone_path = image_path(&s, gone);
+        s.upsert(text("gone"), None, 3).unwrap();
+        assert_eq!(s.clear().unwrap(), 2);
+        let left = s.list("", None, None, false, 0, 50).unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].id, kept);
+        assert!(kept_path.exists());
+        assert!(!gone_path.exists());
+    }
+
+    #[test]
+    fn stats_count_clips_pins_and_image_bytes() {
+        let (s, _d) = store();
+        let id = s.upsert(image(1), None, 1).unwrap(); // 8-byte png
+        s.upsert(text("a"), None, 2).unwrap();
+        s.set_pinned(id, true).unwrap();
+        let st = s.stats().unwrap();
+        assert_eq!((st.count, st.pinned, st.image_bytes), (2, 1, 8));
     }
 }
