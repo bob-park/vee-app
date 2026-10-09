@@ -29,6 +29,8 @@ export interface KeyInput {
   hasTag: boolean;
   /** Cmd on macOS or Ctrl on Windows is held. */
   metaOrCtrl: boolean;
+  /** Physical key (`KeyboardEvent.code`); `key` is a Hangul jamo on the Korean input source. */
+  code: string;
 }
 
 const MODIFIERS = ["Shift", "Meta", "Control", "Alt"];
@@ -52,7 +54,7 @@ export function panelKeyAction(e: KeyInput): KeyAction {
         return { type: "suggestClose" };
     }
   }
-  if (e.metaOrCtrl && e.key.toLowerCase() === "p") return e.repeat ? null : { type: "togglePin" };
+  if (e.metaOrCtrl && e.code === "KeyP") return e.repeat ? null : { type: "togglePin" };
   switch (e.key) {
     case "ArrowRight":
       return { type: "move", delta: 1 };

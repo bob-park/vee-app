@@ -206,6 +206,7 @@ export function Panel() {
       suggesting,
       hasTag: app !== null,
       metaOrCtrl: e.metaKey || e.ctrlKey,
+      code: e.code,
     });
     if (!action) return;
     e.preventDefault();
