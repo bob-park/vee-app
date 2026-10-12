@@ -303,6 +303,39 @@ pub fn hide_panel(app: &AppHandle, restore_focus: bool) {
     });
 }
 
+/// Resizes the panel on its own monitor, keeping its bottom edge put. `height` is in design points.
+/// Drags call this on every move with `save` off; `save` stores the height as a share of the work area.
+pub fn resize_panel(app: &AppHandle, height: f64, save: bool) -> Result<(), String> {
+    if crate::settings::get(&app.state::<AppState>().store.lock().unwrap(), "panelResize") == "off" {
+        return Err("resize_off".into());
+    }
+    let panel = app.get_webview_window(PANEL).ok_or("panel window is missing")?;
+    let monitor = panel.current_monitor().map_err(|e| e.to_string())?.ok_or("panel has no monitor")?;
+    let (work, unit) = work_area(&monitor);
+    let work_h = work.h / unit;
+    let h = clamp_panel_height(work_h, height);
+    place(&panel, panel_rect(work, unit, h)).map_err(|e| e.to_string())?;
+    if save {
+        let ratio = format!("{:.4}", h / work_h);
+        app.state::<AppState>().store.lock().unwrap().set_setting("panelHeightRatio", &ratio).map_err(|e| e.to_string())?;
+        crate::settings::changed(app);
+    }
+    Ok(())
+}
+
+/// Forgets the saved height and puts a visible panel back at the default.
+pub fn reset_panel_height(app: &AppHandle) -> Result<(), String> {
+    app.state::<AppState>().store.lock().unwrap().set_setting("panelHeightRatio", "").map_err(|e| e.to_string())?;
+    if let Some(panel) = app.get_webview_window(PANEL).filter(|p| p.is_visible().unwrap_or(false))
+        && let Some(monitor) = panel.current_monitor().ok().flatten()
+    {
+        let (work, unit) = work_area(&monitor);
+        place(&panel, panel_rect(work, unit, panel_height(work.h / unit))).map_err(|e| e.to_string())?;
+    }
+    crate::settings::changed(app);
+    Ok(())
+}
+
 pub fn show_settings(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(SETTINGS) {
         let _ = window.show();

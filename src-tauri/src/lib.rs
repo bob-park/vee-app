@@ -172,6 +172,16 @@ fn set_panel_pinned(state: State<AppState>, pinned: bool) {
 }
 
 #[tauri::command]
+fn resize_panel(app: AppHandle, height: f64, save: bool) -> Result<(), String> {
+    windows::resize_panel(&app, height, save)
+}
+
+#[tauri::command]
+fn reset_panel_height(app: AppHandle) -> Result<(), String> {
+    windows::reset_panel_height(&app)
+}
+
+#[tauri::command]
 fn reveal_panel(app: AppHandle) {
     windows::reveal_panel(&app);
 }
@@ -255,6 +265,8 @@ pub fn run() {
             start_drag,
             hide_panel,
             set_panel_pinned,
+            resize_panel,
+            reset_panel_height,
             reveal_panel,
             preview_sound,
             open_settings,
