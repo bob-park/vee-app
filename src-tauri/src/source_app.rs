@@ -1,4 +1,4 @@
-//! Which app is in front, its icon, and (macOS) re-activating it.
+//! Which app is in front, its icon, and re-activating it.
 
 pub struct FrontApp {
     /// macOS bundle identifier, or the full exe path on Windows.
@@ -84,9 +84,33 @@ pub fn icon_png(app: &FrontApp) -> Option<Vec<u8>> {
     Some(out.into_inner())
 }
 
-/// Windows hands focus back to the previous window when ours hides, so nothing to do.
+/// Focuses `pid`'s first visible top-level window. Needed because a pinned panel never hides,
+/// so Windows never hands focus back on its own.
 #[cfg(windows)]
-pub fn activate(_pid: i32) {}
+pub fn activate(pid: i32) {
+    use ::windows::Win32::Foundation::{HWND, LPARAM};
+    use ::windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId, IsWindowVisible, SetForegroundWindow};
+    use ::windows::core::BOOL;
+    /// `lparam` points at `(pid, found window)`; returning false stops the enumeration.
+    unsafe extern "system" fn visit(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let target = unsafe { &mut *(lparam.0 as *mut (u32, Option<HWND>)) };
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+        if pid == target.0 && unsafe { IsWindowVisible(hwnd) }.as_bool() {
+            target.1 = Some(hwnd);
+            return false.into();
+        }
+        true.into()
+    }
+    let mut target = (pid as u32, None);
+    unsafe {
+        // Errors when `visit` stops early, which is the found case.
+        let _ = EnumWindows(Some(visit), LPARAM(&mut target as *mut _ as isize));
+        if let Some(hwnd) = target.1 {
+            let _ = SetForegroundWindow(hwnd);
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

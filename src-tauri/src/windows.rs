@@ -180,9 +180,21 @@ fn place(window: &WebviewWindow, r: Rect) -> tauri::Result<()> {
     Ok(())
 }
 
+fn pinned(app: &AppHandle) -> bool {
+    app.state::<AppState>().panel_pinned.load(Ordering::SeqCst)
+}
+
+/// Records the frontmost app to hand focus back to, unless it is Vee itself (e.g. settings).
+pub fn remember_front_app(app: &AppHandle) {
+    if let Some(front) = source_app::frontmost().filter(|a| a.pid != std::process::id() as i32) {
+        *app.state::<AppState>().prev_app_pid.lock().unwrap() = Some(front.pid);
+    }
+}
+
+/// A pinned panel never toggles closed; `show_panel` brings it to the front instead.
 pub fn toggle_panel(app: &AppHandle) {
     let visible = app.get_webview_window(PANEL).and_then(|p| p.is_visible().ok()).unwrap_or(false);
-    if visible && !PANEL_CLOSING.load(Ordering::SeqCst) { hide_panel(app, true) } else { show_panel(app) }
+    if visible && !PANEL_CLOSING.load(Ordering::SeqCst) && !pinned(app) { hide_panel(app, true) } else { show_panel(app) }
 }
 
 pub fn show_panel(app: &AppHandle) {
@@ -193,6 +205,15 @@ pub fn show_panel(app: &AppHandle) {
             PANEL_GENERATION.fetch_add(1, Ordering::SeqCst);
             *app.state::<AppState>().prev_app_pid.lock().unwrap() = source_app::frontmost().map(|a| a.pid);
             let _ = app.emit_to(PANEL, "panel://opened", ());
+        } else if pinned(app) {
+            // Treated like a fresh open, so the panel resets its search and selection.
+            if panel.is_focused().unwrap_or(false) {
+                return;
+            }
+            remember_front_app(app);
+            let _ = panel.set_focus();
+            let _ = app.emit_to(PANEL, "panel://refocused", ());
+            return;
         }
         let _ = panel.set_focus();
         return;
@@ -245,10 +266,19 @@ pub fn reveal_panel(app: &AppHandle) {
 /// Slides the panel down, then hides its window.
 /// `restore_focus` re-activates the app that was in front before the panel opened.
 /// Pass `false` when the user already clicked into another app.
+/// A pinned panel stays up and only hands focus back, keeping `prev_app_pid` for the next copy.
 pub fn hide_panel(app: &AppHandle, restore_focus: bool) {
-    let previous = app.state::<AppState>().prev_app_pid.lock().unwrap().take();
+    let pinned = pinned(app);
+    let state = app.state::<AppState>();
+    let previous = {
+        let mut slot = state.prev_app_pid.lock().unwrap();
+        if pinned { *slot } else { slot.take() }
+    };
     if let (true, Some(pid)) = (restore_focus, previous) {
         source_app::activate(pid);
+    }
+    if pinned {
+        return;
     }
     let Some(panel) = app.get_webview_window(PANEL) else { return };
     if !panel.is_visible().unwrap_or(false) || PANEL_CLOSING.swap(true, Ordering::SeqCst) {
@@ -283,9 +313,16 @@ pub fn show_settings(app: &AppHandle) {
 
 fn show_toast(app: &AppHandle, payload: ToastPayload) {
     let Some(toast) = app.get_webview_window(TOAST) else { return };
-    if let Some(monitor) = cursor_monitor(app) {
+    // A pinned panel stays up, so the toast goes just above it instead of over its cards.
+    let pinned_panel = app.get_webview_window(PANEL).filter(|_| pinned(app));
+    let monitor = match &pinned_panel {
+        Some(panel) => panel.current_monitor().ok().flatten(),
+        None => cursor_monitor(app),
+    };
+    if let Some(monitor) = monitor {
         let (work, unit) = work_area(&monitor);
-        let _ = place(&toast, toast_rect(work, unit, 0.0));
+        let lift = if pinned_panel.is_some() { panel_height_for(work.h / unit, stored_ratio(app)) + PANEL_MARGIN } else { 0.0 };
+        let _ = place(&toast, toast_rect(work, unit, lift));
     }
     let _ = app.emit_to(TOAST, "toast://show", payload);
     let _ = toast.set_ignore_cursor_events(true);
@@ -502,7 +539,12 @@ fn finish_drag(app: &AppHandle, id: i64, content: &ClipContent, result: DragResu
     let panel = end_drag(app);
     match result {
         DragResult::Dropped => {
-            hide_panel(app, true);
+            if pinned(app) {
+                // The panel stays; let it bring the dragged card back.
+                let _ = app.emit_to(PANEL, "panel://drag-cancelled", ());
+            } else {
+                hide_panel(app, true);
+            }
             confirm_copy(app, id, content, false);
         }
         DragResult::Cancel => {

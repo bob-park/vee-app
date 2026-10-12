@@ -16,11 +16,13 @@ use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 
 pub struct AppState {
     pub store: Mutex<Store>,
-    /// Frontmost app when the panel opened, re-activated when it closes (macOS).
+    /// Frontmost app when the panel opened (or, while pinned, last in front), re-activated after a copy.
     pub prev_app_pid: Mutex<Option<i32>>,
     suppress_until: Mutex<Instant>,
     /// A file drag out of the panel is in progress; losing focus must not hide it.
     pub dragging: AtomicBool,
+    /// The user pinned the panel: it stays up until unpinned. Memory only.
+    pub panel_pinned: AtomicBool,
 }
 
 impl AppState {
@@ -30,6 +32,7 @@ impl AppState {
             prev_app_pid: Mutex::new(None),
             suppress_until: Mutex::new(Instant::now()),
             dragging: AtomicBool::new(false),
+            panel_pinned: AtomicBool::new(false),
         }
     }
 
@@ -162,6 +165,12 @@ fn hide_panel(app: AppHandle) {
     windows::hide_panel(&app, true);
 }
 
+/// Unpinning leaves the panel open; it closes the next time something hides it.
+#[tauri::command]
+fn set_panel_pinned(state: State<AppState>, pinned: bool) {
+    state.panel_pinned.store(pinned, Ordering::SeqCst);
+}
+
 #[tauri::command]
 fn reveal_panel(app: AppHandle) {
     windows::reveal_panel(&app);
@@ -221,8 +230,11 @@ pub fn run() {
                 let _ = window.hide();
             }
             (windows::PANEL, WindowEvent::Focused(false)) => {
-                if !window.app_handle().state::<AppState>().dragging.load(Ordering::SeqCst) {
-                    windows::hide_panel(window.app_handle(), false)
+                let (app, state) = (window.app_handle(), window.app_handle().state::<AppState>());
+                if state.panel_pinned.load(Ordering::SeqCst) {
+                    windows::remember_front_app(app);
+                } else if !state.dragging.load(Ordering::SeqCst) {
+                    windows::hide_panel(app, false)
                 }
             }
             _ => {}
@@ -242,6 +254,7 @@ pub fn run() {
             copy_clip,
             start_drag,
             hide_panel,
+            set_panel_pinned,
             reveal_panel,
             preview_sound,
             open_settings,
