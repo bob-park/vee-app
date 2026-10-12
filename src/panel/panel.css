@@ -7,6 +7,25 @@
   border: 1px solid var(--border);
   background: var(--surface);
   overflow: hidden;
+  position: relative;
+}
+
+/* Drawn inset: the window is exactly the panel's size, so an outer ring would be clipped. */
+.panel.pinned {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 0.5px var(--accent);
+}
+
+/* A tab hanging from the top edge. */
+.panel-pin-badge {
+  position: absolute;
+  top: 0;
+  right: 56px;
+  padding: 1px 8px 2px;
+  border-radius: 0 0 6px 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
 }
 
 .toolbar {
@@ -164,6 +183,17 @@
 
 .icon-btn:hover {
   background: var(--subtle);
+}
+
+.icon-btn.on {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.icon-btn svg {
+  display: block;
+  width: 18px;
+  height: 18px;
 }
 
 /* Pins on the left, history scrolling on the right. */

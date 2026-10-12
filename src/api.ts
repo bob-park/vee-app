@@ -88,6 +88,8 @@ export const api = {
   deleteClip: (id: number) => invoke<void>("delete_clip", { id }),
   clearHistory: () => invoke<void>("clear_history"),
   hidePanel: () => invoke<void>("hide_panel"),
+  /** A pinned panel stays up when focus leaves it; unpinning leaves it open. */
+  setPanelPinned: (pinned: boolean) => invoke<void>("set_panel_pinned", { pinned }),
   revealPanel: () => invoke<void>("reveal_panel"),
   openSettings: () => invoke<void>("open_settings"),
   previewSound: (name: SoundName) => invoke<void>("preview_sound", { name }),

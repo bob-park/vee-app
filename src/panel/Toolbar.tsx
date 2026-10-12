@@ -32,6 +32,9 @@ interface Props {
   suggestIndex: number;
   onPickApp: (app: App) => void;
   onSettings: () => void;
+  /** The panel stays up when focus leaves it. */
+  panelPinned: boolean;
+  onTogglePanelPin: () => void;
   /** The downloaded update's version, or null when there is none. */
   updateVersion: string | null;
   updateConfirming: boolean;
@@ -54,6 +57,8 @@ export function Toolbar({
   suggestIndex,
   onPickApp,
   onSettings,
+  panelPinned,
+  onTogglePanelPin,
   updateVersion,
   updateConfirming,
   updateFailed,
@@ -155,6 +160,26 @@ export function Toolbar({
           )}
         </div>
       )}
+      <button
+        className={panelPinned ? "icon-btn on" : "icon-btn"}
+        onClick={onTogglePanelPin}
+        aria-pressed={panelPinned}
+        aria-label={panelPinned ? t.unpinPanel : t.pinPanel}
+        title={panelPinned ? t.unpinPanel : t.pinPanel}
+        tabIndex={-1}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M12 17v5M9 3h6M10 3v7l-4 4v3h12v-3l-4-4V3" />
+        </svg>
+      </button>
       <button className="icon-btn" onClick={onSettings} aria-label={t.settings.title} tabIndex={-1}>
         ⚙︎
       </button>

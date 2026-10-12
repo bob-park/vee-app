@@ -31,6 +31,7 @@ export function Panel() {
   const [updateConfirming, setUpdateConfirming] = useState(false);
   const [updateFailed, setUpdateFailed] = useState(false);
   const [app, setApp] = useState<App | null>(null);
+  const [panelPinned, setPanelPinned] = useState(false);
   const [suggestions, setSuggestions] = useState<App[]>([]);
   const [suggestIndex, setSuggestIndex] = useState(0);
   const requestId = useRef(0);
@@ -163,6 +164,11 @@ export function Panel() {
       resetView();
     });
     const offDragCancelled = listen("panel://drag-cancelled", () => setDragging(false));
+    // A pinned panel never closed, so the shortcut or tray only hands focus back; start fresh like an open.
+    const offRefocused = listen("panel://refocused", () => {
+      resetView();
+      inputRef.current?.focus();
+    });
     return () => {
       void offChanged.then((off) => off());
       void offAdded.then((off) => off());
@@ -170,6 +176,7 @@ export function Panel() {
       void offClosing.then((off) => off());
       void offClosed.then((off) => off());
       void offDragCancelled.then((off) => off());
+      void offRefocused.then((off) => off());
     };
   }, []);
 
@@ -224,6 +231,12 @@ export function Panel() {
     setQuery("");
   };
 
+  const togglePanelPin = () => {
+    const next = !panelPinned;
+    setPanelPinned(next);
+    void api.setPanelPinned(next);
+  };
+
   const installUpdate = () => {
     setUpdateFailed(false);
     void api.installUpdate().catch(() => setUpdateFailed(true));
@@ -261,7 +274,8 @@ export function Panel() {
         togglePin(items[selected]);
         break;
       case "hide":
-        void api.hidePanel();
+        // hide_panel would still hand focus to the previous app.
+        if (!panelPinned) void api.hidePanel();
         break;
       case "openSettings":
         void api.openSettings();
@@ -343,7 +357,7 @@ export function Panel() {
 
   return (
     <div
-      className={["panel", open && "open", closing && "closing", dragging && "dragging"].filter(Boolean).join(" ")}
+      className={["panel", open && "open", closing && "closing", dragging && "dragging", panelPinned && "pinned"].filter(Boolean).join(" ")}
       onKeyDown={onKeyDown}
       // Keep keyboard focus in the search box no matter what is clicked.
       onMouseDown={(e) => {
@@ -364,6 +378,8 @@ export function Panel() {
         suggestIndex={suggestIndex}
         onPickApp={pickApp}
         onSettings={() => void api.openSettings()}
+        panelPinned={panelPinned}
+        onTogglePanelPin={togglePanelPin}
         updateVersion={updateVersion}
         updateConfirming={updateConfirming}
         updateFailed={updateFailed}
@@ -375,6 +391,7 @@ export function Panel() {
         onConfirmUpdate={installUpdate}
         onCancelUpdate={cancelUpdate}
       />
+      {panelPinned && <span className="panel-pin-badge">{t.panelPinned}</span>}
       <div className="body" ref={bodyRef}>
         {pinned.length > 0 && (
           <>
