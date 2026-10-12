@@ -15,6 +15,8 @@ pub const SETTINGS: &str = "settings";
 const PANEL_RATIO: f64 = 0.30;
 const PANEL_MIN: f64 = 300.0;
 const PANEL_MAX: f64 = 360.0;
+/// The most of the work area a resized panel may take.
+const PANEL_MAX_SHARE: f64 = 0.5;
 const PANEL_MARGIN: f64 = 8.0;
 /// Window size; the card inside is smaller and the rest is room for its shadow.
 const TOAST_WIDTH: f64 = 420.0;
@@ -111,15 +113,37 @@ fn panel_height(work_h_points: f64) -> f64 {
     (work_h_points * PANEL_RATIO).round().clamp(PANEL_MIN, PANEL_MAX)
 }
 
+/// Tallest a resized panel may be: half the work area, but never below the default.
+fn panel_max(work_h: f64) -> f64 {
+    (work_h * PANEL_MAX_SHARE).floor().max(panel_height(work_h))
+}
+
+/// A resized height, rounded and kept between the default and `panel_max`.
+fn clamp_panel_height(work_h: f64, h: f64) -> f64 {
+    h.round().clamp(panel_height(work_h), panel_max(work_h))
+}
+
+/// Panel height for this work area from the saved ratio, or the default without one.
+fn panel_height_for(work_h: f64, ratio: Option<f64>) -> f64 {
+    ratio.map_or_else(|| panel_height(work_h), |r| clamp_panel_height(work_h, r * work_h))
+}
+
+/// The saved `panelHeightRatio`; `None` when unset or unreadable.
+fn stored_ratio(app: &AppHandle) -> Option<f64> {
+    crate::settings::get(&app.state::<AppState>().store.lock().unwrap(), "panelHeightRatio").parse().ok().filter(|r: &f64| r.is_finite())
+}
+
 /// `unit` is how many positioning units one design point takes: 1 on macOS, the scale on Windows.
-fn panel_rect(work: Rect, unit: f64) -> Rect {
-    let (margin, h) = (PANEL_MARGIN * unit, panel_height(work.h / unit) * unit);
+/// `h` is the panel height in design points.
+fn panel_rect(work: Rect, unit: f64, h: f64) -> Rect {
+    let (margin, h) = (PANEL_MARGIN * unit, h * unit);
     Rect { x: work.x + margin, y: work.y + work.h - h - margin, w: work.w - 2.0 * margin, h }
 }
 
-fn toast_rect(work: Rect, unit: f64) -> Rect {
+/// `lift` raises the toast by that many design points, e.g. above a pinned panel.
+fn toast_rect(work: Rect, unit: f64, lift: f64) -> Rect {
     let (w, h) = (TOAST_WIDTH * unit, TOAST_HEIGHT * unit);
-    Rect { x: work.x + (work.w - w) / 2.0, y: work.y + work.h - h - TOAST_BOTTOM * unit, w, h }
+    Rect { x: work.x + (work.w - w) / 2.0, y: work.y + work.h - h - (TOAST_BOTTOM + lift) * unit, w, h }
 }
 
 fn cursor_monitor(app: &AppHandle) -> Option<Monitor> {
@@ -183,7 +207,7 @@ fn place_and_show(app: &AppHandle, panel: &WebviewWindow) -> tauri::Result<()> {
     let _ = end_drag(app);
     if let Some(monitor) = cursor_monitor(app) {
         let (work, unit) = work_area(&monitor);
-        place(panel, panel_rect(work, unit))?;
+        place(panel, panel_rect(work, unit, panel_height_for(work.h / unit, stored_ratio(app))))?;
     }
     set_panel_alpha(panel, 0.0);
     panel.show()?;
@@ -261,7 +285,7 @@ fn show_toast(app: &AppHandle, payload: ToastPayload) {
     let Some(toast) = app.get_webview_window(TOAST) else { return };
     if let Some(monitor) = cursor_monitor(app) {
         let (work, unit) = work_area(&monitor);
-        let _ = place(&toast, toast_rect(work, unit));
+        let _ = place(&toast, toast_rect(work, unit, 0.0));
     }
     let _ = app.emit_to(TOAST, "toast://show", payload);
     let _ = toast.set_ignore_cursor_events(true);
@@ -581,11 +605,34 @@ mod tests {
     #[test]
     fn panel_and_toast_sit_at_the_bottom_of_the_work_area() {
         let work = Rect { x: -2560.0, y: -241.0, w: 2560.0, h: 1410.0 };
-        assert_eq!(panel_rect(work, 1.0), Rect { x: -2552.0, y: 801.0, w: 2544.0, h: 360.0 });
-        assert_eq!(toast_rect(work, 1.0), Rect { x: -1490.0, y: 1023.0, w: 420.0, h: 132.0 });
+        assert_eq!(panel_rect(work, 1.0, 360.0), Rect { x: -2552.0, y: 801.0, w: 2544.0, h: 360.0 });
+        assert_eq!(toast_rect(work, 1.0, 0.0), Rect { x: -1490.0, y: 1023.0, w: 420.0, h: 132.0 });
         // Windows: same layout in pixels at 150%.
         let px = Rect { x: 0.0, y: 0.0, w: 1920.0, h: 1040.0 };
-        assert_eq!(panel_rect(px, 1.5), Rect { x: 12.0, y: 578.0, w: 1896.0, h: 450.0 });
+        assert_eq!(panel_rect(px, 1.5, 300.0), Rect { x: 12.0, y: 578.0, w: 1896.0, h: 450.0 });
+    }
+
+    #[test]
+    fn panel_can_grow_to_half_the_work_area() {
+        assert_eq!(panel_max(1117.0), 558.0);
+        assert_eq!(clamp_panel_height(1117.0, 447.2), 447.0);
+        assert_eq!(clamp_panel_height(1117.0, 900.0), 558.0);
+        assert_eq!(clamp_panel_height(1117.0, 100.0), 335.0); // never below the default
+        assert_eq!(panel_max(560.0), 300.0); // tiny screen: the default wins over 50%
+    }
+
+    #[test]
+    fn stored_ratio_is_clamped_per_monitor() {
+        assert_eq!(panel_height_for(1117.0, None), 335.0);
+        assert_eq!(panel_height_for(1117.0, Some(0.4)), 447.0);
+        assert_eq!(panel_height_for(956.0, Some(0.6)), 478.0); // over 50% on a smaller screen
+        assert_eq!(panel_height_for(1440.0, Some(0.1)), 360.0);
+    }
+
+    #[test]
+    fn pinned_toast_sits_above_the_panel() {
+        let work = Rect { x: -2560.0, y: -241.0, w: 2560.0, h: 1410.0 };
+        assert_eq!(toast_rect(work, 1.0, 368.0), Rect { x: -1490.0, y: 655.0, w: 420.0, h: 132.0 });
     }
 
     #[test]
