@@ -14,3 +14,8 @@ export function followSelection(id: number | undefined, index: number, ids: numb
   const moved = id === undefined ? -1 : ids.indexOf(id);
   return moved >= 0 ? moved : clampSelection(index, ids.length);
 }
+
+/** A reload keeps the selected card only while the panel is on screen and no new clip arrived. */
+export function keepSelectionOnReload(panelOpen: boolean, added: boolean): boolean {
+  return panelOpen && !added;
+}

@@ -15,6 +15,8 @@ pub const SETTINGS: &str = "settings";
 const PANEL_RATIO: f64 = 0.30;
 const PANEL_MIN: f64 = 300.0;
 const PANEL_MAX: f64 = 360.0;
+/// The most of the work area a resized panel may take.
+const PANEL_MAX_SHARE: f64 = 0.5;
 const PANEL_MARGIN: f64 = 8.0;
 /// Window size; the card inside is smaller and the rest is room for its shadow.
 const TOAST_WIDTH: f64 = 420.0;
@@ -111,15 +113,37 @@ fn panel_height(work_h_points: f64) -> f64 {
     (work_h_points * PANEL_RATIO).round().clamp(PANEL_MIN, PANEL_MAX)
 }
 
+/// Tallest a resized panel may be: half the work area, but never below the default.
+fn panel_max(work_h: f64) -> f64 {
+    (work_h * PANEL_MAX_SHARE).floor().max(panel_height(work_h))
+}
+
+/// A resized height, rounded and kept between the default and `panel_max`.
+fn clamp_panel_height(work_h: f64, h: f64) -> f64 {
+    h.round().clamp(panel_height(work_h), panel_max(work_h))
+}
+
+/// Panel height for this work area from the saved ratio, or the default without one.
+fn panel_height_for(work_h: f64, ratio: Option<f64>) -> f64 {
+    ratio.map_or_else(|| panel_height(work_h), |r| clamp_panel_height(work_h, r * work_h))
+}
+
+/// The saved `panelHeightRatio`; `None` when unset or unreadable.
+fn stored_ratio(app: &AppHandle) -> Option<f64> {
+    crate::settings::get(&app.state::<AppState>().store.lock().unwrap(), "panelHeightRatio").parse().ok().filter(|r: &f64| r.is_finite())
+}
+
 /// `unit` is how many positioning units one design point takes: 1 on macOS, the scale on Windows.
-fn panel_rect(work: Rect, unit: f64) -> Rect {
-    let (margin, h) = (PANEL_MARGIN * unit, panel_height(work.h / unit) * unit);
+/// `h` is the panel height in design points.
+fn panel_rect(work: Rect, unit: f64, h: f64) -> Rect {
+    let (margin, h) = (PANEL_MARGIN * unit, h * unit);
     Rect { x: work.x + margin, y: work.y + work.h - h - margin, w: work.w - 2.0 * margin, h }
 }
 
-fn toast_rect(work: Rect, unit: f64) -> Rect {
+/// `lift` raises the toast by that many design points, e.g. above a pinned panel.
+fn toast_rect(work: Rect, unit: f64, lift: f64) -> Rect {
     let (w, h) = (TOAST_WIDTH * unit, TOAST_HEIGHT * unit);
-    Rect { x: work.x + (work.w - w) / 2.0, y: work.y + work.h - h - TOAST_BOTTOM * unit, w, h }
+    Rect { x: work.x + (work.w - w) / 2.0, y: work.y + work.h - h - (TOAST_BOTTOM + lift) * unit, w, h }
 }
 
 fn cursor_monitor(app: &AppHandle) -> Option<Monitor> {
@@ -156,9 +180,21 @@ fn place(window: &WebviewWindow, r: Rect) -> tauri::Result<()> {
     Ok(())
 }
 
+fn pinned(app: &AppHandle) -> bool {
+    app.state::<AppState>().panel_pinned.load(Ordering::SeqCst)
+}
+
+/// Records the frontmost app to hand focus back to, unless it is Vee itself (e.g. settings).
+pub fn remember_front_app(app: &AppHandle) {
+    if let Some(front) = source_app::frontmost().filter(|a| a.pid != std::process::id() as i32) {
+        *app.state::<AppState>().prev_app_pid.lock().unwrap() = Some(front.pid);
+    }
+}
+
+/// A pinned panel never toggles closed; `show_panel` brings it to the front instead.
 pub fn toggle_panel(app: &AppHandle) {
     let visible = app.get_webview_window(PANEL).and_then(|p| p.is_visible().ok()).unwrap_or(false);
-    if visible && !PANEL_CLOSING.load(Ordering::SeqCst) { hide_panel(app, true) } else { show_panel(app) }
+    if visible && !PANEL_CLOSING.load(Ordering::SeqCst) && !pinned(app) { hide_panel(app, true) } else { show_panel(app) }
 }
 
 pub fn show_panel(app: &AppHandle) {
@@ -169,6 +205,15 @@ pub fn show_panel(app: &AppHandle) {
             PANEL_GENERATION.fetch_add(1, Ordering::SeqCst);
             *app.state::<AppState>().prev_app_pid.lock().unwrap() = source_app::frontmost().map(|a| a.pid);
             let _ = app.emit_to(PANEL, "panel://opened", ());
+        } else if pinned(app) {
+            // Treated like a fresh open, so the panel resets its search and selection.
+            if panel.is_focused().unwrap_or(false) {
+                return;
+            }
+            remember_front_app(app);
+            let _ = panel.set_focus();
+            let _ = app.emit_to(PANEL, "panel://refocused", ());
+            return;
         }
         let _ = panel.set_focus();
         return;
@@ -183,7 +228,7 @@ fn place_and_show(app: &AppHandle, panel: &WebviewWindow) -> tauri::Result<()> {
     let _ = end_drag(app);
     if let Some(monitor) = cursor_monitor(app) {
         let (work, unit) = work_area(&monitor);
-        place(panel, panel_rect(work, unit))?;
+        place(panel, panel_rect(work, unit, panel_height_for(work.h / unit, stored_ratio(app))))?;
     }
     set_panel_alpha(panel, 0.0);
     panel.show()?;
@@ -221,10 +266,21 @@ pub fn reveal_panel(app: &AppHandle) {
 /// Slides the panel down, then hides its window.
 /// `restore_focus` re-activates the app that was in front before the panel opened.
 /// Pass `false` when the user already clicked into another app.
+/// A pinned panel stays up and only hands focus back, keeping `prev_app_pid` for the next copy.
 pub fn hide_panel(app: &AppHandle, restore_focus: bool) {
-    let previous = app.state::<AppState>().prev_app_pid.lock().unwrap().take();
+    let pinned = pinned(app);
+    let state = app.state::<AppState>();
+    let previous = {
+        let mut slot = state.prev_app_pid.lock().unwrap();
+        if pinned { *slot } else { slot.take() }
+    };
+    // Pinned, the user may have switched apps since the panel last lost focus; ask who they were in.
+    let previous = if pinned && restore_focus { source_app::menu_bar_owner_pid().or(previous) } else { previous };
     if let (true, Some(pid)) = (restore_focus, previous) {
         source_app::activate(pid);
+    }
+    if pinned {
+        return;
     }
     let Some(panel) = app.get_webview_window(PANEL) else { return };
     if !panel.is_visible().unwrap_or(false) || PANEL_CLOSING.swap(true, Ordering::SeqCst) {
@@ -249,6 +305,39 @@ pub fn hide_panel(app: &AppHandle, restore_focus: bool) {
     });
 }
 
+/// Resizes the panel on its own monitor, keeping its bottom edge put. `height` is in design points.
+/// Drags call this on every move with `save` off; `save` stores the height as a share of the work area.
+pub fn resize_panel(app: &AppHandle, height: f64, save: bool) -> Result<(), String> {
+    if crate::settings::get(&app.state::<AppState>().store.lock().unwrap(), "panelResize") == "off" {
+        return Err("resize_off".into());
+    }
+    let panel = app.get_webview_window(PANEL).ok_or("panel window is missing")?;
+    let monitor = panel.current_monitor().map_err(|e| e.to_string())?.ok_or("panel has no monitor")?;
+    let (work, unit) = work_area(&monitor);
+    let work_h = work.h / unit;
+    let h = clamp_panel_height(work_h, height);
+    place(&panel, panel_rect(work, unit, h)).map_err(|e| e.to_string())?;
+    if save {
+        let ratio = format!("{:.4}", h / work_h);
+        app.state::<AppState>().store.lock().unwrap().set_setting("panelHeightRatio", &ratio).map_err(|e| e.to_string())?;
+        crate::settings::changed(app);
+    }
+    Ok(())
+}
+
+/// Forgets the saved height and puts a visible panel back at the default.
+pub fn reset_panel_height(app: &AppHandle) -> Result<(), String> {
+    app.state::<AppState>().store.lock().unwrap().set_setting("panelHeightRatio", "").map_err(|e| e.to_string())?;
+    if let Some(panel) = app.get_webview_window(PANEL).filter(|p| p.is_visible().unwrap_or(false))
+        && let Some(monitor) = panel.current_monitor().ok().flatten()
+    {
+        let (work, unit) = work_area(&monitor);
+        place(&panel, panel_rect(work, unit, panel_height(work.h / unit))).map_err(|e| e.to_string())?;
+    }
+    crate::settings::changed(app);
+    Ok(())
+}
+
 pub fn show_settings(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(SETTINGS) {
         let _ = window.show();
@@ -259,9 +348,18 @@ pub fn show_settings(app: &AppHandle) {
 
 fn show_toast(app: &AppHandle, payload: ToastPayload) {
     let Some(toast) = app.get_webview_window(TOAST) else { return };
-    if let Some(monitor) = cursor_monitor(app) {
+    // A pinned panel stays up, so the toast goes just above it instead of over its cards.
+    let pinned_panel = app.get_webview_window(PANEL).filter(|_| pinned(app));
+    let monitor = match &pinned_panel {
+        Some(panel) => panel.current_monitor().ok().flatten(),
+        None => cursor_monitor(app),
+    };
+    if let Some(monitor) = monitor {
         let (work, unit) = work_area(&monitor);
-        let _ = place(&toast, toast_rect(work, unit));
+        // Live height, so a mid-drag or unsaved size still clears the panel.
+        let panel_h = pinned_panel.as_ref().and_then(|p| p.outer_size().ok()).map(|s| s.height as f64 / monitor.scale_factor());
+        let lift = panel_h.map_or(0.0, |h| h + PANEL_MARGIN);
+        let _ = place(&toast, toast_rect(work, unit, lift));
     }
     let _ = app.emit_to(TOAST, "toast://show", payload);
     let _ = toast.set_ignore_cursor_events(true);
@@ -478,7 +576,12 @@ fn finish_drag(app: &AppHandle, id: i64, content: &ClipContent, result: DragResu
     let panel = end_drag(app);
     match result {
         DragResult::Dropped => {
-            hide_panel(app, true);
+            if pinned(app) {
+                // The panel stays; let it bring the dragged card back.
+                let _ = app.emit_to(PANEL, "panel://drag-cancelled", ());
+            } else {
+                hide_panel(app, true);
+            }
             confirm_copy(app, id, content, false);
         }
         DragResult::Cancel => {
@@ -581,11 +684,34 @@ mod tests {
     #[test]
     fn panel_and_toast_sit_at_the_bottom_of_the_work_area() {
         let work = Rect { x: -2560.0, y: -241.0, w: 2560.0, h: 1410.0 };
-        assert_eq!(panel_rect(work, 1.0), Rect { x: -2552.0, y: 801.0, w: 2544.0, h: 360.0 });
-        assert_eq!(toast_rect(work, 1.0), Rect { x: -1490.0, y: 1023.0, w: 420.0, h: 132.0 });
+        assert_eq!(panel_rect(work, 1.0, 360.0), Rect { x: -2552.0, y: 801.0, w: 2544.0, h: 360.0 });
+        assert_eq!(toast_rect(work, 1.0, 0.0), Rect { x: -1490.0, y: 1023.0, w: 420.0, h: 132.0 });
         // Windows: same layout in pixels at 150%.
         let px = Rect { x: 0.0, y: 0.0, w: 1920.0, h: 1040.0 };
-        assert_eq!(panel_rect(px, 1.5), Rect { x: 12.0, y: 578.0, w: 1896.0, h: 450.0 });
+        assert_eq!(panel_rect(px, 1.5, 300.0), Rect { x: 12.0, y: 578.0, w: 1896.0, h: 450.0 });
+    }
+
+    #[test]
+    fn panel_can_grow_to_half_the_work_area() {
+        assert_eq!(panel_max(1117.0), 558.0);
+        assert_eq!(clamp_panel_height(1117.0, 447.2), 447.0);
+        assert_eq!(clamp_panel_height(1117.0, 900.0), 558.0);
+        assert_eq!(clamp_panel_height(1117.0, 100.0), 335.0); // never below the default
+        assert_eq!(panel_max(560.0), 300.0); // tiny screen: the default wins over 50%
+    }
+
+    #[test]
+    fn stored_ratio_is_clamped_per_monitor() {
+        assert_eq!(panel_height_for(1117.0, None), 335.0);
+        assert_eq!(panel_height_for(1117.0, Some(0.4)), 447.0);
+        assert_eq!(panel_height_for(956.0, Some(0.6)), 478.0); // over 50% on a smaller screen
+        assert_eq!(panel_height_for(1440.0, Some(0.1)), 360.0);
+    }
+
+    #[test]
+    fn pinned_toast_sits_above_the_panel() {
+        let work = Rect { x: -2560.0, y: -241.0, w: 2560.0, h: 1410.0 };
+        assert_eq!(toast_rect(work, 1.0, 368.0), Rect { x: -1490.0, y: 655.0, w: 420.0, h: 132.0 });
     }
 
     #[test]

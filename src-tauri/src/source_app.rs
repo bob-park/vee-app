@@ -1,4 +1,4 @@
-//! Which app is in front, its icon, and (macOS) re-activating it.
+//! Which app is in front, its icon, and re-activating it.
 
 pub struct FrontApp {
     /// macOS bundle identifier, or the full exe path on Windows.
@@ -35,6 +35,15 @@ pub fn icon_png(app: &FrontApp) -> Option<Vec<u8>> {
     let rep = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &cg);
     let png = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new()) }?;
     Some(png.to_vec())
+}
+
+/// The app owning the menu bar, skipping Vee. Vee is an accessory app, so focusing the panel
+/// leaves the menu bar with the app the user was last in.
+#[cfg(target_os = "macos")]
+pub fn menu_bar_owner_pid() -> Option<i32> {
+    use objc2_app_kit::NSWorkspace;
+    let pid = NSWorkspace::sharedWorkspace().menuBarOwningApplication()?.processIdentifier();
+    (pid != std::process::id() as i32).then_some(pid)
 }
 
 #[cfg(target_os = "macos")]
@@ -75,6 +84,12 @@ pub fn frontmost() -> Option<FrontApp> {
     }
 }
 
+// ponytail: an A→B switch without touching the panel isn't seen; SetWinEventHook(EVENT_SYSTEM_FOREGROUND) if it matters.
+#[cfg(windows)]
+pub fn menu_bar_owner_pid() -> Option<i32> {
+    None
+}
+
 #[cfg(windows)]
 pub fn icon_png(app: &FrontApp) -> Option<Vec<u8>> {
     let icon = windows_icons::get_icon_by_path(&app.path).ok()?;
@@ -84,9 +99,33 @@ pub fn icon_png(app: &FrontApp) -> Option<Vec<u8>> {
     Some(out.into_inner())
 }
 
-/// Windows hands focus back to the previous window when ours hides, so nothing to do.
+/// Focuses `pid`'s first visible top-level window. Needed because a pinned panel never hides,
+/// so Windows never hands focus back on its own.
 #[cfg(windows)]
-pub fn activate(_pid: i32) {}
+pub fn activate(pid: i32) {
+    use ::windows::Win32::Foundation::{HWND, LPARAM};
+    use ::windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId, IsWindowVisible, SetForegroundWindow};
+    use ::windows::core::BOOL;
+    /// `lparam` points at `(pid, found window)`; returning false stops the enumeration.
+    unsafe extern "system" fn visit(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let target = unsafe { &mut *(lparam.0 as *mut (u32, Option<HWND>)) };
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+        if pid == target.0 && unsafe { IsWindowVisible(hwnd) }.as_bool() {
+            target.1 = Some(hwnd);
+            return false.into();
+        }
+        true.into()
+    }
+    let mut target = (pid as u32, None);
+    unsafe {
+        // Errors when `visit` stops early, which is the found case.
+        let _ = EnumWindows(Some(visit), LPARAM(&mut target as *mut _ as isize));
+        if let Some(hwnd) = target.1 {
+            let _ = SetForegroundWindow(hwnd);
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -18,6 +18,8 @@ pub struct SettingsDto {
     sound_name: String,
     confirm_delete: String,
     retention: String,
+    panel_resize: String,
+    panel_height_ratio: String,
     autostart: bool,
     version: String,
 }
@@ -30,7 +32,7 @@ pub fn get(store: &Store, key: &str) -> String {
         "sound" => "on",
         "soundName" => "pop",
         "confirmDelete" => "off",
-        "retention" => "off",
+        "retention" | "panelResize" => "off",
         _ => "",
     };
     store.get_setting(key).ok().flatten().unwrap_or_else(|| default.to_string())
@@ -99,6 +101,8 @@ fn validate(key: &str, value: &str) -> Result<(), String> {
         "soundName" => value == SILENT || crate::sound::NAMES.contains(&value),
         "confirmDelete" => matches!(value, "on" | "off"),
         "retention" => matches!(value, "off" | "7" | "30" | "90"),
+        "panelResize" => matches!(value, "on" | "off"),
+        // `panelHeightRatio` is written only by the resize commands.
         _ => false,
     };
     if ok { Ok(()) } else { Err(format!("invalid setting {key}={value}")) }
@@ -127,7 +131,7 @@ pub fn register_stored_shortcut(app: &AppHandle) {
     }
 }
 
-fn changed(app: &AppHandle) {
+pub fn changed(app: &AppHandle) {
     let _ = app.emit("settings://changed", ());
 }
 
@@ -142,6 +146,8 @@ pub fn get_settings(app: AppHandle, state: State<AppState>) -> SettingsDto {
         sound_name: get(&store, "soundName"),
         confirm_delete: get(&store, "confirmDelete"),
         retention: get(&store, "retention"),
+        panel_resize: get(&store, "panelResize"),
+        panel_height_ratio: get(&store, "panelHeightRatio"),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         version: app.package_info().version.to_string(),
     }
@@ -266,11 +272,20 @@ mod tests {
     }
 
     #[test]
+    fn panel_resize_is_a_switch_and_the_ratio_is_command_only() {
+        assert!(validate("panelResize", "on").is_ok());
+        assert!(validate("panelResize", "maybe").is_err());
+        assert!(validate("panelHeightRatio", "0.4").is_err());
+    }
+
+    #[test]
     fn missing_settings_fall_back_to_defaults() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open_in_memory(dir.path()).unwrap();
         assert_eq!(get(&store, "theme"), "system");
         assert_eq!(get(&store, "shortcut"), DEFAULT_SHORTCUT);
+        assert_eq!(get(&store, "panelResize"), "off");
+        assert_eq!(get(&store, "panelHeightRatio"), "");
         store.set_setting("theme", "dark").unwrap();
         assert_eq!(get(&store, "theme"), "dark");
     }

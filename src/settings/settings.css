@@ -339,3 +339,43 @@
   color: var(--muted);
   font-size: 11px;
 }
+
+.modal {
+  width: 280px;
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.modal::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.modal-card {
+  padding: 16px;
+}
+
+.modal-card h2 {
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.modal-card p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.modal-card .confirm-acts {
+  margin-top: 14px;
+}
+
+.btn.go {
+  background: var(--danger);
+  color: #ffffff;
+}

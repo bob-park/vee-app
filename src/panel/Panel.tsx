@@ -6,7 +6,8 @@ import { Card } from "./Card.tsx";
 import { dragFileName } from "./fileThumb.ts";
 import { panelKeyAction } from "./keys.ts";
 import { cancelFloat, cardLefts, floatCard, playFlip, reducedMotion } from "./motion.ts";
-import { clampSelection, defaultSelection, followSelection } from "./selection.ts";
+import { clampSelection, defaultSelection, followSelection, keepSelectionOnReload } from "./selection.ts";
+import { ResizeHandle } from "./ResizeHandle.tsx";
 import { FILTERS, Toolbar } from "./Toolbar.tsx";
 import "./panel.css";
 
@@ -31,6 +32,7 @@ export function Panel() {
   const [updateConfirming, setUpdateConfirming] = useState(false);
   const [updateFailed, setUpdateFailed] = useState(false);
   const [app, setApp] = useState<App | null>(null);
+  const [panelPinned, setPanelPinned] = useState(false);
   const [suggestions, setSuggestions] = useState<App[]>([]);
   const [suggestIndex, setSuggestIndex] = useState(0);
   const requestId = useRef(0);
@@ -121,8 +123,27 @@ export function Panel() {
   // Subscribe once; always call the latest reload.
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
+  /** Back to the newest card with no search, filter or pending confirmation. */
+  const resetView = () => {
+    setConfirmingId(null);
+    setUpdateConfirming(false);
+    setUpdateFailed(false);
+    setPinNotice(false);
+    setQuery("");
+    setApp(null);
+    setFilter("all");
+    void reloadRef.current(false);
+  };
   useEffect(() => {
-    const offChanged = listen("clips://changed", () => void reloadRef.current(true, true));
+    const offChanged = listen(
+      "clips://changed",
+      () => void reloadRef.current(keepSelectionOnReload(openRef.current, false), true),
+    );
+    // A copy, even one made while the panel is hidden, selects the newest card.
+    const offAdded = listen(
+      "clips://added",
+      () => void reloadRef.current(keepSelectionOnReload(openRef.current, true), true),
+    );
     const offOpened = listen("panel://opened", () => {
       setClosing(false);
       inputRef.current?.focus();
@@ -141,22 +162,22 @@ export function Panel() {
       setOpen(false);
       setClosing(false);
       setDragging(false);
-      setConfirmingId(null);
-      setUpdateConfirming(false);
-      setUpdateFailed(false);
-      setPinNotice(false);
-      setQuery("");
-      setApp(null);
-      setFilter("all");
-      void reloadRef.current(false);
+      resetView();
     });
     const offDragCancelled = listen("panel://drag-cancelled", () => setDragging(false));
+    // A pinned panel never closed, so the shortcut or tray only hands focus back; start fresh like an open.
+    const offRefocused = listen("panel://refocused", () => {
+      resetView();
+      inputRef.current?.focus();
+    });
     return () => {
       void offChanged.then((off) => off());
+      void offAdded.then((off) => off());
       void offOpened.then((off) => off());
       void offClosing.then((off) => off());
       void offClosed.then((off) => off());
       void offDragCancelled.then((off) => off());
+      void offRefocused.then((off) => off());
     };
   }, []);
 
@@ -211,6 +232,12 @@ export function Panel() {
     setQuery("");
   };
 
+  const togglePanelPin = () => {
+    const next = !panelPinned;
+    setPanelPinned(next);
+    void api.setPanelPinned(next);
+  };
+
   const installUpdate = () => {
     setUpdateFailed(false);
     void api.installUpdate().catch(() => setUpdateFailed(true));
@@ -248,7 +275,8 @@ export function Panel() {
         togglePin(items[selected]);
         break;
       case "hide":
-        void api.hidePanel();
+        // hide_panel would still hand focus to the previous app.
+        if (!panelPinned) void api.hidePanel();
         break;
       case "openSettings":
         void api.openSettings();
@@ -330,7 +358,7 @@ export function Panel() {
 
   return (
     <div
-      className={["panel", open && "open", closing && "closing", dragging && "dragging"].filter(Boolean).join(" ")}
+      className={["panel", open && "open", closing && "closing", dragging && "dragging", panelPinned && "pinned"].filter(Boolean).join(" ")}
       onKeyDown={onKeyDown}
       // Keep keyboard focus in the search box no matter what is clicked.
       onMouseDown={(e) => {
@@ -338,6 +366,7 @@ export function Panel() {
         if (!(e.target as Element).closest(".update")) cancelUpdate();
       }}
     >
+      {!closing && <ResizeHandle />}
       <Toolbar
         query={query}
         onQuery={setQuery}
@@ -351,6 +380,8 @@ export function Panel() {
         suggestIndex={suggestIndex}
         onPickApp={pickApp}
         onSettings={() => void api.openSettings()}
+        panelPinned={panelPinned}
+        onTogglePanelPin={togglePanelPin}
         updateVersion={updateVersion}
         updateConfirming={updateConfirming}
         updateFailed={updateFailed}
@@ -362,6 +393,7 @@ export function Panel() {
         onConfirmUpdate={installUpdate}
         onCancelUpdate={cancelUpdate}
       />
+      {panelPinned && <span className="panel-pin-badge">{t.panelPinned}</span>}
       <div className="body" ref={bodyRef}>
         {pinned.length > 0 && (
           <>
