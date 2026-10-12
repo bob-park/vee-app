@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, SOUND_NAMES, type SoundName, type UpdateStatus } from "../api.ts";
 import { relativeTime } from "../i18n/index.ts";
 import { usePrefs } from "../prefs.tsx";
+import { ConfirmModal } from "./ConfirmModal.tsx";
 import { Dropdown } from "./Dropdown.tsx";
 import { HistorySection } from "./HistorySection.tsx";
 import { ShortcutRecorder } from "./ShortcutRecorder.tsx";
@@ -133,6 +134,7 @@ export function Settings() {
   const { settings, t } = usePrefs();
   const s = t.settings;
   const [error, setError] = useState<string | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
   const run = (p: Promise<unknown>) => void p.then(() => setError(null)).catch((e) => setError(String(e)));
 
   return (
@@ -215,12 +217,39 @@ export function Settings() {
           />
         </Row>
         <DiskAccessRow />
+        <Row label={s.panelResize} hint={s.panelResizeHint}>
+          <input
+            type="checkbox"
+            role="switch"
+            className="switch"
+            aria-label={s.panelResize}
+            checked={settings.panelResize === "on"}
+            onChange={(e) => run(api.setSetting("panelResize", e.target.checked ? "on" : "off"))}
+          />
+        </Row>
+        {/* Stays enabled while resizing is off: the saved size is kept. */}
+        <Row label={s.panelSizeReset}>
+          <button className="btn" disabled={settings.panelHeightRatio === ""} onClick={() => setConfirmReset(true)}>
+            {s.reset}
+          </button>
+        </Row>
         <Row label={s.shortcut} hint={s.shortcutHint}>
           <ShortcutRecorder value={settings.shortcut} />
         </Row>
         <UpdateRow />
       </section>
       <HistorySection run={run} />
+      <ConfirmModal
+        open={confirmReset}
+        title={s.panelSizeReset}
+        body={s.panelSizeResetBody}
+        confirmLabel={s.reset}
+        onConfirm={() => {
+          run(api.resetPanelHeight());
+          setConfirmReset(false);
+        }}
+        onCancel={() => setConfirmReset(false)}
+      />
       {error && (
         <p className="error" role="alert">
           {error}
