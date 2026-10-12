@@ -274,6 +274,8 @@ pub fn hide_panel(app: &AppHandle, restore_focus: bool) {
         let mut slot = state.prev_app_pid.lock().unwrap();
         if pinned { *slot } else { slot.take() }
     };
+    // Pinned, the user may have switched apps since the panel last lost focus; ask who they were in.
+    let previous = if pinned && restore_focus { source_app::menu_bar_owner_pid().or(previous) } else { previous };
     if let (true, Some(pid)) = (restore_focus, previous) {
         source_app::activate(pid);
     }
@@ -354,7 +356,9 @@ fn show_toast(app: &AppHandle, payload: ToastPayload) {
     };
     if let Some(monitor) = monitor {
         let (work, unit) = work_area(&monitor);
-        let lift = if pinned_panel.is_some() { panel_height_for(work.h / unit, stored_ratio(app)) + PANEL_MARGIN } else { 0.0 };
+        // Live height, so a mid-drag or unsaved size still clears the panel.
+        let panel_h = pinned_panel.as_ref().and_then(|p| p.outer_size().ok()).map(|s| s.height as f64 / monitor.scale_factor());
+        let lift = panel_h.map_or(0.0, |h| h + PANEL_MARGIN);
         let _ = place(&toast, toast_rect(work, unit, lift));
     }
     let _ = app.emit_to(TOAST, "toast://show", payload);

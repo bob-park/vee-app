@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { api } from "../api.ts";
 import { usePrefs } from "../prefs.tsx";
 
@@ -14,6 +14,14 @@ export function ResizeHandle() {
   const { settings } = usePrefs();
   const drag = useRef<Drag | null>(null);
   const [active, setActive] = useState(false);
+  // Unmounted mid-drag (panel closing, setting flipped): drop the pending frame so it can't resize.
+  useEffect(
+    () => () => {
+      if (drag.current) cancelAnimationFrame(drag.current.frame);
+      drag.current = null;
+    },
+    [],
+  );
   if (settings.panelResize !== "on") return null;
 
   // No preventDefault here: that would swallow the mousedown the panel uses to keep focus in the search box.

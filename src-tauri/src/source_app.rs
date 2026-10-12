@@ -37,6 +37,15 @@ pub fn icon_png(app: &FrontApp) -> Option<Vec<u8>> {
     Some(png.to_vec())
 }
 
+/// The app owning the menu bar, skipping Vee. Vee is an accessory app, so focusing the panel
+/// leaves the menu bar with the app the user was last in.
+#[cfg(target_os = "macos")]
+pub fn menu_bar_owner_pid() -> Option<i32> {
+    use objc2_app_kit::NSWorkspace;
+    let pid = NSWorkspace::sharedWorkspace().menuBarOwningApplication()?.processIdentifier();
+    (pid != std::process::id() as i32).then_some(pid)
+}
+
 #[cfg(target_os = "macos")]
 pub fn activate(pid: i32) {
     use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
@@ -73,6 +82,12 @@ pub fn frontmost() -> Option<FrontApp> {
         let name = std::path::Path::new(&path).file_stem()?.to_string_lossy().into_owned();
         Some(FrontApp { bundle_id: path.clone(), name, path, pid: pid as i32 })
     }
+}
+
+// ponytail: an A→B switch without touching the panel isn't seen; SetWinEventHook(EVENT_SYSTEM_FOREGROUND) if it matters.
+#[cfg(windows)]
+pub fn menu_bar_owner_pid() -> Option<i32> {
+    None
 }
 
 #[cfg(windows)]
