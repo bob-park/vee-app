@@ -85,3 +85,7 @@
 - [릴리스 절차](docs/release.md)
 - [설계 문서](docs/superpowers/specs/2026-10-07-vee-clipboard-history-design.md)
 - [v0.4.0 설계: 카드 UI · 앱 태그 검색 · 애니메이션](docs/superpowers/specs/2026-10-08-panel-animations-design.md)
+
+## 라이선스
+
+[Apache License 2.0](LICENSE)을 따릅니다. Copyright 2026 Bob Park
