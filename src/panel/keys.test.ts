@@ -14,6 +14,7 @@ const press = (key: string, extra: Partial<KeyInput> = {}) =>
     hasTag: false,
     metaOrCtrl: false,
     code: "",
+    panelPinCombo: false,
     ...extra,
   });
 
@@ -123,4 +124,11 @@ test("cmd/ctrl+comma opens settings once per press", () => {
   assert.deepEqual(press(",", { code: "Comma", metaOrCtrl: true }), { type: "openSettings" });
   assert.equal(press(",", { code: "Comma", metaOrCtrl: true, repeat: true }), null);
   assert.equal(press(",", { code: "Comma" }), null);
+});
+
+test("the panel pin shortcut wins over card pin and ignores auto-repeat", () => {
+  const combo = { metaOrCtrl: true, shiftKey: true, code: "KeyP", panelPinCombo: true };
+  assert.deepEqual(press("P", combo), { type: "togglePanelPin" });
+  assert.equal(press("P", { ...combo, repeat: true }), null);
+  assert.deepEqual(press("p", { metaOrCtrl: true, code: "KeyP" }), { type: "togglePin" });
 });

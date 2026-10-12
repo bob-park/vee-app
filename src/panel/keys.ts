@@ -2,6 +2,7 @@ export type KeyAction =
   | { type: "move"; delta: 1 | -1 }
   | { type: "copy"; plain: boolean }
   | { type: "togglePin" }
+  | { type: "togglePanelPin" }
   | { type: "openSettings" }
   | { type: "hide" }
   | { type: "cycleFilter"; delta: 1 | -1 }
@@ -32,9 +33,14 @@ export interface KeyInput {
   metaOrCtrl: boolean;
   /** Physical key (`KeyboardEvent.code`); `key` is a Hangul jamo on the Korean input source. */
   code: string;
+  /** The keys match the panel pin shortcut from settings. */
+  panelPinCombo: boolean;
 }
 
 const MODIFIERS = ["Shift", "Meta", "Control", "Alt"];
+
+/** Fixed panel combos (card pin, settings) as accelerators, so settings can refuse them. */
+export const PANEL_KEYS = ["CommandOrControl+KeyP", "CommandOrControl+Comma"];
 
 export function panelKeyAction(e: KeyInput): KeyAction {
   if (e.isComposing) return null;
@@ -55,6 +61,8 @@ export function panelKeyAction(e: KeyInput): KeyAction {
         return { type: "suggestClose" };
     }
   }
+  // Before Cmd+P: the default Cmd+Shift+P would otherwise pin the card.
+  if (e.panelPinCombo) return e.repeat ? null : { type: "togglePanelPin" };
   if (e.metaOrCtrl && e.code === "KeyP") return e.repeat ? null : { type: "togglePin" };
   if (e.metaOrCtrl && e.code === "Comma") return e.repeat ? null : { type: "openSettings" };
   switch (e.key) {

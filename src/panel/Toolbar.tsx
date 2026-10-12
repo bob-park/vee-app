@@ -1,8 +1,25 @@
 import { useEffect, useRef, type RefObject } from "react";
 import type { App, Filter } from "../api.ts";
 import { usePrefs } from "../prefs.tsx";
+import { acceleratorKeys } from "../settings/accelerator.ts";
 
 export const FILTERS: Filter[] = ["all", "text", "image", "files", "link"];
+
+const isMac = navigator.userAgent.includes("Mac");
+
+/** Hover label under a toolbar button, with the shortcut drawn as keycaps. */
+function Tip({ label, accel }: { label: string; accel: string }) {
+  return (
+    <span className="tip" aria-hidden>
+      {label}
+      <span className="tip-keys">
+        {acceleratorKeys(accel, isMac).map((k, i) => (
+          <kbd key={i}>{k}</kbd>
+        ))}
+      </span>
+    </span>
+  );
+}
 
 /** The app name with the part matching `q` in bold. */
 export function highlight(name: string, q: string) {
@@ -34,6 +51,7 @@ interface Props {
   onSettings: () => void;
   /** The panel stays up when focus leaves it. */
   panelPinned: boolean;
+  panelPinShortcut: string;
   onTogglePanelPin: () => void;
   /** The downloaded update's version, or null when there is none. */
   updateVersion: string | null;
@@ -58,6 +76,7 @@ export function Toolbar({
   onPickApp,
   onSettings,
   panelPinned,
+  panelPinShortcut,
   onTogglePanelPin,
   updateVersion,
   updateConfirming,
@@ -165,7 +184,6 @@ export function Toolbar({
         onClick={onTogglePanelPin}
         aria-pressed={panelPinned}
         aria-label={panelPinned ? t.unpinPanel : t.pinPanel}
-        title={panelPinned ? t.unpinPanel : t.pinPanel}
         tabIndex={-1}
       >
         <svg
@@ -179,9 +197,11 @@ export function Toolbar({
         >
           <path d="M12 17v5M9 3h6M10 3v7l-4 4v3h12v-3l-4-4V3" />
         </svg>
+        <Tip label={panelPinned ? t.unpinPanel : t.pinPanel} accel={panelPinShortcut} />
       </button>
       <button className="icon-btn" onClick={onSettings} aria-label={t.settings.title} tabIndex={-1}>
         ⚙︎
+        <Tip label={t.settings.title} accel="CommandOrControl+Comma" />
       </button>
     </div>
   );

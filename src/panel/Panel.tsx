@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Keyboar
 import { listen } from "@tauri-apps/api/event";
 import { api, type App, type Clip, type Filter, type UpdateStatus } from "../api.ts";
 import { usePrefs } from "../prefs.tsx";
+import { acceleratorFromEvent } from "../settings/accelerator.ts";
 import { Card } from "./Card.tsx";
 import { dragFileName } from "./fileThumb.ts";
 import { panelKeyAction } from "./keys.ts";
@@ -12,6 +13,7 @@ import { FILTERS, Toolbar } from "./Toolbar.tsx";
 import "./panel.css";
 
 const PAGE = 50;
+const isMac = navigator.userAgent.includes("Mac");
 
 export function Panel() {
   const { t, settings } = usePrefs();
@@ -261,6 +263,7 @@ export function Panel() {
       hasTag: app !== null,
       metaOrCtrl: e.metaKey || e.ctrlKey,
       code: e.code,
+      panelPinCombo: acceleratorFromEvent(e, isMac) === settings.panelPinShortcut,
     });
     if (!action) return;
     e.preventDefault();
@@ -273,6 +276,9 @@ export function Panel() {
         break;
       case "togglePin":
         togglePin(items[selected]);
+        break;
+      case "togglePanelPin":
+        togglePanelPin();
         break;
       case "hide":
         // hide_panel would still hand focus to the previous app.
@@ -381,6 +387,7 @@ export function Panel() {
         onPickApp={pickApp}
         onSettings={() => void api.openSettings()}
         panelPinned={panelPinned}
+        panelPinShortcut={settings.panelPinShortcut}
         onTogglePanelPin={togglePanelPin}
         updateVersion={updateVersion}
         updateConfirming={updateConfirming}
@@ -393,7 +400,6 @@ export function Panel() {
         onConfirmUpdate={installUpdate}
         onCancelUpdate={cancelUpdate}
       />
-      {panelPinned && <span className="panel-pin-badge">{t.panelPinned}</span>}
       <div className="body" ref={bodyRef}>
         {pinned.length > 0 && (
           <>

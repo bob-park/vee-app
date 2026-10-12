@@ -1,14 +1,20 @@
 import { useState, type KeyboardEvent } from "react";
-import { api } from "../api.ts";
 import { usePrefs } from "../prefs.tsx";
 import { acceleratorFromEvent, formatAccelerator } from "./accelerator.ts";
 
 const isMac = navigator.userAgent.includes("Mac");
 
-export function ShortcutRecorder({ value }: { value: string }) {
+interface Props {
+  value: string;
+  onSave: (accel: string) => Promise<void>;
+  /** Combos already bound elsewhere; recording one shows an error instead of saving. */
+  taken: string[];
+}
+
+export function ShortcutRecorder({ value, onSave, taken }: Props) {
   const { t } = usePrefs();
   const [recording, setRecording] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const onKeyDown = async (e: KeyboardEvent) => {
     if (!recording) return;
@@ -20,11 +26,15 @@ export function ShortcutRecorder({ value }: { value: string }) {
     const accel = acceleratorFromEvent(e, isMac);
     if (!accel) return;
     setRecording(false);
+    if (accel !== value && taken.includes(accel)) {
+      setError(t.settings.shortcutTaken);
+      return;
+    }
     try {
-      await api.setShortcut(accel);
-      setFailed(false);
+      await onSave(accel);
+      setError(null);
     } catch {
-      setFailed(true);
+      setError(t.settings.shortcutFailed);
     }
   };
 
@@ -36,16 +46,16 @@ export function ShortcutRecorder({ value }: { value: string }) {
           setRecording(true);
           // WebKit does not focus a clicked <button>, so keydown/blur would never reach it.
           e.currentTarget.focus();
-          setFailed(false);
+          setError(null);
         }}
         onKeyDown={(e) => void onKeyDown(e)}
         onBlur={() => setRecording(false)}
       >
         {recording ? t.settings.recording : formatAccelerator(value, isMac)}
       </button>
-      {failed && (
+      {error && (
         <span className="error" role="alert">
-          {t.settings.shortcutFailed}
+          {error}
         </span>
       )}
     </div>

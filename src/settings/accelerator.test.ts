@@ -32,4 +32,5 @@ test("formats for display", () => {
   assert.equal(formatAccelerator("CommandOrControl+Shift+V", true), "⌘ ⇧ V");
   assert.equal(formatAccelerator("CommandOrControl+Shift+KeyV", false), "Ctrl + Shift + V");
   assert.equal(formatAccelerator("Control+Alt+Digit1", true), "⌃ ⌥ 1");
+  assert.equal(formatAccelerator("CommandOrControl+Comma", false), "Ctrl + ,");
 });

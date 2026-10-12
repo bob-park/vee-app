@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { PANEL_KEYS } from "../panel/keys.ts";
 import { api, SOUND_NAMES, type SoundName, type UpdateStatus } from "../api.ts";
 import { relativeTime } from "../i18n/index.ts";
 import { usePrefs } from "../prefs.tsx";
@@ -234,7 +235,18 @@ export function Settings() {
           </button>
         </Row>
         <Row label={s.shortcut} hint={s.shortcutHint}>
-          <ShortcutRecorder value={settings.shortcut} />
+          <ShortcutRecorder
+            value={settings.shortcut}
+            onSave={api.setShortcut}
+            taken={[...PANEL_KEYS, settings.panelPinShortcut]}
+          />
+        </Row>
+        <Row label={s.panelPinShortcut} hint={s.panelPinShortcutHint}>
+          <ShortcutRecorder
+            value={settings.panelPinShortcut}
+            onSave={(accel) => api.setSetting("panelPinShortcut", accel)}
+            taken={[...PANEL_KEYS, settings.shortcut]}
+          />
         </Row>
         <UpdateRow />
       </section>

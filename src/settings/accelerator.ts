@@ -23,12 +23,14 @@ export function acceleratorFromEvent(e: KeyLike, mac: boolean): string | null {
   return [...mods, e.code].join("+");
 }
 
-export function formatAccelerator(accel: string, mac: boolean): string {
+/** One display label per key, e.g. `["⌘", "⇧", "P"]`. */
+export function acceleratorKeys(accel: string, mac: boolean): string[] {
   const names: Record<string, string> = mac
-    ? { CommandOrControl: "⌘", Command: "⌘", Super: "⌘", Control: "⌃", Alt: "⌥", Shift: "⇧" }
-    : { CommandOrControl: "Ctrl", Command: "Win", Super: "Win", Control: "Ctrl", Alt: "Alt", Shift: "Shift" };
-  return accel
-    .split("+")
-    .map((part) => names[part] ?? part.replace(/^(Key|Digit)/, ""))
-    .join(mac ? " " : " + ");
+    ? { CommandOrControl: "⌘", Command: "⌘", Super: "⌘", Control: "⌃", Alt: "⌥", Shift: "⇧", Comma: "," }
+    : { CommandOrControl: "Ctrl", Command: "Win", Super: "Win", Control: "Ctrl", Alt: "Alt", Shift: "Shift", Comma: "," };
+  return accel.split("+").map((part) => names[part] ?? part.replace(/^(Key|Digit)/, ""));
+}
+
+export function formatAccelerator(accel: string, mac: boolean): string {
+  return acceleratorKeys(accel, mac).join(mac ? " " : " + ");
 }
