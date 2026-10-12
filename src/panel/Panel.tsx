@@ -6,7 +6,7 @@ import { Card } from "./Card.tsx";
 import { dragFileName } from "./fileThumb.ts";
 import { panelKeyAction } from "./keys.ts";
 import { cancelFloat, cardLefts, floatCard, playFlip, reducedMotion } from "./motion.ts";
-import { clampSelection, defaultSelection, followSelection } from "./selection.ts";
+import { clampSelection, defaultSelection, followSelection, keepSelectionOnReload } from "./selection.ts";
 import { FILTERS, Toolbar } from "./Toolbar.tsx";
 import "./panel.css";
 
@@ -121,8 +121,27 @@ export function Panel() {
   // Subscribe once; always call the latest reload.
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
+  /** Back to the newest card with no search, filter or pending confirmation. */
+  const resetView = () => {
+    setConfirmingId(null);
+    setUpdateConfirming(false);
+    setUpdateFailed(false);
+    setPinNotice(false);
+    setQuery("");
+    setApp(null);
+    setFilter("all");
+    void reloadRef.current(false);
+  };
   useEffect(() => {
-    const offChanged = listen("clips://changed", () => void reloadRef.current(true, true));
+    const offChanged = listen(
+      "clips://changed",
+      () => void reloadRef.current(keepSelectionOnReload(openRef.current, false), true),
+    );
+    // A copy, even one made while the panel is hidden, selects the newest card.
+    const offAdded = listen(
+      "clips://added",
+      () => void reloadRef.current(keepSelectionOnReload(openRef.current, true), true),
+    );
     const offOpened = listen("panel://opened", () => {
       setClosing(false);
       inputRef.current?.focus();
@@ -141,18 +160,12 @@ export function Panel() {
       setOpen(false);
       setClosing(false);
       setDragging(false);
-      setConfirmingId(null);
-      setUpdateConfirming(false);
-      setUpdateFailed(false);
-      setPinNotice(false);
-      setQuery("");
-      setApp(null);
-      setFilter("all");
-      void reloadRef.current(false);
+      resetView();
     });
     const offDragCancelled = listen("panel://drag-cancelled", () => setDragging(false));
     return () => {
       void offChanged.then((off) => off());
+      void offAdded.then((off) => off());
       void offOpened.then((off) => off());
       void offClosing.then((off) => off());
       void offClosed.then((off) => off());

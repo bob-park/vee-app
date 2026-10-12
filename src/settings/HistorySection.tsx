@@ -66,9 +66,11 @@ export function HistorySection({ run }: { run: (p: Promise<unknown>) => void }) 
   useEffect(() => {
     refresh();
     const offClips = listen("clips://changed", refresh);
+    const offAdded = listen("clips://added", refresh);
     const offSettings = listen("settings://changed", refresh);
     return () => {
       void offClips.then((off) => off());
+      void offAdded.then((off) => off());
       void offSettings.then((off) => off());
     };
   }, [refresh]);

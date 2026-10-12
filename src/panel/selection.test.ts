@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clampSelection, defaultSelection, followSelection } from "./selection.ts";
+import { clampSelection, defaultSelection, followSelection, keepSelectionOnReload } from "./selection.ts";
 
 test("opening selects the newest history card, right after the pins", () => {
   assert.equal(defaultSelection(0, 5), 0);
@@ -33,4 +33,17 @@ test("when the selected card is gone the index is kept, so the next card is sele
   assert.equal(followSelection(12, 1, [11, 13]), 1);
   assert.equal(followSelection(12, 5, [11, 13]), 1);
   assert.equal(followSelection(undefined, 0, [11]), 0);
+});
+
+test("a new clip moves the selection to the newest card", () => {
+  assert.equal(keepSelectionOnReload(true, true), false);
+});
+
+test("other changes keep the selected card while the panel is open", () => {
+  assert.equal(keepSelectionOnReload(true, false), true);
+});
+
+test("closed_panel_never_keeps_selection", () => {
+  assert.equal(keepSelectionOnReload(false, false), false);
+  assert.equal(keepSelectionOnReload(false, true), false);
 });

@@ -139,7 +139,7 @@ impl Handler {
             // AppKit sound playback belongs on the main thread.
             self.app.run_on_main_thread(move || crate::sound::play(&name))?;
         }
-        self.app.emit("clips://changed", ())?;
+        self.app.emit("clips://added", ())?;
         Ok(())
     }
 }
