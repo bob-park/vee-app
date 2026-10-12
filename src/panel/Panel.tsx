@@ -7,6 +7,7 @@ import { dragFileName } from "./fileThumb.ts";
 import { panelKeyAction } from "./keys.ts";
 import { cancelFloat, cardLefts, floatCard, playFlip, reducedMotion } from "./motion.ts";
 import { clampSelection, defaultSelection, followSelection, keepSelectionOnReload } from "./selection.ts";
+import { ResizeHandle } from "./ResizeHandle.tsx";
 import { FILTERS, Toolbar } from "./Toolbar.tsx";
 import "./panel.css";
 
@@ -365,6 +366,7 @@ export function Panel() {
         if (!(e.target as Element).closest(".update")) cancelUpdate();
       }}
     >
+      {!closing && <ResizeHandle />}
       <Toolbar
         query={query}
         onQuery={setQuery}

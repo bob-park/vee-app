@@ -45,6 +45,9 @@ export interface Settings {
   sound: "on" | "off";
   soundName: SoundName;
   confirmDelete: "on" | "off";
+  panelResize: "on" | "off";
+  /** Saved panel height as a share of the screen; "" means the default height. */
+  panelHeightRatio: string;
   retention: Retention;
   autostart: boolean;
   version: string;
@@ -90,11 +93,14 @@ export const api = {
   hidePanel: () => invoke<void>("hide_panel"),
   /** A pinned panel stays up when focus leaves it; unpinning leaves it open. */
   setPanelPinned: (pinned: boolean) => invoke<void>("set_panel_pinned", { pinned }),
+  /** `height` in CSS px; the backend clamps it and keeps the bottom edge put. Rejects with "resize_off". */
+  resizePanel: (height: number, save: boolean) => invoke<void>("resize_panel", { height, save }),
+  resetPanelHeight: () => invoke<void>("reset_panel_height"),
   revealPanel: () => invoke<void>("reveal_panel"),
   openSettings: () => invoke<void>("open_settings"),
   previewSound: (name: SoundName) => invoke<void>("preview_sound", { name }),
   getSettings: () => invoke<Settings>("get_settings"),
-  setSetting: (key: "theme" | "locale" | "sound" | "soundName" | "confirmDelete" | "retention", value: string) =>
+  setSetting: (key: "theme" | "locale" | "sound" | "soundName" | "confirmDelete" | "retention" | "panelResize", value: string) =>
     invoke<void>("set_setting", { key, value }),
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   setShortcut: (accel: string) => invoke<void>("set_shortcut", { accel }),
