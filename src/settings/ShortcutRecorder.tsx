@@ -32,8 +32,10 @@ export function ShortcutRecorder({ value }: { value: string }) {
     <div className="recorder">
       <button
         className={recording ? "kbd recording" : "kbd"}
-        onClick={() => {
+        onClick={(e) => {
           setRecording(true);
+          // WebKit does not focus a clicked <button>, so keydown/blur would never reach it.
+          e.currentTarget.focus();
           setFailed(false);
         }}
         onKeyDown={(e) => void onKeyDown(e)}
