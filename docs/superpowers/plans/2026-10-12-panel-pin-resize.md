@@ -413,3 +413,22 @@ git commit -m "feat(settings): panel resize switch and reset with confirmation"
 git add README.md package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
 git commit -m "chore: release 0.7.0"
 ```
+
+### Task 10: Apache 2.0 라이선스 적용 (사용자 추가 요청, 2026-10-12)
+
+**Files:**
+- Create: `LICENSE`
+- Modify: `package.json`, `src-tauri/Cargo.toml`, `README.md`
+
+- [ ] **Step 1:** `LICENSE`에 Apache License 2.0 전문을 넣는다. 원문은 `curl -sL https://www.apache.org/licenses/LICENSE-2.0.txt`로 받아 수정 없이 쓴다. 맨 끝 APPENDIX의 저작권 줄 예시는 원문 그대로 둔다.
+- [ ] **Step 2:** 라이선스 메타데이터를 넣는다.
+  - `package.json`: `"license": "Apache-2.0"`를 `"version"` 다음 줄에 넣는다.
+  - `src-tauri/Cargo.toml`: `[package]`에 `license = "Apache-2.0"`를 넣는다.
+- [ ] **Step 3:** `README.md` 맨 끝에 `## 라이선스` 섹션을 추가한다. 문구: "[Apache License 2.0](LICENSE)을 따릅니다. Copyright 2026 Bob Park"
+- [ ] **Step 4:** `cd src-tauri && cargo check`(Cargo.toml 파싱 확인)와 `yarn typecheck`를 실행한다. 기대 결과: PASS.
+- [ ] **Step 5: Commit**
+
+```bash
+git add LICENSE package.json src-tauri/Cargo.toml src-tauri/Cargo.lock README.md
+git commit -m "chore: license under Apache 2.0"
+```
