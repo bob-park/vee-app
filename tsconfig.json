@@ -10,6 +10,7 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
+    "paths": { "@/*": ["./src/*"] },
     "skipLibCheck": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
