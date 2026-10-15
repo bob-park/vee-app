@@ -16,7 +16,7 @@ import ThemeProvider, { applyTheme } from '@/shared/providers/theme/ThemeProvide
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { createRoot } from 'react-dom/client';
 
-import './theme.css';
+import './globals.css';
 
 const label = getCurrentWindow().label;
 document.documentElement.dataset.window = label;

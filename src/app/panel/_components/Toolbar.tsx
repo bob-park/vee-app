@@ -2,7 +2,7 @@ import { type RefObject, useEffect, useRef } from 'react';
 
 import type { Filter } from '@/domain/clip/apis/clip.dto';
 import type { App } from '@/domain/source_app/apis/sourceApp.dto';
-import { highlight } from '@/shared/components/highlight';
+import Suggest from '@/shared/components/suggest/Suggest';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { acceleratorKeys } from '@/utils/accelerator';
 
@@ -116,28 +116,14 @@ export function Toolbar({
           spellCheck={false}
         />
         {suggesting && (
-          <div className="suggest">
-            {suggestions.length === 0 ? (
-              <p className="suggest-empty">{t.noApps}</p>
-            ) : (
-              <div className="suggest-list" role="listbox" ref={listRef}>
-                {suggestions.map((a, i) => (
-                  <div
-                    key={a.id}
-                    role="option"
-                    aria-selected={i === suggestIndex}
-                    className={i === suggestIndex ? 'suggest-item on' : 'suggest-item'}
-                    onClick={() => onPickApp(a)}
-                  >
-                    {a.icon ? <img src={a.icon} alt="" /> : <span className="suggest-noicon" />}
-                    <span className="suggest-name">{highlight(a.name, query.slice(1))}</span>
-                    <span className="suggest-count">{a.count}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <p className="suggest-hint">{t.suggestHint}</p>
-          </div>
+          <Suggest
+            apps={suggestions}
+            index={suggestIndex}
+            query={query.slice(1)}
+            listRef={listRef}
+            className="max-h-[calc(100vh-70px)] w-60"
+            onPick={onPickApp}
+          />
         )}
       </div>
       <div className="chips" role="tablist">

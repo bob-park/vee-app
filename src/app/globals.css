@@ -1,0 +1,225 @@
+@import 'tailwindcss';
+@plugin 'daisyui' {
+  themes: false;
+  /*
+   * Root background, scroll lock/gutter and scrollbar colors would change the transparent panel/toast
+   * and the scrollbars. The components share class names with the per-screen CSS (.card, .modal, .toast, …);
+   * drop each from the list once no screen uses that name.
+   */
+  exclude:
+    rootcolor, rootscrollgutter, rootscrolllock, scrollbar, badge, button, card, dropdown, kbd, link, modal, select,
+    stack, stat, tab, toast;
+}
+
+/*
+ * Colors live here only. Palette and metrics follow vee-app (the reference UI);
+ * brand purple from docs/design/kraken-design.md.
+ */
+@plugin 'daisyui/theme' {
+  name: 'light';
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: #ffffff;
+  --color-base-200: #f7f7fa;
+  --color-base-300: #dedee5;
+  --color-base-content: #101114;
+  --color-primary: #7132f5;
+  --color-primary-content: #ffffff;
+  --color-secondary: #5741d8;
+  --color-secondary-content: #ffffff;
+  --color-accent: #5b1ecf;
+  --color-accent-content: #ffffff;
+  --color-neutral: #686b82;
+  --color-neutral-content: #ffffff;
+  --color-info: #3b82f6;
+  --color-info-content: #ffffff;
+  --color-success: #149e61;
+  --color-success-content: #ffffff;
+  --color-warning: #f59e0b;
+  --color-warning-content: #101114;
+  --color-error: #d1344b;
+  --color-error-content: #ffffff;
+
+  --radius-selector: 0.625rem;
+  --radius-field: 0.75rem;
+  --radius-box: 0.75rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+@plugin 'daisyui/theme' {
+  name: 'dark';
+  default: false;
+  prefersdark: true;
+  color-scheme: dark;
+
+  --color-base-100: #16171c;
+  --color-base-200: #1f2027;
+  --color-base-300: #2e2f39;
+  --color-base-content: #ececf1;
+  --color-primary: #9b7bff;
+  --color-primary-content: #ffffff;
+  --color-secondary: #7c6cf0;
+  --color-secondary-content: #ffffff;
+  --color-accent: #a78bfa;
+  --color-accent-content: #101114;
+  --color-neutral: #8a8da0;
+  --color-neutral-content: #101114;
+  --color-info: #60a5fa;
+  --color-info-content: #101114;
+  --color-success: #5fd39c;
+  --color-success-content: #101114;
+  --color-warning: #fbbf24;
+  --color-warning-content: #101114;
+  --color-error: #ff6b81;
+  --color-error-content: #101114;
+
+  --radius-selector: 0.625rem;
+  --radius-field: 0.75rem;
+  --radius-box: 0.75rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+/* vee-app tokens daisyUI has no slot for. Use as bg-card, text-muted, border-divider, … */
+[data-theme='light'] {
+  --vee-card: #ffffff;
+  --vee-divider: #f0f0f4;
+  --vee-subtle: rgba(148, 151, 169, 0.08);
+  --vee-muted: #9497a9;
+  --vee-accent-subtle: rgba(133, 91, 251, 0.16);
+  --vee-badge-bg: rgba(104, 107, 130, 0.12);
+  --vee-badge-fg: #484b5e;
+  --vee-ok-bg: rgba(20, 158, 97, 0.16);
+  --vee-ok-fg: #026b3f;
+  --vee-toast-bg: #ffffff;
+  --vee-toast-fg: #101114;
+  --vee-toast-border: #dedee5;
+}
+
+[data-theme='dark'] {
+  --vee-card: #1f2027;
+  --vee-divider: #2a2b33;
+  --vee-subtle: rgba(148, 151, 169, 0.12);
+  --vee-muted: #8a8da0;
+  --vee-accent-subtle: rgba(133, 91, 251, 0.24);
+  --vee-badge-bg: rgba(148, 151, 169, 0.16);
+  --vee-badge-fg: #c9cad6;
+  --vee-ok-bg: rgba(20, 158, 97, 0.22);
+  --vee-ok-fg: #5fd39c;
+  --vee-toast-bg: #2a2b33;
+  --vee-toast-fg: #ececf1;
+  --vee-toast-border: #3a3b47;
+}
+
+@theme inline {
+  --font-sans: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-mono: Menlo, Consolas, monospace;
+  --color-card: var(--vee-card);
+  --color-divider: var(--vee-divider);
+  --color-subtle: var(--vee-subtle);
+  --color-muted: var(--vee-muted);
+  --color-accent-subtle: var(--vee-accent-subtle);
+  --color-badge-bg: var(--vee-badge-bg);
+  --color-badge-fg: var(--vee-badge-fg);
+  --color-ok-bg: var(--vee-ok-bg);
+  --color-ok-fg: var(--vee-ok-fg);
+  --color-toast-bg: var(--vee-toast-bg);
+  --color-toast-fg: var(--vee-toast-fg);
+  --color-toast-border: var(--vee-toast-border);
+}
+
+/*
+ * Legacy names still read by the per-screen CSS (panel.css, settings.css, toast.css, whatsnew.css).
+ * Delete each one once nothing uses it. Unlayered, so `--border` here beats daisyUI's `--border: 1px`.
+ */
+:root[data-theme] {
+  --font: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --mono: Menlo, Consolas, monospace;
+  --radius: 12px;
+  --surface: var(--color-base-100);
+  --card: var(--vee-card);
+  --border: var(--color-base-300);
+  --divider: var(--vee-divider);
+  --subtle: var(--vee-subtle);
+  --text: var(--color-base-content);
+  --muted: var(--vee-muted);
+  --accent: var(--color-primary);
+  --accent-subtle: var(--vee-accent-subtle);
+  --badge-bg: var(--vee-badge-bg);
+  --badge-fg: var(--vee-badge-fg);
+  --ok-bg: var(--vee-ok-bg);
+  --ok-fg: var(--vee-ok-fg);
+  --danger: var(--color-error);
+  --toast-bg: var(--vee-toast-bg);
+  --toast-fg: var(--vee-toast-fg);
+  --toast-border: var(--vee-toast-border);
+}
+
+@layer base {
+  /* The browser default, not preflight's 1.5: every vee metric is measured against it. */
+  html {
+    line-height: normal;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    /* Not a scroll container, so scrollIntoView on a card can't scroll the page while the panel is parked offscreen. */
+    overflow: clip;
+  }
+
+  body {
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    @apply bg-base-100 text-base-content;
+  }
+
+  html[data-window='panel'] body,
+  html[data-window='toast'] body {
+    background: transparent;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+/*
+ * Preflight resets the per-screen CSS still relies on as browser defaults. Delete each rule once
+ * the screens using that element are on Tailwind.
+ */
+@layer base {
+  input {
+    padding: revert;
+  }
+
+  ::placeholder {
+    color: revert;
+    opacity: revert;
+  }
+
+  ul {
+    list-style: revert;
+  }
+
+  /* A percentage max-width lets a flex item's image shrink to nothing at min-content (the app tag). */
+  img {
+    max-width: none;
+  }
+}

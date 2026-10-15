@@ -1,7 +1,7 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 
 import type { App } from '@/domain/source_app/apis/sourceApp.dto';
-import { highlight } from '@/shared/components/highlight';
+import Suggest from '@/shared/components/suggest/Suggest';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { nextIndex } from '@/utils/dropdownKeys';
 
@@ -77,29 +77,15 @@ export function AppPicker({ apps, onPick }: { apps: App[]; onPick: (app: App) =>
         onKeyDown={onKeyDown}
       />
       {open && (
-        <div className="suggest">
-          {matches.length === 0 ? (
-            <p className="suggest-empty">{t.noApps}</p>
-          ) : (
-            <div className="suggest-list" role="listbox" ref={listRef}>
-              {matches.map((a, i) => (
-                <div
-                  key={a.id}
-                  role="option"
-                  aria-selected={i === index}
-                  className={i === index ? 'suggest-item on' : 'suggest-item'}
-                  onPointerEnter={() => setIndex(i)}
-                  onClick={() => pick(a)}
-                >
-                  {a.icon ? <img src={a.icon} alt="" /> : <span className="suggest-noicon" />}
-                  <span className="suggest-name">{highlight(a.name, query.trim())}</span>
-                  <span className="suggest-count">{a.count}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          <p className="suggest-hint">{t.suggestHint}</p>
-        </div>
+        <Suggest
+          apps={matches}
+          index={index}
+          query={query.trim()}
+          listRef={listRef}
+          className="max-h-[200px] w-full"
+          onHover={setIndex}
+          onPick={pick}
+        />
       )}
     </div>
   );
