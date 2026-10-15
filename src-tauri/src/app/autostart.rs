@@ -1,13 +1,16 @@
 //! Launch at login.
 
-use crate::settings;
+use crate::{
+    domain::settings,
+    shared::error::{AppError, AppResult},
+};
 use tauri::AppHandle;
 use tauri_plugin_autostart::ManagerExt;
 
 #[tauri::command]
-pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
+pub fn set_autostart(app: AppHandle, enabled: bool) -> AppResult<()> {
     let autolaunch = app.autolaunch();
-    if enabled { autolaunch.enable() } else { autolaunch.disable() }.map_err(|e| e.to_string())?;
-    settings::changed(&app);
+    if enabled { autolaunch.enable() } else { autolaunch.disable() }.map_err(|e| AppError::Other(e.to_string()))?;
+    settings::commands::changed(&app);
     Ok(())
 }

@@ -1,6 +1,7 @@
 //! macOS Full Disk Access: dragging original files out of protected folders
 //! (Documents, Downloads, …) silently fails without it.
 
+use crate::shared::error::AppResult;
 use tauri::AppHandle;
 
 #[cfg(any(target_os = "macos", test))]
@@ -44,12 +45,11 @@ fn app_bundle(exe: &Path) -> Option<PathBuf> {
 /// Opens the Full Disk Access pane and selects Vee.app in Finder, ready to drag
 /// into the list if macOS hasn't listed it.
 #[cfg(target_os = "macos")]
-fn open_pane() -> Result<(), String> {
+fn open_pane() -> AppResult<()> {
     use std::process::Command;
     Command::new("open")
         .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
-        .spawn()
-        .map_err(|e| e.to_string())?;
+        .spawn()?;
     if let Some(bundle) = std::env::current_exe().ok().as_deref().and_then(app_bundle) {
         let _ = Command::new("open").arg("-R").arg(bundle).spawn();
     }
@@ -66,28 +66,28 @@ pub fn get_disk_access() -> Option<bool> {
 }
 
 #[tauri::command]
-pub fn open_disk_access_settings() -> Result<(), String> {
+pub fn open_disk_access_settings() -> AppResult<()> {
     #[cfg(target_os = "macos")]
     return open_pane();
     #[cfg(not(target_os = "macos"))]
-    Err("Full Disk Access is macOS only".into())
+    Err(crate::shared::error::AppError::Other("Full Disk Access is macOS only".into()))
 }
 
 /// Asks once, ever, when Full Disk Access is missing; the settings row covers later.
 pub fn prompt_once(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     {
-        use crate::{app::{i18n, state::AppState}, settings};
+        use crate::{app::{i18n, state::AppState}, domain::settings};
         use tauri::Manager;
         use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
-        let store = app.state::<AppState>();
-        let store = store.store.lock().unwrap();
-        if granted() || store.get_setting("diskAccessPrompted").ok().flatten().is_some() {
+        let state = app.state::<AppState>();
+        let conn = state.db.lock().unwrap();
+        if granted() || settings::raw(&conn, "diskAccessPrompted").ok().flatten().is_some() {
             return;
         }
-        let _ = store.set_setting("diskAccessPrompted", "1");
-        let ko = i18n::resolve_locale(&settings::get(&store, "locale")) == "ko";
-        drop(store);
+        let _ = settings::set_raw(&conn, "diskAccessPrompted", "1");
+        let ko = i18n::resolve_locale(&settings::get(&conn, "locale")) == "ko";
+        drop(conn);
         let (message, open, later) = if ko {
             ("파일을 드래그해서 복사하려면 Vee에 전체 디스크 접근 권한이 필요해요.\n\n시스템 설정의 목록에서 Vee를 켜 주세요. 목록에 없으면 Finder에 보이는 Vee를 목록으로 끌어다 놓으세요.", "시스템 설정 열기", "나중에")
         } else {

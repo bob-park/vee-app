@@ -1,22 +1,26 @@
 //! The global shortcut that toggles the panel.
 
-use crate::{app::state::AppState, settings};
+use crate::{
+    app::state::AppState,
+    domain::settings,
+    shared::error::{AppError, AppResult},
+};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-pub fn register_shortcut(app: &AppHandle, accel: &str) -> Result<(), String> {
+pub fn register_shortcut(app: &AppHandle, accel: &str) -> AppResult<()> {
     app.global_shortcut()
         .on_shortcut(accel, |app, _shortcut, event| {
             if matches!(event.state, ShortcutState::Pressed) {
                 crate::app::window::toggle_panel(app);
             }
         })
-        .map_err(|e| e.to_string())
+        .map_err(|e| AppError::Other(e.to_string()))
 }
 
 /// Registers the saved shortcut at startup, falling back to the default.
 pub fn register_stored_shortcut(app: &AppHandle) {
-    let stored = settings::get(&app.state::<AppState>().store.lock().unwrap(), "shortcut");
+    let stored = settings::get(&app.state::<AppState>().db.lock().unwrap(), "shortcut");
     if let Err(e) = register_shortcut(app, &stored) {
         log::error!("failed to register shortcut {stored}: {e}");
         if stored != settings::DEFAULT_SHORTCUT {

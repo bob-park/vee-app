@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import call from "@/shared/api";
 
 export type Kind = "text" | "link" | "image" | "files";
 export type Filter = Kind | "all";
@@ -75,46 +75,46 @@ export interface ToastPayload {
 
 export const api = {
   listClips: (query: string, kind: Filter, appId: number | null, offset: number, limit: number) =>
-    invoke<Clip[]>("list_clips", { query, kind, appId, offset, limit }),
-  listApps: (query: string) => invoke<App[]>("list_apps", { query }),
+    call<Clip[]>("list_clips", { query, kind, appId, offset, limit }),
+  listApps: (query: string) => call<App[]>("list_apps", { query }),
   /** Apps that aren't excluded, including ones with no clips left. */
-  listKnownApps: () => invoke<App[]>("list_known_apps"),
-  copyClip: (id: number, plain = false) => invoke<void>("copy_clip", { id, plain }),
+  listKnownApps: () => call<App[]>("list_known_apps"),
+  copyClip: (id: number, plain = false) => call<void>("copy_clip", { id, plain }),
   /** Pinned clips in pin order; searches and filters never apply. */
-  listPinned: () => invoke<Clip[]>("list_pinned"),
-  /** Rejects with "pin_limit" when 3 clips are already pinned. */
-  setPinned: (id: number, pinned: boolean) => invoke<void>("set_pinned", { id, pinned }),
-  countPrunable: (value: Retention) => invoke<number>("count_prunable", { value }),
-  countAppClips: (appId: number) => invoke<number>("count_app_clips", { appId }),
-  setAppExcluded: (appId: number, excluded: boolean) => invoke<void>("set_app_excluded", { appId, excluded }),
-  listExcludedApps: () => invoke<App[]>("list_excluded_apps"),
-  getStats: () => invoke<Stats>("get_stats"),
+  listPinned: () => call<Clip[]>("list_pinned"),
+  /** Rejects with code "PIN_LIMIT" when 3 clips are already pinned. */
+  setPinned: (id: number, pinned: boolean) => call<void>("set_pinned", { id, pinned }),
+  countPrunable: (value: Retention) => call<number>("count_prunable", { value }),
+  countAppClips: (appId: number) => call<number>("count_app_clips", { appId }),
+  setAppExcluded: (appId: number, excluded: boolean) => call<void>("set_app_excluded", { appId, excluded }),
+  listExcludedApps: () => call<App[]>("list_excluded_apps"),
+  getStats: () => call<Stats>("get_stats"),
   /** `image` is the dragged card as a base64 PNG (see cardImage.ts); without it the thumbnail is dragged. */
-  startDrag: (id: number, name: string, image: string | null) => invoke<void>("start_drag", { id, name, image }),
-  deleteClip: (id: number) => invoke<void>("delete_clip", { id }),
-  clearHistory: () => invoke<void>("clear_history"),
-  hidePanel: () => invoke<void>("hide_panel"),
+  startDrag: (id: number, name: string, image: string | null) => call<void>("start_drag", { id, name, image }),
+  deleteClip: (id: number) => call<void>("delete_clip", { id }),
+  clearHistory: () => call<void>("clear_history"),
+  hidePanel: () => call<void>("hide_panel"),
   /** A pinned panel stays up when focus leaves it; unpinning leaves it open. */
-  setPanelPinned: (pinned: boolean) => invoke<void>("set_panel_pinned", { pinned }),
-  /** `height` in CSS px; the backend clamps it and keeps the bottom edge put. Rejects with "resize_off". */
-  resizePanel: (height: number, save: boolean) => invoke<void>("resize_panel", { height, save }),
-  resetPanelHeight: () => invoke<void>("reset_panel_height"),
-  revealPanel: () => invoke<void>("reveal_panel"),
-  openSettings: () => invoke<void>("open_settings"),
-  previewSound: (name: SoundName) => invoke<void>("preview_sound", { name }),
-  getSettings: () => invoke<Settings>("get_settings"),
+  setPanelPinned: (pinned: boolean) => call<void>("set_panel_pinned", { pinned }),
+  /** `height` in CSS px; the backend clamps it and keeps the bottom edge put. Rejects with code "RESIZE_OFF". */
+  resizePanel: (height: number, save: boolean) => call<void>("resize_panel", { height, save }),
+  resetPanelHeight: () => call<void>("reset_panel_height"),
+  revealPanel: () => call<void>("reveal_panel"),
+  openSettings: () => call<void>("open_settings"),
+  previewSound: (name: SoundName) => call<void>("preview_sound", { name }),
+  getSettings: () => call<Settings>("get_settings"),
   setSetting: (key: "theme" | "locale" | "sound" | "soundName" | "confirmDelete" | "retention" | "panelResize" | "panelPinShortcut" | "resetSearchShortcut", value: string) =>
-    invoke<void>("set_setting", { key, value }),
-  setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
-  setShortcut: (accel: string) => invoke<void>("set_shortcut", { accel }),
+    call<void>("set_setting", { key, value }),
+  setAutostart: (enabled: boolean) => call<void>("set_autostart", { enabled }),
+  setShortcut: (accel: string) => call<void>("set_shortcut", { accel }),
   /** null where the permission doesn't exist (Windows). */
-  getDiskAccess: () => invoke<boolean | null>("get_disk_access"),
-  openDiskAccessSettings: () => invoke<void>("open_disk_access_settings"),
-  checkUpdate: () => invoke<UpdateStatus>("check_update"),
-  getUpdateStatus: () => invoke<UpdateStatus>("get_update_status"),
-  installUpdate: () => invoke<void>("install_update_and_restart"),
+  getDiskAccess: () => call<boolean | null>("get_disk_access"),
+  openDiskAccessSettings: () => call<void>("open_disk_access_settings"),
+  checkUpdate: () => call<UpdateStatus>("check_update"),
+  getUpdateStatus: () => call<UpdateStatus>("get_update_status"),
+  installUpdate: () => call<void>("install_update_and_restart"),
   /** The release notes to show once after an update; null when there's nothing to show. */
-  getWhatsNew: () => invoke<{ version: string; notes: string } | null>("get_whats_new"),
+  getWhatsNew: () => call<{ version: string; notes: string } | null>("get_whats_new"),
   /** Forgets the notes and hides the window. */
-  dismissWhatsNew: () => invoke<void>("dismiss_whats_new"),
+  dismissWhatsNew: () => call<void>("dismiss_whats_new"),
 };

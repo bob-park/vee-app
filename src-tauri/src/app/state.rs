@@ -1,12 +1,15 @@
 //! Shared app state managed by Tauri.
 
-use crate::store::Store;
+use rusqlite::Connection;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub struct AppState {
-    pub store: Mutex<Store>,
+    pub db: Mutex<Connection>,
+    /// Where image clips keep their PNGs.
+    pub images_dir: PathBuf,
     /// Frontmost app when the panel opened (or, while pinned, last in front), re-activated after a copy.
     pub prev_app_pid: Mutex<Option<i32>>,
     suppress_until: Mutex<Instant>,
@@ -17,9 +20,10 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(store: Store) -> Self {
+    pub fn new(db: Connection, images_dir: PathBuf) -> Self {
         Self {
-            store: Mutex::new(store),
+            db: Mutex::new(db),
+            images_dir,
             prev_app_pid: Mutex::new(None),
             suppress_until: Mutex::new(Instant::now()),
             dragging: AtomicBool::new(false),
@@ -50,8 +54,7 @@ mod tests {
     fn self_write_suppression_outlasts_a_watcher_poll() {
         // The watcher polls every 200ms and records after 0.5s of quiet, so the window
         // must cover both after the write finishes, not just from when it started.
-        let dir = tempfile::tempdir().unwrap();
-        let state = AppState::new(Store::open_in_memory(dir.path()).unwrap());
+        let state = AppState::new(crate::shared::db::open_in_memory().unwrap(), PathBuf::new());
         state.suppress_watcher();
         std::thread::sleep(Duration::from_millis(700));
         assert!(state.watcher_suppressed());

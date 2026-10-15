@@ -7,7 +7,7 @@ use crate::{
         updater::{self, UpdateState},
         window,
     },
-    settings,
+    domain::settings,
 };
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -16,7 +16,7 @@ use tauri::{AppHandle, Manager, Wry};
 pub const TRAY_ID: &str = "main";
 
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
-    let setting = settings::get(&app.state::<AppState>().store.lock().unwrap(), "locale");
+    let setting = settings::get(&app.state::<AppState>().db.lock().unwrap(), "locale");
     let l = labels(resolve_locale(&setting));
     let ready = app.state::<UpdateState>().ready_version().is_some();
     Menu::with_items(

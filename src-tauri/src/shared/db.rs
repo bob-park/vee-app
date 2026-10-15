@@ -44,6 +44,11 @@ fn migrate(conn: &mut Connection) -> AppResult<()> {
     Ok(())
 }
 
+/// Escapes `%`, `_` and `\` for a `LIKE … ESCAPE '\'` pattern.
+pub fn escape_like(q: &str) -> String {
+    q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
 /// The schema constants `store.rs` shipped (v1–v5), kept verbatim to check the migrations against.
 #[cfg(test)]
 pub(crate) mod legacy_schema {
@@ -207,5 +212,92 @@ mod tests {
         let path = dir.path().join("a/b/app.db");
         open(&path).unwrap();
         assert!(path.exists());
+    }
+
+    fn texts(clips: Vec<crate::domain::clip::ClipDto>) -> Vec<String> {
+        clips.into_iter().map(|c| c.text_preview.unwrap_or_default()).collect()
+    }
+
+    #[test]
+    fn history_survives_reopen() {
+        use crate::domain::clip::{self, NewClip};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vee.db");
+        clip::upsert(&open(&path).unwrap(), dir.path(), NewClip::Text("persist me".into()), None, 1).unwrap();
+        let reopened = open(&path).unwrap();
+        assert_eq!(texts(clip::list(&reopened, "", "all", None, 0, 50).unwrap()), vec!["persist me"]);
+    }
+
+    #[test]
+    fn v1_database_migrates_to_latest() {
+        use crate::domain::clip;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vee.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(legacy_schema::V1).unwrap();
+            conn.execute(
+                "INSERT INTO clips (kind, hash, text, meta, created_at, last_used_at) VALUES ('files', 'h', '/x.png', '1', 1, 1)",
+                [],
+            )
+            .unwrap();
+        }
+        let conn = open(&path).unwrap();
+        let clip = &clip::list(&conn, "", "all", None, 0, 50).unwrap()[0];
+        assert!(clip.stack.is_empty());
+        assert!(!clip.pinned);
+        assert_eq!(user_version(&conn), 5);
+    }
+
+    #[test]
+    fn v5_migration_keeps_three_most_recent() {
+        use crate::domain::clip;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vee.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            for schema in [legacy_schema::V1, legacy_schema::V2, legacy_schema::V3, legacy_schema::V4] {
+                conn.execute_batch(schema).unwrap();
+            }
+            for n in 1..=5i64 {
+                conn.execute(
+                    "INSERT INTO clips (kind, hash, text, created_at, last_used_at, pinned)
+                     VALUES ('text', ?1, ?2, ?3, ?3, 1)",
+                    rusqlite::params![format!("h{n}"), format!("pin {n}"), n],
+                )
+                .unwrap();
+            }
+        }
+        let conn = open(&path).unwrap();
+        assert_eq!(texts(clip::list_pinned(&conn).unwrap()), vec!["pin 3", "pin 4", "pin 5"]);
+        // The rest are unpinned, not deleted.
+        assert_eq!(texts(clip::list(&conn, "", "all", None, 0, 50).unwrap()), vec!["pin 2", "pin 1"]);
+    }
+
+    #[test]
+    fn v5_database_keeps_user_data() {
+        use crate::domain::{clip, settings, source_app};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vee.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            for sql in [legacy_schema::V1, legacy_schema::V2, legacy_schema::V3, legacy_schema::V4, legacy_schema::V5] {
+                conn.execute_batch(sql).unwrap();
+            }
+            conn.execute_batch(
+                "INSERT INTO apps (id, bundle_id, name, excluded) VALUES (1, 'com.agilebits.onepassword', '1Password', 1);
+                 INSERT INTO clips (kind, hash, text, created_at, last_used_at) VALUES ('text', 'h1', 'loose', 1, 1);
+                 INSERT INTO clips (kind, hash, text, created_at, last_used_at, pinned, pinned_at) VALUES ('text', 'h2', 'kept', 2, 2, 1, 2);
+                 INSERT INTO settings (key, value) VALUES ('theme', 'dark');",
+            )
+            .unwrap();
+        }
+        let conn = open(&path).unwrap();
+        assert_eq!(texts(clip::list(&conn, "", "all", None, 0, 50).unwrap()), vec!["loose"]);
+        assert_eq!(texts(clip::list_pinned(&conn).unwrap()), vec!["kept"]);
+        let excluded = source_app::excluded_apps(&conn).unwrap();
+        assert_eq!(excluded.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(), vec!["1Password"]);
+        assert!(source_app::is_excluded(&conn, "com.agilebits.onepassword").unwrap());
+        assert_eq!(settings::get(&conn, "theme"), "dark");
     }
 }

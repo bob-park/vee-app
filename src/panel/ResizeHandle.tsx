@@ -36,7 +36,7 @@ export function ResizeHandle() {
     const d = drag.current;
     if (!d) return;
     d.h = d.startH + (d.startY - e.screenY);
-    // One resize per frame; a "resize_off" race just drops the call.
+    // One resize per frame; a "RESIZE_OFF" race just drops the call.
     if (!d.frame) {
       d.frame = requestAnimationFrame(() => {
         d.frame = 0;

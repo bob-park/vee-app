@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Keyboar
 import { listen } from "@tauri-apps/api/event";
 import { api, type App, type Clip, type Filter, type UpdateStatus } from "../api.ts";
 import { usePrefs } from "../prefs.tsx";
+import type { AppError } from "../shared/api/common.dto.ts";
 import { acceleratorFromEvent } from "../settings/accelerator.ts";
 import { Card } from "./Card.tsx";
 import { dragFileName } from "./fileThumb.ts";
@@ -222,8 +223,8 @@ export function Panel() {
 
   const togglePin = (clip: Clip | undefined) => {
     if (!clip) return;
-    api.setPinned(clip.id, !clip.pinned).catch((e) => {
-      if (e === "pin_limit") showPinNotice();
+    api.setPinned(clip.id, !clip.pinned).catch((e: AppError) => {
+      if (e.code === "PIN_LIMIT") showPinNotice();
     });
   };
 

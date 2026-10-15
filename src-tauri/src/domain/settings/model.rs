@@ -1,0 +1,30 @@
+use serde::Serialize;
+
+pub const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+V";
+/// Panel-only, so it is matched in the panel instead of being registered with the OS.
+pub const DEFAULT_PANEL_PIN_SHORTCUT: &str = "CommandOrControl+Shift+KeyP";
+/// Panel-only, like the pin shortcut.
+pub const DEFAULT_RESET_SEARCH_SHORTCUT: &str = "CommandOrControl+KeyK";
+
+/// Built-in copy sounds; `app::sound` holds their data.
+pub const SOUND_NAMES: [&str; 5] = ["pop", "click", "chime", "bubble", "tap"];
+/// `soundName` value that keeps copies silent while the sound switch stays on.
+pub const SILENT: &str = "none";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsDto {
+    pub theme: String,
+    pub locale: String,
+    pub shortcut: String,
+    pub panel_pin_shortcut: String,
+    pub reset_search_shortcut: String,
+    pub sound: String,
+    pub sound_name: String,
+    pub confirm_delete: String,
+    pub retention: String,
+    pub panel_resize: String,
+    pub panel_height_ratio: String,
+    pub autostart: bool,
+    pub version: String,
+}

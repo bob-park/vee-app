@@ -5,7 +5,8 @@ use crate::{
         state::{AppState, now_ms},
         tray,
     },
-    whats_new,
+    domain::whats_new,
+    shared::error::{AppError, AppResult},
 };
 use serde::Serialize;
 use std::sync::Mutex;
@@ -62,7 +63,7 @@ pub async fn check(app: &AppHandle) -> UpdateStatus {
     let status = match fetch(app).await {
         Ok(Some((update, bytes))) => {
             let version = update.version.clone();
-            whats_new::save(&app.state::<AppState>().store.lock().unwrap(), &version, update.body.as_deref());
+            whats_new::save(&app.state::<AppState>().db.lock().unwrap(), &version, update.body.as_deref());
             *app.state::<UpdateState>().pending.lock().unwrap() = Some((update, bytes));
             UpdateStatus::Ready { version }
         }
@@ -76,12 +77,12 @@ pub async fn check(app: &AppHandle) -> UpdateStatus {
     status
 }
 
-pub fn install_and_restart(app: &AppHandle) -> Result<(), String> {
+pub fn install_and_restart(app: &AppHandle) -> AppResult<()> {
     // Borrow, don't take: a failed install keeps the download so the user can retry.
     let state = app.state::<UpdateState>();
     let pending = state.pending.lock().unwrap();
-    let Some((update, bytes)) = pending.as_ref() else { return Err("no update has been downloaded".into()) };
-    update.install(bytes).map_err(|e| e.to_string())?;
+    let Some((update, bytes)) = pending.as_ref() else { return Err(AppError::Other("no update has been downloaded".into())) };
+    update.install(bytes).map_err(|e| AppError::Other(e.to_string()))?;
     drop(pending);
     app.restart();
 }
@@ -108,7 +109,7 @@ pub fn get_update_status(state: State<UpdateState>) -> UpdateStatus {
 }
 
 #[tauri::command]
-pub fn install_update_and_restart(app: AppHandle) -> Result<(), String> {
+pub fn install_update_and_restart(app: AppHandle) -> AppResult<()> {
     install_and_restart(&app)
 }
 

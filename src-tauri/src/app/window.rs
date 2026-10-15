@@ -5,7 +5,11 @@ use crate::{
         front_app,
         state::{AppState, now_ms},
     },
-    store::{ClipContent, Kind, classify_text},
+    domain::{
+        clip::{self, ClipContent, Kind, classify_text},
+        settings,
+    },
+    shared::error::{AppError, AppResult},
 };
 use drag::{DragItem, DragMode, DragResult};
 use serde::Serialize;
@@ -137,7 +141,7 @@ fn panel_height_for(work_h: f64, ratio: Option<f64>) -> f64 {
 
 /// The saved `panelHeightRatio`; `None` when unset or unreadable.
 fn stored_ratio(app: &AppHandle) -> Option<f64> {
-    crate::settings::get(&app.state::<AppState>().store.lock().unwrap(), "panelHeightRatio").parse().ok().filter(|r: &f64| r.is_finite())
+    settings::get(&app.state::<AppState>().db.lock().unwrap(), "panelHeightRatio").parse().ok().filter(|r: &f64| r.is_finite())
 }
 
 /// `unit` is how many positioning units one design point takes: 1 on macOS, the scale on Windows.
@@ -314,34 +318,37 @@ pub fn hide_panel(app: &AppHandle, restore_focus: bool) {
 
 /// Resizes the panel on its own monitor, keeping its bottom edge put. `height` is in design points.
 /// Drags call this on every move with `save` off; `save` stores the height as a share of the work area.
-pub fn resize_panel(app: &AppHandle, height: f64, save: bool) -> Result<(), String> {
-    if crate::settings::get(&app.state::<AppState>().store.lock().unwrap(), "panelResize") == "off" {
-        return Err("resize_off".into());
+pub fn resize_panel(app: &AppHandle, height: f64, save: bool) -> AppResult<()> {
+    if settings::get(&app.state::<AppState>().db.lock().unwrap(), "panelResize") == "off" {
+        return Err(AppError::ResizeOff);
     }
-    let panel = app.get_webview_window(PANEL).ok_or("panel window is missing")?;
-    let monitor = panel.current_monitor().map_err(|e| e.to_string())?.ok_or("panel has no monitor")?;
+    let panel = app.get_webview_window(PANEL).ok_or_else(|| AppError::Other("panel window is missing".into()))?;
+    let monitor = panel
+        .current_monitor()
+        .map_err(|e| AppError::Other(e.to_string()))?
+        .ok_or_else(|| AppError::Other("panel has no monitor".into()))?;
     let (work, unit) = work_area(&monitor);
     let work_h = work.h / unit;
     let h = clamp_panel_height(work_h, height);
-    place(&panel, panel_rect(work, unit, h)).map_err(|e| e.to_string())?;
+    place(&panel, panel_rect(work, unit, h)).map_err(|e| AppError::Other(e.to_string()))?;
     if save {
         let ratio = format!("{:.4}", h / work_h);
-        app.state::<AppState>().store.lock().unwrap().set_setting("panelHeightRatio", &ratio).map_err(|e| e.to_string())?;
-        crate::settings::changed(app);
+        settings::set_raw(&app.state::<AppState>().db.lock().unwrap(), "panelHeightRatio", &ratio)?;
+        settings::commands::changed(app);
     }
     Ok(())
 }
 
 /// Forgets the saved height and puts a visible panel back at the default.
-pub fn reset_panel_height(app: &AppHandle) -> Result<(), String> {
-    app.state::<AppState>().store.lock().unwrap().set_setting("panelHeightRatio", "").map_err(|e| e.to_string())?;
+pub fn reset_panel_height(app: &AppHandle) -> AppResult<()> {
+    settings::set_raw(&app.state::<AppState>().db.lock().unwrap(), "panelHeightRatio", "")?;
     if let Some(panel) = app.get_webview_window(PANEL).filter(|p| p.is_visible().unwrap_or(false))
         && let Some(monitor) = panel.current_monitor().ok().flatten()
     {
         let (work, unit) = work_area(&monitor);
-        place(&panel, panel_rect(work, unit, panel_height(work.h / unit))).map_err(|e| e.to_string())?;
+        place(&panel, panel_rect(work, unit, panel_height(work.h / unit))).map_err(|e| AppError::Other(e.to_string()))?;
     }
-    crate::settings::changed(app);
+    settings::commands::changed(app);
     Ok(())
 }
 
@@ -414,25 +421,25 @@ fn show_toast(app: &AppHandle, payload: ToastPayload) {
 }
 
 /// Writes the clip's raw pasteboard formats when it has them, else its card content.
-fn write_clipboard(state: &AppState, content: &ClipContent, formats: Vec<(String, Vec<u8>)>) -> Result<(), String> {
+fn write_clipboard(state: &AppState, content: &ClipContent, formats: Vec<(String, Vec<u8>)>) -> AppResult<()> {
     use clipboard_rs::{Clipboard, ClipboardContent, ClipboardContext, RustImageData, common::RustImage};
-    let ctx = ClipboardContext::new().map_err(|e| e.to_string())?;
+    let ctx = ClipboardContext::new().map_err(|e| AppError::Other(e.to_string()))?;
     state.suppress_watcher();
     match content {
         _ if !formats.is_empty() => ctx.set(formats.into_iter().map(|(f, d)| ClipboardContent::Other(f, d)).collect()),
         ClipContent::Text(text) => ctx.set_text(text.clone()),
         ClipContent::Image(path) => {
-            let image = RustImageData::from_path(&path.to_string_lossy()).map_err(|e| e.to_string())?;
+            let image = RustImageData::from_path(&path.to_string_lossy()).map_err(|e| AppError::Other(e.to_string()))?;
             ctx.set_image(image)
         }
         ClipContent::Files(files) => {
             if files.iter().any(|f| !std::path::Path::new(f).exists()) {
-                return Err("a copied file no longer exists".into());
+                return Err(AppError::Other("a copied file no longer exists".into()));
             }
             ctx.set_files(files.clone())
         }
     }
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| AppError::Other(e.to_string()))?;
     // Re-arm after the write: decoding a large image can take a few hundred ms.
     state.suppress_watcher();
     Ok(())
@@ -440,16 +447,16 @@ fn write_clipboard(state: &AppState, content: &ClipContent, formats: Vec<(String
 
 /// Copies a clip back to the clipboard, closes the panel and confirms with a toast.
 /// `plain` skips the saved raw formats so only the text goes back.
-pub fn copy_clip(app: &AppHandle, id: i64, plain: bool) -> Result<(), String> {
+pub fn copy_clip(app: &AppHandle, id: i64, plain: bool) -> AppResult<()> {
     let state = app.state::<AppState>();
     let (content, formats) = {
-        let store = state.store.lock().unwrap();
-        let formats = if plain { Vec::new() } else { store.formats(id).map_err(|e| e.to_string())? };
-        (store.content(id).map_err(|e| e.to_string())?, formats)
+        let conn = state.db.lock().unwrap();
+        let formats = if plain { Vec::new() } else { clip::formats(&conn, id)? };
+        (clip::content(&conn, id)?, formats)
     };
     let result = match content {
         Some(content) => write_clipboard(&state, &content, formats).map(|()| content),
-        None => Err("clip no longer exists".into()),
+        None => Err(AppError::Other("clip no longer exists".into())),
     };
     hide_panel(app, true);
     match result {
@@ -469,9 +476,9 @@ pub fn copy_clip(app: &AppHandle, id: i64, plain: bool) -> Result<(), String> {
 fn confirm_copy(app: &AppHandle, id: i64, content: &ClipContent, plain: bool) {
     let state = app.state::<AppState>();
     let sound = {
-        let store = state.store.lock().unwrap();
-        let _ = store.touch(id, now_ms());
-        crate::settings::copy_sound(&store)
+        let conn = state.db.lock().unwrap();
+        let _ = clip::touch(&conn, id, now_ms());
+        settings::copy_sound(&conn)
     };
     if let Some(name) = sound {
         crate::app::sound::play(&name);
@@ -556,26 +563,26 @@ fn stage_image(src: &Path, dir: &Path, name: &str) -> std::io::Result<PathBuf> {
 /// `name` names the dropped file for image clips. `image` is the card itself as a base64 PNG
 /// laid out for this platform (see `dragImageLayout` in motion.ts); without it the clip's
 /// thumbnail is dragged.
-pub fn start_drag(app: &AppHandle, id: i64, name: &str, image: Option<&str>) -> Result<(), String> {
+pub fn start_drag(app: &AppHandle, id: i64, name: &str, image: Option<&str>) -> AppResult<()> {
     let state = app.state::<AppState>();
     let (content, preview) = {
-        let store = state.store.lock().unwrap();
-        let content = store.content(id).map_err(|e| e.to_string())?.ok_or("clip no longer exists")?;
-        (content, store.preview_png(id).map_err(|e| e.to_string())?)
+        let conn = state.db.lock().unwrap();
+        let content = clip::content(&conn, id)?.ok_or_else(|| AppError::Other("clip no longer exists".into()))?;
+        (content, clip::preview_png(&conn, id)?)
     };
     let item = match &content {
         ClipContent::Files(paths) => {
             if paths.iter().any(|p| !Path::new(p).exists()) {
-                return Err("a copied file no longer exists".into());
+                return Err(AppError::Other("a copied file no longer exists".into()));
             }
             DragItem::Files(paths.iter().map(PathBuf::from).collect())
         }
         ClipContent::Image(path) => DragItem::Files(vec![
-            stage_image(path, &std::env::temp_dir().join("vee-drag"), name).map_err(|e| e.to_string())?,
+            stage_image(path, &std::env::temp_dir().join("vee-drag"), name)?,
         ]),
         ClipContent::Text(text) => DragItem::Text(text.clone()),
     };
-    let panel = app.get_webview_window(PANEL).ok_or("panel window is missing")?;
+    let panel = app.get_webview_window(PANEL).ok_or_else(|| AppError::Other("panel window is missing".into()))?;
     state.dragging.store(true, Ordering::SeqCst);
     // Let drops land on whatever is behind the (slid-away) panel.
     let _ = panel.set_ignore_cursor_events(true);
@@ -589,7 +596,7 @@ pub fn start_drag(app: &AppHandle, id: i64, name: &str, image: Option<&str>) -> 
     );
     if let Err(e) = started {
         end_drag(app);
-        return Err(e.to_string());
+        return Err(AppError::Other(e.to_string()));
     }
     Ok(())
 }
@@ -619,6 +626,45 @@ fn finish_drag(app: &AppHandle, id: i64, content: &ClipContent, result: DragResu
             }
             let _ = app.emit_to(PANEL, "panel://drag-cancelled", ());
         }
+    }
+}
+
+/// Panel and settings-window commands. A submodule so they can share names with the functions above.
+pub mod commands {
+    use crate::{app::state::AppState, shared::error::AppResult};
+    use std::sync::atomic::Ordering;
+    use tauri::{AppHandle, State};
+
+    #[tauri::command]
+    pub fn hide_panel(app: AppHandle) {
+        super::hide_panel(&app, true);
+    }
+
+    /// Unpinning leaves the panel open; it closes the next time something hides it.
+    #[tauri::command]
+    pub fn set_panel_pinned(state: State<AppState>, pinned: bool) {
+        state.panel_pinned.store(pinned, Ordering::SeqCst);
+    }
+
+    #[tauri::command]
+    pub fn resize_panel(app: AppHandle, height: f64, save: bool) -> AppResult<()> {
+        super::resize_panel(&app, height, save)
+    }
+
+    #[tauri::command]
+    pub fn reset_panel_height(app: AppHandle) -> AppResult<()> {
+        super::reset_panel_height(&app)
+    }
+
+    #[tauri::command]
+    pub fn reveal_panel(app: AppHandle) {
+        super::reveal_panel(&app);
+    }
+
+    #[tauri::command]
+    pub fn open_settings(app: AppHandle) {
+        super::hide_panel(&app, false);
+        super::show_settings(&app);
     }
 }
 

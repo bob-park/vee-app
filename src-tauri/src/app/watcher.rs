@@ -1,11 +1,14 @@
-//! Watches the system clipboard and records every change in the store.
+//! Watches the system clipboard and records every change in the clip history.
 
 use crate::{
     app::{
         front_app,
         state::{AppState, now_ms},
     },
-    store::{NewClip, STACK_LAYERS},
+    domain::{
+        clip::{self, NewClip, STACK_LAYERS},
+        settings, source_app,
+    },
 };
 use clipboard_rs::{
     Clipboard, ClipboardContext, ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext, ContentFormat,
@@ -130,7 +133,7 @@ fn wait_quiet(rx: &Receiver<()>, quiet: Duration) -> bool {
     }
 }
 
-fn capture(app: &AppHandle, ctx: &ClipboardContext) -> crate::store::Result<()> {
+fn capture(app: &AppHandle, ctx: &ClipboardContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let state = app.state::<AppState>();
     if state.watcher_suppressed() {
         return Ok(());
@@ -139,21 +142,21 @@ fn capture(app: &AppHandle, ctx: &ClipboardContext) -> crate::store::Result<()> 
     // File clips are restored from their paths, which handles multiple files.
     let formats = if matches!(clip, NewClip::Files { .. }) { Vec::new() } else { snapshot(ctx) };
     let front = front_app::frontmost();
-    let store = state.store.lock().unwrap();
+    let conn = state.db.lock().unwrap();
     let app_id = match front {
         Some(front) => {
-            if store.is_excluded(&front.bundle_id)? {
+            if source_app::is_excluded(&conn, &front.bundle_id)? {
                 return Ok(());
             }
-            let icon = if store.app_known(&front.bundle_id)? { None } else { front_app::icon_png(&front) };
-            Some(store.upsert_app(&front.bundle_id, &front.name, icon.as_deref())?)
+            let icon = if source_app::app_known(&conn, &front.bundle_id)? { None } else { front_app::icon_png(&front) };
+            Some(source_app::upsert_app(&conn, &front.bundle_id, &front.name, icon.as_deref())?)
         }
         None => None,
     };
-    let id = store.upsert(clip, app_id, now_ms())?;
-    store.set_formats(id, &formats)?;
-    let sound = crate::settings::copy_sound(&store);
-    drop(store);
+    let id = clip::upsert(&conn, &state.images_dir, clip, app_id, now_ms())?;
+    clip::set_formats(&conn, id, &formats)?;
+    let sound = settings::copy_sound(&conn);
+    drop(conn);
     if let Some(name) = sound {
         // AppKit sound playback belongs on the main thread.
         app.run_on_main_thread(move || crate::app::sound::play(&name))?;

@@ -5,6 +5,7 @@ import { PANEL_KEYS } from "../panel/keys.ts";
 import { api, SOUND_NAMES, type SoundName, type UpdateStatus } from "../api.ts";
 import { relativeTime } from "../i18n/index.ts";
 import { usePrefs } from "../prefs.tsx";
+import { errorText } from "../utils/errorText.ts";
 import { ConfirmModal } from "./ConfirmModal.tsx";
 import { Dropdown } from "./Dropdown.tsx";
 import { HistorySection } from "./HistorySection.tsx";
@@ -152,7 +153,7 @@ export function Settings() {
     const unlisten = listen("settings://opened", () => changeTab("general"));
     return () => void unlisten.then((off) => off());
   }, []);
-  const run = (p: Promise<unknown>) => void p.then(() => setError(null)).catch((e) => setError(String(e)));
+  const run = (p: Promise<unknown>) => void p.then(() => setError(null)).catch((e) => setError(errorText(e)));
 
   return (
     <main className="settings">
