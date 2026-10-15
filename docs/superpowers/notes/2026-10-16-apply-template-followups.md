@@ -16,3 +16,8 @@
 - The daisyUI `exclude` list hides components whose names collide with per-screen classes (`badge, button, card, dropdown, kbd, link, modal, select, stack, stat, tab, toast`). Remove each entry once no screen uses that class name; keep `rootcolor, rootscrollgutter, rootscrolllock, scrollbar`.
 - The second `@layer base` block in `globals.css` holds temporary preflight reverts (`input` padding, `::placeholder`, `ul` list-style, `img` max-width). Delete each one as the screens using that element move to Tailwind.
 - `docs/development.md` "프로젝트 구조" still lists `src/theme.css`; the whole tree there is stale since Task 4.
+
+## Task 10 (toast, what's-new on Tailwind)
+- With `toast` out of the daisyUI `exclude` list, daisyUI emits its `.toast` component CSS (the word "toast" appears in the source, e.g. the window label). No element uses that class, so it is dead CSS only.
+- The shared prettier config sorts Tailwind classes without `tailwindStylesheet`, so vee's own token utilities (`bg-toast-bg`, `shadow-toast`, `animate-toast-in`, …) sort as unknown classes ahead of the built-ins. Cosmetic; set `tailwindStylesheet: './src/app/globals.css'` if the order matters.
+- `yarn prettier` is `prettier --write`, so `yarn prettier --check` also rewrites files.

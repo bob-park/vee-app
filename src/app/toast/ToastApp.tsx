@@ -4,8 +4,7 @@ import type { Kind, ToastPayload } from '@/domain/clip/apis/clip.dto';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
 import { listen } from '@tauri-apps/api/event';
-
-import './toast.css';
+import cx from 'classnames';
 
 /** White line icons for what was copied, drawn on the coloured tile. */
 const KIND_ICONS: Record<Kind, string> = {
@@ -18,6 +17,7 @@ const KIND_ICONS: Record<Kind, string> = {
 function Icon({ path }: { path: string }) {
   return (
     <svg
+      className="size-[22px]"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -60,18 +60,32 @@ export function ToastApp() {
         ? t.filesCount(p.files)
         : p.text;
   return (
+    // The window is larger than the card; the margin is room for the card's shadow.
     <div
       key={toast.key}
-      className={['toast', !p.ok && 'toast-error', toast.out && 'out'].filter(Boolean).join(' ')}
+      className={cx(
+        'border-toast-border bg-toast-bg text-toast-fg shadow-toast absolute right-9 bottom-9 left-9 flex items-center gap-3 rounded-2xl border py-3 pr-4 pl-3 motion-reduce:animate-none',
+        toast.out ? 'animate-toast-out motion-reduce:opacity-0' : 'animate-toast-in',
+      )}
       role="status"
     >
-      <span className="toast-icon">
+      <span
+        className={cx(
+          'relative flex size-[42px] flex-none items-center justify-center rounded-xl text-[22px] font-extrabold text-white',
+          p.ok ? 'bg-toast-icon' : 'bg-error',
+        )}
+      >
         {p.ok ? <Icon path={KIND_ICONS[p.kind]} /> : '!'}
-        {p.ok && <span className="toast-check">✓</span>}
+        {/* Small check badge on the icon's corner, ringed in the card colour. */}
+        {p.ok && (
+          <span className="animate-toast-check-in border-toast-bg bg-primary absolute -right-[5px] -bottom-[5px] flex size-[18px] items-center justify-center rounded-full border-2 text-[10px] font-extrabold text-white motion-reduce:animate-none">
+            ✓
+          </span>
+        )}
       </span>
-      <span className="toast-text">
-        <b>{p.ok ? (p.plain ? t.copiedPlain : t.copied) : t.copyFailed}</b>
-        {summary && <span className="toast-summary">{summary}</span>}
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <b className="text-[16px]">{p.ok ? (p.plain ? t.copiedPlain : t.copied) : t.copyFailed}</b>
+        {summary && <span className="truncate text-[13px] opacity-70">{summary}</span>}
       </span>
     </div>
   );
