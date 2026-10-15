@@ -1,5 +1,8 @@
 mod disk_access;
 mod settings;
+// Unused until the app moves onto it (store.rs is removed in a later step).
+#[allow(dead_code)]
+mod shared;
 mod sound;
 mod source_app;
 mod store;
