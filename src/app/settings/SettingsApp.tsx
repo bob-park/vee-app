@@ -1,9 +1,14 @@
-import { type ReactNode, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
+import Button from '@/app/settings/_components/Button';
 import { ConfirmModal } from '@/app/settings/_components/ConfirmModal';
 import { Dropdown } from '@/app/settings/_components/Dropdown';
 import { HistorySection } from '@/app/settings/_components/HistorySection';
+import Row from '@/app/settings/_components/Row';
+import Segmented from '@/app/settings/_components/Segmented';
+import SettingSection from '@/app/settings/_components/SettingSection';
 import { ShortcutRecorder } from '@/app/settings/_components/ShortcutRecorder';
+import Switch from '@/app/settings/_components/Switch';
 import { type SettingsTab, Tabs } from '@/app/settings/_components/Tabs';
 import { resetPanelHeight } from '@/domain/panel/apis/panel';
 import {
@@ -23,61 +28,6 @@ import { errorText } from '@/utils/errorText';
 import { PANEL_KEYS } from '@/utils/keys';
 
 import { listen } from '@tauri-apps/api/event';
-
-import './_components/settings.css';
-
-export function Row({
-  label,
-  hint,
-  dim,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  dim?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <div className={dim ? 'setting-row dim' : 'setting-row'}>
-      <div>
-        {label}
-        {hint && <small>{hint}</small>}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-export function Segmented<T extends string>({
-  value,
-  options,
-  onChange,
-  className,
-  pending,
-}: {
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (value: T) => void;
-  className?: string;
-  /** An option waiting for confirmation, outlined in red. */
-  pending?: T;
-}) {
-  return (
-    <div className={className ? `seg ${className}` : 'seg'} role="radiogroup">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          role="radio"
-          aria-checked={o.value === value}
-          className={[o.value === value && 'on', o.value === pending && 'pending'].filter(Boolean).join(' ')}
-          onClick={() => onChange(o.value)}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 function UpdateRow({ version }: { version: string }) {
   // hooks
@@ -106,13 +56,11 @@ function UpdateRow({ version }: { version: string }) {
   return (
     <Row label={s.updates} hint={`${s.version(version)} · ${detail}`}>
       {status.status === 'ready' ? (
-        <button className="btn" onClick={() => void installUpdate()}>
-          {s.restartToUpdate}
-        </button>
+        <Button onClick={() => void installUpdate()}>{s.restartToUpdate}</Button>
       ) : (
-        <button className="btn" disabled={status.status === 'checking'} onClick={() => void checkUpdate()}>
+        <Button disabled={status.status === 'checking'} onClick={() => void checkUpdate()}>
           {s.checkNow}
-        </button>
+        </Button>
       )}
     </Row>
   );
@@ -131,17 +79,15 @@ function DiskAccessRow() {
 
   if (granted === null) return null;
   return (
-    <section>
+    <SettingSection>
       <Row label={s.diskAccess} hint={s.diskAccessHint}>
         {granted ? (
-          <span className="granted">{s.diskAccessGranted}</span>
+          <span className="text-muted font-semibold">{s.diskAccessGranted}</span>
         ) : (
-          <button className="btn" onClick={() => void openDiskAccessSettings()}>
-            {s.diskAccessGrant}
-          </button>
+          <Button onClick={() => void openDiskAccessSettings()}>{s.diskAccessGrant}</Button>
         )}
       </Row>
-    </section>
+    </SettingSection>
   );
 }
 
@@ -179,11 +125,17 @@ export function SettingsApp() {
   if (!settings) return null;
 
   return (
-    <main className="settings">
+    <main className="flex h-full flex-col">
       <Tabs value={tab} onChange={changeTab} />
-      <div className="tab-body" id="settings-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
+      {/* Extra bottom room so the app picker's popup near the end never runs past the window. */}
+      <div
+        className="flex-1 overflow-y-auto px-7 pt-4 pb-32"
+        id="settings-panel"
+        role="tabpanel"
+        aria-labelledby={`tab-${tab}`}
+      >
         {tab === 'general' && (
-          <section>
+          <SettingSection>
             <Row label={s.theme}>
               <Segmented
                 value={settings.theme}
@@ -207,32 +159,26 @@ export function SettingsApp() {
               />
             </Row>
             <Row label={s.launchAtLogin}>
-              <input
-                type="checkbox"
-                role="switch"
-                className="switch"
-                aria-label={s.launchAtLogin}
+              <Switch
+                ariaLabel={s.launchAtLogin}
                 checked={settings.autostart}
-                onChange={(e) => run(setAutostart(e.target.checked))}
+                onChange={(checked) => run(setAutostart(checked))}
               />
             </Row>
             <UpdateRow version={settings.version} />
-          </section>
+          </SettingSection>
         )}
         {tab === 'panel' && (
-          <section>
+          <SettingSection>
             <Row label={s.copySound}>
-              <input
-                type="checkbox"
-                role="switch"
-                className="switch"
-                aria-label={s.copySound}
+              <Switch
+                ariaLabel={s.copySound}
                 checked={settings.sound === 'on'}
-                onChange={(e) => updateSetting({ key: 'sound', value: e.target.checked ? 'on' : 'off' })}
+                onChange={(checked) => updateSetting({ key: 'sound', value: checked ? 'on' : 'off' })}
               />
             </Row>
             <Row label={s.soundName} hint={s.soundNameHint} dim={settings.sound !== 'on'}>
-              <div className="sound-pick">
+              <div className="flex items-center gap-1.5">
                 <Dropdown
                   ariaLabel={s.soundName}
                   value={settings.soundName}
@@ -243,47 +189,41 @@ export function SettingsApp() {
                     void previewSound(name);
                   }}
                 />
-                <button
-                  className="btn play"
+                <Button
+                  small
                   aria-label={s.preview}
                   title={s.preview}
                   disabled={settings.sound !== 'on' || settings.soundName === 'none'}
                   onClick={() => void previewSound(settings.soundName)}
                 >
                   ▶
-                </button>
+                </Button>
               </div>
             </Row>
             <Row label={s.confirmDelete} hint={s.confirmDeleteHint}>
-              <input
-                type="checkbox"
-                role="switch"
-                className="switch"
-                aria-label={s.confirmDelete}
+              <Switch
+                ariaLabel={s.confirmDelete}
                 checked={settings.confirmDelete === 'on'}
-                onChange={(e) => updateSetting({ key: 'confirmDelete', value: e.target.checked ? 'on' : 'off' })}
+                onChange={(checked) => updateSetting({ key: 'confirmDelete', value: checked ? 'on' : 'off' })}
               />
             </Row>
             <Row label={s.panelResize} hint={s.panelResizeHint}>
-              <input
-                type="checkbox"
-                role="switch"
-                className="switch"
-                aria-label={s.panelResize}
+              <Switch
+                ariaLabel={s.panelResize}
                 checked={settings.panelResize === 'on'}
-                onChange={(e) => updateSetting({ key: 'panelResize', value: e.target.checked ? 'on' : 'off' })}
+                onChange={(checked) => updateSetting({ key: 'panelResize', value: checked ? 'on' : 'off' })}
               />
             </Row>
             {/* Stays enabled while resizing is off: the saved size is kept. */}
             <Row label={s.panelSizeReset}>
-              <button className="btn" disabled={settings.panelHeightRatio === ''} onClick={() => setConfirmReset(true)}>
+              <Button disabled={settings.panelHeightRatio === ''} onClick={() => setConfirmReset(true)}>
                 {s.reset}
-              </button>
+              </Button>
             </Row>
-          </section>
+          </SettingSection>
         )}
         {tab === 'shortcuts' && (
-          <section>
+          <SettingSection>
             <Row label={s.shortcut} hint={s.shortcutHint}>
               <ShortcutRecorder
                 value={settings.shortcut}
@@ -305,7 +245,7 @@ export function SettingsApp() {
                 taken={[...PANEL_KEYS, settings.shortcut, settings.panelPinShortcut]}
               />
             </Row>
-          </section>
+          </SettingSection>
         )}
         {tab === 'history' && (
           <>
@@ -325,8 +265,9 @@ export function SettingsApp() {
         }}
         onCancel={() => setConfirmReset(false)}
       />
+      {/* Same side padding as the tab body, which the error sits below. */}
       {error && (
-        <p className="error" role="alert">
+        <p className="text-error px-7 pt-2 pb-3 text-[12px]" role="alert">
           {error}
         </p>
       )}

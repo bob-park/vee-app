@@ -2,6 +2,8 @@ import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { nextIndex } from '@/utils/dropdownKeys';
 
+import cx from 'classnames';
+
 export interface DropdownOption<T> {
   value: T;
   label: string;
@@ -100,11 +102,11 @@ export function Dropdown<T extends string | number>({
 
   const current = options[selected];
   return (
-    <div className={['dropdown', className].filter(Boolean).join(' ')} ref={root}>
+    <div className={cx('relative', className)} ref={root}>
       <button
         ref={button}
         type="button"
-        className="select"
+        className="border-base-300 bg-subtle text-base-content aria-expanded:border-primary inline-flex items-center gap-2 rounded-[10px] border px-[10px] py-[5px] text-[12px] disabled:cursor-default"
         aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -115,26 +117,35 @@ export function Dropdown<T extends string | number>({
         onKeyDown={onKeyDown}
       >
         <span>{placeholder ?? current?.label}</span>
-        <span className="chev" aria-hidden>
+        <span className="text-muted text-[10px]" aria-hidden>
           ▾
         </span>
       </button>
       {open && (
-        <ul ref={list} id={id} role="listbox" aria-label={ariaLabel} className="dropdown-list">
+        <ul
+          ref={list}
+          id={id}
+          role="listbox"
+          aria-label={ariaLabel}
+          className="border-base-300 bg-card shadow-dropdown absolute top-[calc(100%+4px)] right-0 z-10 max-h-[220px] min-w-full overflow-y-auto rounded-[10px] border p-1 text-[12px]"
+        >
           {options.map((o, i) => (
             <li
               key={o.value}
               id={`${id}-${i}`}
               role="option"
               aria-selected={i === selected}
-              className={i === active ? 'active' : undefined}
+              className={cx(
+                'flex cursor-pointer items-center gap-1.5 rounded-[7px] px-[10px] py-[5px] whitespace-nowrap',
+                i === selected ? 'bg-accent-subtle text-primary font-semibold' : { 'bg-subtle': i === active },
+              )}
               onPointerEnter={() => setActive(i)}
               onClick={() => pick(i)}
             >
-              {o.icon && <img src={o.icon} alt="" />}
+              {o.icon && <img className="size-3.5" src={o.icon} alt="" />}
               <span>{o.label}</span>
               {i === selected && (
-                <span className="check" aria-hidden>
+                <span className="ml-auto pl-3" aria-hidden>
                   ✓
                 </span>
               )}

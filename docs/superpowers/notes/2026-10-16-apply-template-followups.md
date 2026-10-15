@@ -21,3 +21,10 @@
 - With `toast` out of the daisyUI `exclude` list, daisyUI emits its `.toast` component CSS (the word "toast" appears in the source, e.g. the window label). No element uses that class, so it is dead CSS only.
 - The shared prettier config sorts Tailwind classes without `tailwindStylesheet`, so vee's own token utilities (`bg-toast-bg`, `shadow-toast`, `animate-toast-in`, …) sort as unknown classes ahead of the built-ins. Cosmetic; set `tailwindStylesheet: './src/app/globals.css'` if the order matters.
 - `yarn prettier` is `prettier --write`, so `yarn prettier --check` also rewrites files.
+
+## Task 11 (settings on Tailwind)
+- A theme `--shadow-*` utility renders through Tailwind's inset/ring shadow stack (`box-shadow: var(--tw-inset-shadow), …, var(--tw-shadow)`), which drew the segmented control's small 4px blur one level off (maxd 1) and the modal's slightly off too. The settings shadows (`shadow-seg`, `shadow-dropdown`, `shadow-modal`) are therefore plain `@utility` rules in `globals.css`. `shadow-suggest`/`shadow-toast` stay theme tokens; worth checking the same way if a later diff shows ±1 around them.
+- The `input` padding and `::placeholder` preflight reverts now also carry the settings app picker input; drop them only after giving that input explicit padding/placeholder colour.
+- The legacy `--mono` alias in `globals.css` is read by nothing (it wasn't used by settings.css either).
+- `Dropdown`'s `className` prop has no caller.
+- The retention confirm box / pending outline has no capture: it needs clips older than the picked retention, and the fixture's clips are hours old. The exclude-app confirm box (same `ConfirmBox`) was captured and matches HEAD.

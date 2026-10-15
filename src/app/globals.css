@@ -3,12 +3,12 @@
   themes: false;
   /*
    * Root background, scroll lock/gutter and scrollbar colors would change the transparent panel/toast
-   * and the scrollbars. The components share class names with the per-screen CSS (.card, .modal, …);
-   * drop each from the list once no screen uses that name.
+   * and the scrollbars. vee uses none of the components below; the scanner picks their names up from
+   * any word in the source (`toast` is a window label), so keep them excluded or they ship as dead CSS.
    */
   exclude:
     rootcolor, rootscrollgutter, rootscrolllock, scrollbar, badge, button, card, dropdown, kbd, link, modal, select,
-    stack, stat, tab;
+    stack, stat, tab, toast;
 }
 
 /*
@@ -140,8 +140,28 @@
   --color-toast-fg: var(--vee-toast-fg);
   --color-toast-border: var(--vee-toast-border);
   --color-toast-icon: #149e61;
+  --color-danger-subtle: rgba(209, 52, 75, 0.12);
+  --color-danger-border: color-mix(in srgb, var(--color-error) 20%, transparent);
+  --color-danger-tint: color-mix(in srgb, var(--color-error) 6%, transparent);
+  --color-backdrop: rgba(0, 0, 0, 0.45);
   --shadow-suggest: rgba(0, 0, 0, 0.12) 0 8px 24px;
   --shadow-toast: var(--vee-toast-shadow);
+}
+
+/*
+ * Plain box-shadows: a theme `--shadow-*` goes through Tailwind's ring/inset shadow stack, which
+ * renders a small blur a shade off.
+ */
+@utility shadow-seg {
+  box-shadow: 0 1px 4px rgba(16, 24, 40, 0.08);
+}
+
+@utility shadow-dropdown {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+@utility shadow-modal {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
 }
 
 @theme {
@@ -183,7 +203,7 @@
 }
 
 /*
- * Legacy names still read by the per-screen CSS (panel.css, settings.css).
+ * Legacy names still read by panel.css.
  * Delete each one once nothing uses it. Unlayered, so `--border` here beats daisyUI's `--border: 1px`.
  */
 :root {
@@ -246,8 +266,8 @@
 }
 
 /*
- * Preflight resets the per-screen CSS still relies on as browser defaults. Delete each rule once
- * the screens using that element are on Tailwind.
+ * Preflight resets panel.css still relies on as browser defaults; the settings app picker input
+ * reads the input padding and placeholder ones too. Delete each rule once nothing needs it.
  */
 @layer base {
   input {

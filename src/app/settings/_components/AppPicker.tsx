@@ -60,9 +60,10 @@ export function AppPicker({ apps, onPick }: { apps: App[]; onPick: (app: App) =>
   };
 
   return (
-    <div className="app-search" ref={root}>
+    <div className="rounded-box bg-subtle text-muted relative flex items-center gap-1.5 px-[10px] py-1.5" ref={root}>
       <span aria-hidden>🔍</span>
       <input
+        className="text-base-content min-w-0 flex-1 outline-none"
         value={query}
         placeholder={t.settings.searchApps}
         aria-label={t.settings.searchApps}

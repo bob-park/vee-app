@@ -2,6 +2,8 @@ import type { KeyboardEvent, ReactNode } from 'react';
 
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
+import cx from 'classnames';
+
 export type SettingsTab = 'general' | 'panel' | 'shortcuts' | 'history';
 
 const svg = (children: ReactNode) => (
@@ -72,7 +74,11 @@ export function Tabs({ value, onChange }: { value: SettingsTab; onChange: (tab: 
   };
 
   return (
-    <div className="tabs" role="tablist" onKeyDown={onKeyDown}>
+    <div
+      className="border-divider flex shrink-0 justify-center gap-1 border-b pt-2 pb-[10px]"
+      role="tablist"
+      onKeyDown={onKeyDown}
+    >
       {TABS.map((tab) => (
         <button
           key={tab.value}
@@ -81,7 +87,10 @@ export function Tabs({ value, onChange }: { value: SettingsTab; onChange: (tab: 
           aria-selected={tab.value === value}
           aria-controls="settings-panel"
           tabIndex={tab.value === value ? 0 : -1}
-          className={tab.value === value ? 'on' : undefined}
+          className={cx(
+            'flex w-[72px] flex-col items-center gap-[3px] rounded-[10px] py-1.5 text-[11px]',
+            tab.value === value ? 'bg-accent-subtle text-primary font-semibold' : 'text-muted',
+          )}
           onClick={() => onChange(tab.value)}
         >
           {tab.icon}

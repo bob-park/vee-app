@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 
 import { useQueryClient } from '@tanstack/react-query';
 
-import { Segmented } from '@/app/settings/SettingsApp';
+import Button from '@/app/settings/_components/Button';
+import Row from '@/app/settings/_components/Row';
+import Segmented from '@/app/settings/_components/Segmented';
+import SettingSection from '@/app/settings/_components/SettingSection';
 import { clearHistory } from '@/domain/clip/apis/clip';
 import { STATS_QUERY_KEY, useStats } from '@/domain/clip/queries/clip';
 import type { Retention, SettingKey } from '@/domain/settings/apis/settings.dto';
@@ -46,15 +49,15 @@ function ConfirmBox({
   const { t } = useI18n();
 
   return (
-    <div className="confirm-box" role="alertdialog">
+    <div className="border-danger-border bg-danger-tint rounded-[10px] border p-[10px] text-[12px]" role="alertdialog">
       <p>{message}</p>
-      <div className="confirm-acts">
-        <button className="btn gray" onClick={onCancel}>
+      <div className="mt-2 flex justify-end gap-1.5">
+        <Button variant="gray" onClick={onCancel}>
           {t.cancel}
-        </button>
-        <button className="btn danger" onClick={onConfirm}>
+        </Button>
+        <Button variant="danger" onClick={onConfirm}>
           {confirmLabel}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -146,14 +149,10 @@ export function HistorySection({ run, updateSetting }: Props) {
 
   return (
     <>
-      <section>
-        <div className="setting-row col">
-          <div>
-            {s.retention}
-            <small>{s.retentionHint}</small>
-          </div>
+      <SettingSection>
+        <Row label={s.retention} hint={s.retentionHint} col>
           <Segmented
-            className="wide"
+            wide
             value={settings?.retention ?? 'off'}
             pending={pending?.kind === 'retention' ? pending.value : undefined}
             onChange={(v) => void pickRetention(v)}
@@ -167,19 +166,22 @@ export function HistorySection({ run, updateSetting }: Props) {
               onCancel={() => setPending(null)}
             />
           )}
-        </div>
-        <div className="setting-row col">
-          <div>
-            {s.excludedApps}
-            <small>{s.excludedAppsHint}</small>
-          </div>
+        </Row>
+        <Row label={s.excludedApps} hint={s.excludedAppsHint} col>
           {excluded.length > 0 && (
-            <div className="app-tags">
+            <div className="flex flex-wrap items-center gap-1.5">
               {excluded.map((a) => (
-                <span key={a.id} className="app-chip">
-                  {a.icon && <img src={a.icon} alt="" />}
+                <span
+                  key={a.id}
+                  className="bg-badge-bg text-badge-fg inline-flex items-center gap-1 rounded-lg py-[3px] pr-1 pl-2 text-[12px]"
+                >
+                  {a.icon && <img className="size-3.5" src={a.icon} alt="" />}
                   {a.name}
-                  <button aria-label={s.includeApp(a.name)} onClick={() => run(setAppExcluded(a.id, false))}>
+                  <button
+                    className="text-muted px-1"
+                    aria-label={s.includeApp(a.name)}
+                    onClick={() => run(setAppExcluded(a.id, false))}
+                  >
                     ×
                   </button>
                 </span>
@@ -195,14 +197,16 @@ export function HistorySection({ run, updateSetting }: Props) {
               onCancel={() => setPending(null)}
             />
           )}
-        </div>
-        <div className="setting-row">
-          <span className="stat">{stats ? s.stats(stats.count, formatBytes(stats.imageBytes)) : ''}</span>
-          <button className="btn danger" onClick={() => void clear()}>
+        </Row>
+        <Row>
+          <span className="text-muted text-[11px]">
+            {stats ? s.stats(stats.count, formatBytes(stats.imageBytes)) : ''}
+          </span>
+          <Button variant="danger" onClick={() => void clear()}>
             {s.clearHistory}
-          </button>
-        </div>
-      </section>
+          </Button>
+        </Row>
+      </SettingSection>
     </>
   );
 }

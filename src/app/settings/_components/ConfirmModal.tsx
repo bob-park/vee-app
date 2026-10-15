@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 
+import Button from '@/app/settings/_components/Button';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
 /** Native modal dialog: the browser handles Esc, focus trapping and aria-modal. */
@@ -36,7 +37,7 @@ export function ConfirmModal({
   return (
     <dialog
       ref={ref}
-      className="modal"
+      className="border-base-300 bg-card text-base-content shadow-modal rounded-box backdrop:bg-backdrop m-auto w-[280px] border p-0"
       // Let `open` drive closing so Esc can't leave React out of sync.
       onCancel={(e) => {
         e.preventDefault();
@@ -46,16 +47,16 @@ export function ConfirmModal({
       onClick={(e) => e.target === e.currentTarget && onCancel()}
     >
       {open && (
-        <div className="modal-card">
-          <h2>{title}</h2>
-          <p>{body}</p>
-          <div className="confirm-acts">
-            <button className="btn gray" autoFocus onClick={onCancel}>
+        <div className="p-4">
+          <h2 className="mb-1 text-[14px] font-semibold">{title}</h2>
+          <p className="text-muted text-[12px] leading-[1.5]">{body}</p>
+          <div className="mt-[14px] flex justify-end gap-1.5">
+            <Button variant="gray" autoFocus onClick={onCancel}>
               {t.cancel}
-            </button>
-            <button className="btn go" onClick={onConfirm}>
+            </Button>
+            <Button variant="go" onClick={onConfirm}>
               {confirmLabel}
-            </button>
+            </Button>
           </div>
         </div>
       )}
