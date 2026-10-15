@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
+import { clampSelection, defaultSelection, followSelection, keepSelectionOnReload, pointerMoved } from './selection.ts';
+
+void test('opening selects the newest history card, right after the pins', () => {
+  assert.equal(defaultSelection(0, 5), 0);
+  assert.equal(defaultSelection(2, 5), 2);
+  assert.equal(defaultSelection(3, 1), 3);
+});
+
+void test('with no history the first pin is selected', () => {
+  assert.equal(defaultSelection(2, 0), 0);
+  assert.equal(defaultSelection(0, 0), 0);
+});
+
+void test('selection stays inside the combined pinned + history list', () => {
+  assert.equal(clampSelection(-1, 4), 0);
+  assert.equal(clampSelection(4, 4), 3);
+  assert.equal(clampSelection(2, 4), 2);
+  // A card moving between areas can shrink the list under the selection.
+  assert.equal(clampSelection(5, 3), 2);
+  assert.equal(clampSelection(1, 0), 0);
+});
+
+void test('a reload keeps the same card selected when it moves between areas', () => {
+  // History card 12 at index 3 (after pins 1, 2) gets pinned: it is now the third pin.
+  assert.equal(followSelection(12, 3, [1, 2, 12, 11, 13]), 2);
+  // Pin 1 at index 0 gets unpinned and returns to the front of the history.
+  assert.equal(followSelection(1, 0, [2, 1, 11]), 1);
+});
+
+void test('when the selected card is gone the index is kept, so the next card is selected', () => {
+  assert.equal(followSelection(12, 1, [11, 13]), 1);
+  assert.equal(followSelection(12, 5, [11, 13]), 1);
+  assert.equal(followSelection(undefined, 0, [11]), 0);
+});
+
+void test('a new clip moves the selection to the newest card', () => {
+  assert.equal(keepSelectionOnReload(true, true), false);
+});
+
+void test('other changes keep the selected card while the panel is open', () => {
+  assert.equal(keepSelectionOnReload(true, false), true);
+});
+
+void test('closed_panel_never_keeps_selection', () => {
+  assert.equal(keepSelectionOnReload(false, false), false);
+  assert.equal(keepSelectionOnReload(false, true), false);
+});
+
+void test('the first pointer event is only a baseline', () => {
+  assert.equal(pointerMoved(null, 10, 10), false);
+});
+
+void test('a mousemove at the same spot (content scrolled under the cursor) is not a move', () => {
+  assert.equal(pointerMoved({ x: 10, y: 10 }, 10, 10), false);
+});
+
+void test('a real move selects', () => {
+  assert.equal(pointerMoved({ x: 10, y: 10 }, 11, 10), true);
+});

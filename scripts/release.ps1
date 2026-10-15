@@ -12,6 +12,11 @@ $repo = "bob-park/vee-app"
 $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
 $tag = "v$version"
 
+# A published release that already has this platform's build is shipped: overwriting it would
+# change what users installed without a version bump. (Adding a missing platform is fine.)
+$shipped = gh release view $tag -R $repo --json isDraft,assets -q 'select(.isDraft == false) | .assets[].name | select(endswith("_x64-setup.exe"))' 2> $null
+if ($shipped) { throw "$tag is already published with a Windows build ($shipped). Bump the version first (docs/release.md)." }
+
 yarn tauri build
 if ($LASTEXITCODE) { throw "tauri build failed" }
 

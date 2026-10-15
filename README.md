@@ -3,7 +3,7 @@
 복사한 텍스트·링크·이미지·파일을 기록해 두고, 단축키 하나로 화면 하단에 카드로 펼쳐 다시 꺼내 쓰는 클립보드 히스토리 앱입니다. macOS 앱 [Paste](https://pasteapp.io)에서 영감을 받았습니다.
 
 - **지원 OS**: macOS (Apple Silicon), Windows 10/11 (x64)
-- **기술 스택**: Tauri 2 (Rust) + React + TypeScript
+- **기술 스택**: Tauri 2 (Rust) + React + TypeScript + Tailwind CSS (daisyUI)
 
 ## 미리보기
 
@@ -91,6 +91,7 @@
 
 - [개발 환경 구성과 빌드](docs/development.md)
 - [릴리스 절차](docs/release.md)
+- [에이전트용 규칙 (AGENTS.md)](AGENTS.md): 구조, 코딩 규칙, 브랜치·버전 규칙 (`docs/agents/`)
 - [설계 문서](docs/superpowers/specs/2026-10-07-vee-clipboard-history-design.md)
 - [v0.4.0 설계: 카드 UI · 앱 태그 검색 · 애니메이션](docs/superpowers/specs/2026-10-08-panel-animations-design.md)
 

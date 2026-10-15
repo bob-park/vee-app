@@ -1,0 +1,46 @@
+---
+title: Configuration & Secrets
+scope: src-tauri/tauri.conf.json, src-tauri/capabilities/**, .yarnrc.yml, scripts/**
+applies_to: changing app config, windows, permissions, or anything touching keys and tokens
+related:
+  - ./build-run.md
+  - ./workflow/release.md
+  - ./conventions/tauri-commands.md
+---
+
+# Configuration & Secrets
+
+> App config is `src-tauri/tauri.conf.json`. Webview permissions are in `src-tauri/capabilities/default.json`. Secrets (signing keys, Apple credentials, npm token) live **outside the repo**: `~/.config/vee/sign.env` and the `GITHUB_NPM_AUTH_TOKEN` env var. **Never commit a secret.**
+
+## `tauri.conf.json`
+
+| Field | Notes |
+| ----- | ----- |
+| `version` | source of truth for the app version — changed only by `bump-version-up.sh` ([versioning](./workflow/versioning.md)) |
+| `productName`, `identifier` | `Vee` / `com.bobpark.vee`; release scripts depend on `productName` for file names, and the identifier names the user's data folder — never change it |
+| `app.macOSPrivateApi` | `true`, for the transparent panel/toast windows |
+| `app.windows` | `panel`, `toast`, `settings`, `whats-new`, all `create: false` (built in `setup` after state exists), all `visible: false` |
+| `bundle.targets` | `app`, `dmg`, `nsis` |
+| `bundle.createUpdaterArtifacts` | `true` — full builds need the signing key |
+| `plugins.updater.pubkey` | public half of the updater key ([release](../release.md)) |
+| `plugins.updater.endpoints` | `…/releases/latest/download/latest.json` of `bob-park/vee-app` |
+| `plugins.updater.windows.installMode` | `passive` |
+
+## Capabilities
+
+- `capabilities/default.json` lists the windows (`panel`, `toast`, `settings`, `whats-new`) and `core:default`, `dialog:default`.
+- A plugin API **called from JS** needs its permission here. Rust-only plugin use (global-shortcut, autostart, updater) does not.
+- A new window label must be added here.
+
+## Secrets
+
+| Secret | Where | Used by |
+| ------ | ----- | ------- |
+| Apple signing identity, Apple ID, app password, team ID | `~/.config/vee/sign.env` | `scripts/release.sh` (notarization) |
+| `TAURI_SIGNING_PRIVATE_KEY` (+ password) | `sign.env` on each release machine (`%USERPROFILE%\.config\vee\sign.env` on Windows) | `yarn tauri build`, both release scripts |
+| `GITHUB_NPM_AUTH_TOKEN` | shell env (GitHub PAT with `read:packages`) | `yarn install` (`@bob-park/*` from GitHub Packages, via `.yarnrc.yml`) |
+| `GITHUB_TOKEN` | Actions-provided | `bump-version.yml` |
+
+- Don't print secrets in logs, scripts, or commit messages.
+- The repo is public, but `@bob-park/*` packages still need a token: an outside contributor needs their own PAT with `read:packages` to run `yarn install`.
+- If a key file path is wrong, the build fails late with `Invalid symbol 46` ([release](../release.md#문제-해결)).

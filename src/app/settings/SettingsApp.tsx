@@ -1,0 +1,276 @@
+import { useEffect, useState } from 'react';
+
+import Button from '@/app/settings/_components/Button';
+import { ConfirmModal } from '@/app/settings/_components/ConfirmModal';
+import { Dropdown } from '@/app/settings/_components/Dropdown';
+import { HistorySection } from '@/app/settings/_components/HistorySection';
+import Row from '@/app/settings/_components/Row';
+import Segmented from '@/app/settings/_components/Segmented';
+import SettingSection from '@/app/settings/_components/SettingSection';
+import { ShortcutRecorder } from '@/app/settings/_components/ShortcutRecorder';
+import Switch from '@/app/settings/_components/Switch';
+import { type SettingsTab, Tabs } from '@/app/settings/_components/Tabs';
+import { resetPanelHeight } from '@/domain/panel/apis/panel';
+import {
+  openDiskAccessSettings,
+  previewSound,
+  setAutostart,
+  setSetting,
+  setShortcut,
+} from '@/domain/settings/apis/settings';
+import { SOUND_NAMES, type SoundName } from '@/domain/settings/apis/settings.dto';
+import { useDiskAccess, useSettingUpdate, useSettings } from '@/domain/settings/queries/settings';
+import { checkUpdate, installUpdate } from '@/domain/updater/apis/updater';
+import { useUpdateStatus } from '@/domain/updater/queries/updater';
+import { relativeTime } from '@/shared/i18n';
+import { useI18n } from '@/shared/providers/i18n/I18nProvider';
+import { errorText } from '@/utils/errorText';
+import { PANEL_KEYS } from '@/utils/keys';
+
+import { listen } from '@tauri-apps/api/event';
+
+function UpdateRow({ version }: { version: string }) {
+  // hooks
+  const { t, locale } = useI18n();
+
+  // queries
+  const { status } = useUpdateStatus();
+
+  const s = t.settings;
+
+  const detail = (() => {
+    switch (status.status) {
+      case 'idle':
+        return s.notChecked;
+      case 'checking':
+        return s.checking;
+      case 'upToDate':
+        return `${s.upToDate} · ${relativeTime(status.checkedAt, locale)}`;
+      case 'failed':
+        return `${s.checkFailed} · ${relativeTime(status.checkedAt, locale)}`;
+      case 'ready':
+        return s.updateReady(status.version);
+    }
+  })();
+
+  return (
+    <Row label={s.updates} hint={`${s.version(version)} · ${detail}`}>
+      {status.status === 'ready' ? (
+        <Button onClick={() => void installUpdate()}>{s.restartToUpdate}</Button>
+      ) : (
+        <Button disabled={status.status === 'checking'} onClick={() => void checkUpdate()}>
+          {s.checkNow}
+        </Button>
+      )}
+    </Row>
+  );
+}
+
+/**
+ * macOS only; re-checked on focus so it updates after the user returns from System Settings.
+ * Brings its own card so no empty card shows while the state is unknown.
+ */
+function DiskAccessRow() {
+  // hooks
+  const s = useI18n().t.settings;
+
+  // queries
+  const { granted } = useDiskAccess();
+
+  if (granted === null) return null;
+  return (
+    <SettingSection>
+      <Row label={s.diskAccess} hint={s.diskAccessHint}>
+        {granted ? (
+          <span className="text-muted font-semibold">{s.diskAccessGranted}</span>
+        ) : (
+          <Button onClick={() => void openDiskAccessSettings()}>{s.diskAccessGrant}</Button>
+        )}
+      </Row>
+    </SettingSection>
+  );
+}
+
+export function SettingsApp() {
+  // state
+  const [error, setError] = useState<string | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [tab, setTab] = useState<SettingsTab>('general');
+
+  // hooks
+  const { t } = useI18n();
+
+  // queries
+  const { settings } = useSettings();
+  const { updateSetting } = useSettingUpdate({
+    onSuccess: () => setError(null),
+    onError: (e) => setError(errorText(e)),
+  });
+
+  // useEffect
+  // The window is only hidden on close, so state survives; every open starts on the general tab.
+  useEffect(() => {
+    const unlisten = listen('settings://opened', () => changeTab('general'));
+    return () => void unlisten.then((off) => off());
+  }, []);
+
+  // handle
+  const changeTab = (next: SettingsTab) => {
+    setTab(next);
+    setError(null);
+  };
+  const run = (p: Promise<unknown>) => void p.then(() => setError(null)).catch((e) => setError(errorText(e)));
+
+  const s = t.settings;
+  if (!settings) return null;
+
+  return (
+    <main className="flex h-full flex-col">
+      <Tabs value={tab} onChange={changeTab} />
+      {/* Extra bottom room so the app picker's popup near the end never runs past the window. */}
+      <div
+        className="flex-1 overflow-y-auto px-7 pt-4 pb-32"
+        id="settings-panel"
+        role="tabpanel"
+        aria-labelledby={`tab-${tab}`}
+      >
+        {tab === 'general' && (
+          <SettingSection>
+            <Row label={s.theme}>
+              <Segmented
+                value={settings.theme}
+                onChange={(v) => updateSetting({ key: 'theme', value: v })}
+                options={[
+                  { value: 'system', label: s.system },
+                  { value: 'light', label: s.light },
+                  { value: 'dark', label: s.dark },
+                ]}
+              />
+            </Row>
+            <Row label={s.language}>
+              <Segmented
+                value={settings.locale}
+                onChange={(v) => updateSetting({ key: 'locale', value: v })}
+                options={[
+                  { value: 'system', label: s.system },
+                  { value: 'ko', label: '한국어' },
+                  { value: 'en', label: 'English' },
+                ]}
+              />
+            </Row>
+            <Row label={s.launchAtLogin}>
+              <Switch
+                ariaLabel={s.launchAtLogin}
+                checked={settings.autostart}
+                onChange={(checked) => run(setAutostart(checked))}
+              />
+            </Row>
+            <UpdateRow version={settings.version} />
+          </SettingSection>
+        )}
+        {tab === 'panel' && (
+          <SettingSection>
+            <Row label={s.copySound}>
+              <Switch
+                ariaLabel={s.copySound}
+                checked={settings.sound === 'on'}
+                onChange={(checked) => updateSetting({ key: 'sound', value: checked ? 'on' : 'off' })}
+              />
+            </Row>
+            <Row label={s.soundName} hint={s.soundNameHint} dim={settings.sound !== 'on'}>
+              <div className="flex items-center gap-1.5">
+                <Dropdown
+                  ariaLabel={s.soundName}
+                  value={settings.soundName}
+                  disabled={settings.sound !== 'on'}
+                  options={SOUND_NAMES.map((name) => ({ value: name, label: s.sounds[name] }))}
+                  onChange={(name: SoundName) => {
+                    updateSetting({ key: 'soundName', value: name });
+                    void previewSound(name);
+                  }}
+                />
+                <Button
+                  small
+                  aria-label={s.preview}
+                  title={s.preview}
+                  disabled={settings.sound !== 'on' || settings.soundName === 'none'}
+                  onClick={() => void previewSound(settings.soundName)}
+                >
+                  ▶
+                </Button>
+              </div>
+            </Row>
+            <Row label={s.confirmDelete} hint={s.confirmDeleteHint}>
+              <Switch
+                ariaLabel={s.confirmDelete}
+                checked={settings.confirmDelete === 'on'}
+                onChange={(checked) => updateSetting({ key: 'confirmDelete', value: checked ? 'on' : 'off' })}
+              />
+            </Row>
+            <Row label={s.panelResize} hint={s.panelResizeHint}>
+              <Switch
+                ariaLabel={s.panelResize}
+                checked={settings.panelResize === 'on'}
+                onChange={(checked) => updateSetting({ key: 'panelResize', value: checked ? 'on' : 'off' })}
+              />
+            </Row>
+            {/* Stays enabled while resizing is off: the saved size is kept. */}
+            <Row label={s.panelSizeReset}>
+              <Button disabled={settings.panelHeightRatio === ''} onClick={() => setConfirmReset(true)}>
+                {s.reset}
+              </Button>
+            </Row>
+          </SettingSection>
+        )}
+        {tab === 'shortcuts' && (
+          <SettingSection>
+            <Row label={s.shortcut} hint={s.shortcutHint}>
+              <ShortcutRecorder
+                value={settings.shortcut}
+                onSave={setShortcut}
+                taken={[...PANEL_KEYS, settings.panelPinShortcut, settings.resetSearchShortcut]}
+              />
+            </Row>
+            <Row label={s.panelPinShortcut} hint={s.panelPinShortcutHint}>
+              <ShortcutRecorder
+                value={settings.panelPinShortcut}
+                onSave={(accel) => setSetting('panelPinShortcut', accel)}
+                taken={[...PANEL_KEYS, settings.shortcut, settings.resetSearchShortcut]}
+              />
+            </Row>
+            <Row label={s.resetSearchShortcut} hint={s.resetSearchShortcutHint}>
+              <ShortcutRecorder
+                value={settings.resetSearchShortcut}
+                onSave={(accel) => setSetting('resetSearchShortcut', accel)}
+                taken={[...PANEL_KEYS, settings.shortcut, settings.panelPinShortcut]}
+              />
+            </Row>
+          </SettingSection>
+        )}
+        {tab === 'history' && (
+          <>
+            <DiskAccessRow />
+            <HistorySection run={run} updateSetting={updateSetting} />
+          </>
+        )}
+      </div>
+      <ConfirmModal
+        open={confirmReset}
+        title={s.panelSizeReset}
+        body={s.panelSizeResetBody}
+        confirmLabel={s.reset}
+        onConfirm={() => {
+          run(resetPanelHeight());
+          setConfirmReset(false);
+        }}
+        onCancel={() => setConfirmReset(false)}
+      />
+      {/* Same side padding as the tab body, which the error sits below. */}
+      {error && (
+        <p className="text-error px-7 pt-2 pb-3 text-[12px]" role="alert">
+          {error}
+        </p>
+      )}
+    </main>
+  );
+}
