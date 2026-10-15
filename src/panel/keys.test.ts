@@ -15,6 +15,7 @@ const press = (key: string, extra: Partial<KeyInput> = {}) =>
     metaOrCtrl: false,
     code: "",
     panelPinCombo: false,
+    resetCombo: false,
     ...extra,
   });
 
@@ -131,4 +132,12 @@ test("the panel pin shortcut wins over card pin and ignores auto-repeat", () => 
   assert.deepEqual(press("P", combo), { type: "togglePanelPin" });
   assert.equal(press("P", { ...combo, repeat: true }), null);
   assert.deepEqual(press("p", { metaOrCtrl: true, code: "KeyP" }), { type: "togglePin" });
+});
+
+test("the reset shortcut clears the search once per press", () => {
+  const combo = { metaOrCtrl: true, code: "KeyK", resetCombo: true };
+  assert.deepEqual(press("k", combo), { type: "resetSearch" });
+  assert.equal(press("k", { ...combo, repeat: true }), null);
+  assert.equal(press("k", { ...combo, isComposing: true }), null);
+  assert.deepEqual(press("k", { ...combo, suggesting: true }), { type: "resetSearch" });
 });
