@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { App } from "@/domain/source_app/apis/sourceApp.dto";
-import { highlight } from "@/app/panel/_components/Toolbar";
+import { highlight } from "@/shared/components/highlight";
 import { usePrefs } from "@/prefs";
 import { nextIndex } from "@/utils/dropdownKeys";
 

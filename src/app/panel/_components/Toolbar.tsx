@@ -2,6 +2,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import type { Filter } from "@/domain/clip/apis/clip.dto";
 import type { App } from "@/domain/source_app/apis/sourceApp.dto";
 import { usePrefs } from "@/prefs";
+import { highlight } from "@/shared/components/highlight";
 import { acceleratorKeys } from "@/utils/accelerator";
 
 export const FILTERS: Filter[] = ["all", "text", "image", "files", "link"];
@@ -19,19 +20,6 @@ function Tip({ label, accel }: { label: string; accel: string }) {
         ))}
       </span>
     </span>
-  );
-}
-
-/** The app name with the part matching `q` in bold. */
-export function highlight(name: string, q: string) {
-  const i = q ? name.toLowerCase().indexOf(q.toLowerCase()) : -1;
-  if (i < 0) return name;
-  return (
-    <>
-      {name.slice(0, i)}
-      <b>{name.slice(i, i + q.length)}</b>
-      {name.slice(i + q.length)}
-    </>
   );
 }
 

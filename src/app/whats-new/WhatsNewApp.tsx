@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { dismissWhatsNew, getWhatsNew } from "@/domain/whats_new/apis/whatsNew";
+import type { WhatsNew } from "@/domain/whats_new/apis/whatsNew.dto";
 import { usePrefs } from "@/prefs";
 import { parseNotes, type Block, type Inline } from "@/utils/notes";
 import "./whatsnew.css";
@@ -42,7 +43,7 @@ function render(blocks: Block[]) {
 
 export function WhatsNewApp() {
   const { t } = usePrefs();
-  const [data, setData] = useState<{ version: string; notes: string } | null>(null);
+  const [data, setData] = useState<WhatsNew | null>(null);
 
   useEffect(() => {
     void getWhatsNew().then(setData).catch(() => void dismissWhatsNew());
