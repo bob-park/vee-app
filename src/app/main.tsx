@@ -1,5 +1,7 @@
 import { StrictMode } from 'react';
 
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
+
 import { PanelApp } from '@/app/panel/PanelApp';
 import { SettingsApp } from '@/app/settings/SettingsApp';
 import { ToastApp } from '@/app/toast/ToastApp';
@@ -38,6 +40,8 @@ createRoot(document.getElementById('root')!).render(
           <View />
         </I18nProvider>
       </ThemeProvider>
+      {/* Settings only: the button would sit on the panel, toast and what's-new content. */}
+      {import.meta.env.DEV && label === 'settings' && <ReactQueryDevtools initialIsOpen={false} />}
     </RQProvider>
   </StrictMode>,
 );

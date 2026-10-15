@@ -23,14 +23,11 @@ export function useSettings() {
 }
 
 export function useSettingUpdate({ onSuccess, onError }: QueryMutationHandle<void> = {}) {
-  const queryClient = useQueryClient();
-
   const { mutate, isPending } = useMutation<void, AppError, { key: SettingKey; value: string }>({
     mutationKey: ['settings', 'update'],
     mutationFn: ({ key, value }) => setSetting(key, value),
+    // set_setting emits `settings://changed`, which refetches the settings in every window.
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
-
       onSuccess?.();
     },
     onError: (err) => {

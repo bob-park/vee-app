@@ -16,6 +16,8 @@ export function useUpdateStatus() {
   const { data } = useQuery<UpdateStatus>({
     queryKey: STATUS_QUERY_KEY,
     queryFn: getUpdateStatus,
+    // Refetched on every mount: a tray-initiated check while UpdateRow was hidden had no listener.
+    staleTime: 0,
   });
 
   useEffect(() => {
