@@ -30,6 +30,7 @@ export const en = {
   updateRestartHint: "Vee will restart briefly",
   restart: "Restart",
   updateFailed: "Couldn't update",
+  whatsNew: { title: "What's new in Vee", ok: "OK" },
   settings: {
     title: "Settings",
     tabs: { general: "General", panel: "Panel", shortcuts: "Shortcuts", history: "History" },

@@ -112,4 +112,8 @@ export const api = {
   checkUpdate: () => invoke<UpdateStatus>("check_update"),
   getUpdateStatus: () => invoke<UpdateStatus>("get_update_status"),
   installUpdate: () => invoke<void>("install_update_and_restart"),
+  /** The release notes to show once after an update; null when there's nothing to show. */
+  getWhatsNew: () => invoke<{ version: string; notes: string } | null>("get_whats_new"),
+  /** Forgets the notes and hides the window. */
+  dismissWhatsNew: () => invoke<void>("dismiss_whats_new"),
 };

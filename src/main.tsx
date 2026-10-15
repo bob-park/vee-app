@@ -5,11 +5,13 @@ import { PrefsProvider } from "./prefs.tsx";
 import { Panel } from "./panel/Panel.tsx";
 import { Settings } from "./settings/Settings.tsx";
 import { Toast } from "./toast/Toast.tsx";
+import { WhatsNew } from "./whatsnew/WhatsNew.tsx";
 import "./theme.css";
 
 const label = getCurrentWindow().label;
 document.documentElement.dataset.window = label;
-const View = label === "panel" ? Panel : label === "toast" ? Toast : Settings;
+const View =
+  label === "panel" ? Panel : label === "toast" ? Toast : label === "whats-new" ? WhatsNew : Settings;
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

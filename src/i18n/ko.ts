@@ -32,6 +32,7 @@ export const ko: Dict = {
   updateRestartHint: "Vee가 잠깐 재시작돼요",
   restart: "재시작",
   updateFailed: "업데이트하지 못했어요",
+  whatsNew: { title: "새로워진 Vee", ok: "확인" },
   settings: {
     title: "설정",
     tabs: { general: "일반", panel: "패널", shortcuts: "단축키", history: "기록" },
