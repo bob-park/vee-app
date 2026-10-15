@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clampSelection, defaultSelection, followSelection, keepSelectionOnReload } from "./selection.ts";
+import { clampSelection, defaultSelection, followSelection, keepSelectionOnReload, pointerMoved } from "./selection.ts";
 
 test("opening selects the newest history card, right after the pins", () => {
   assert.equal(defaultSelection(0, 5), 0);
@@ -46,4 +46,16 @@ test("other changes keep the selected card while the panel is open", () => {
 test("closed_panel_never_keeps_selection", () => {
   assert.equal(keepSelectionOnReload(false, false), false);
   assert.equal(keepSelectionOnReload(false, true), false);
+});
+
+test("the first pointer event is only a baseline", () => {
+  assert.equal(pointerMoved(null, 10, 10), false);
+});
+
+test("a mousemove at the same spot (content scrolled under the cursor) is not a move", () => {
+  assert.equal(pointerMoved({ x: 10, y: 10 }, 10, 10), false);
+});
+
+test("a real move selects", () => {
+  assert.equal(pointerMoved({ x: 10, y: 10 }, 11, 10), true);
 });

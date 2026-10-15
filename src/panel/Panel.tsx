@@ -7,7 +7,7 @@ import { Card } from "./Card.tsx";
 import { dragFileName } from "./fileThumb.ts";
 import { panelKeyAction } from "./keys.ts";
 import { cancelFloat, cardLefts, floatCard, playFlip, reducedMotion } from "./motion.ts";
-import { clampSelection, defaultSelection, followSelection, keepSelectionOnReload } from "./selection.ts";
+import { clampSelection, defaultSelection, followSelection, keepSelectionOnReload, pointerMoved, type Point } from "./selection.ts";
 import { ResizeHandle } from "./ResizeHandle.tsx";
 import { FILTERS, Toolbar } from "./Toolbar.tsx";
 import "./panel.css";
@@ -50,6 +50,10 @@ export function Panel() {
   /** Lets a reload follow the selected card when pinning moves it to the other area. */
   const selectedIdRef = useRef<number | undefined>(undefined);
   selectedIdRef.current = items[selected]?.id;
+  /** Last cursor position over a card; null until the first move after the panel opens. */
+  const lastPointer = useRef<Point | null>(null);
+  /** The next selection change came from hovering: the card is already under the cursor, don't scroll. */
+  const hoverSelected = useRef(false);
 
   // While `@…` is being typed it names an app, not text to search for.
   const suggesting = app === null && query.startsWith("@");
@@ -147,6 +151,7 @@ export function Panel() {
       () => void reloadRef.current(keepSelectionOnReload(openRef.current, true), true),
     );
     const offOpened = listen("panel://opened", () => {
+      lastPointer.current = null;
       setClosing(false);
       inputRef.current?.focus();
       // The window is shown transparent; reveal it once the parked frame is on screen, then slide.
@@ -161,6 +166,7 @@ export function Panel() {
     });
     // Reset while hidden so the next open slides in finished content.
     const offClosed = listen("panel://closed", () => {
+      lastPointer.current = null;
       setOpen(false);
       setClosing(false);
       setDragging(false);
@@ -191,9 +197,11 @@ export function Panel() {
 
   const selectedId = items[selected]?.id;
   useEffect(() => {
-    bodyRef.current
-      ?.querySelector(`[data-id="${selectedId}"]`)
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (hoverSelected.current) hoverSelected.current = false;
+    else
+      bodyRef.current
+        ?.querySelector(`[data-id="${selectedId}"]`)
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
     if (selected >= items.length - 5) void loadMore();
   }, [selectedId, selected, items.length, loadMore]);
 
@@ -345,6 +353,14 @@ export function Panel() {
       onSelect={() => {
         setSelected(i);
         setConfirmingId(null);
+      }}
+      // Hovering only moves the selection; a pending delete confirmation stays.
+      onHover={(x, y) => {
+        const moved = pointerMoved(lastPointer.current, x, y);
+        lastPointer.current = { x, y };
+        if (!moved || dragging || i === selected) return;
+        hoverSelected.current = true;
+        setSelected(i);
       }}
       onCopy={(plain) => copy(clip, plain)}
       onTogglePin={() => togglePin(clip)}
