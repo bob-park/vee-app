@@ -50,8 +50,14 @@ export function Panel() {
   /** Lets a reload follow the selected card when pinning moves it to the other area. */
   const selectedIdRef = useRef<number | undefined>(undefined);
   selectedIdRef.current = items[selected]?.id;
-  /** Last cursor position over a card; null until the first move after the panel opens. */
+  /**
+   * Last cursor position anywhere over the panel, gaps included; null until the first move after
+   * the panel opens. Tracked on the panel so a card sliding under a still cursor compares against
+   * where the cursor really is.
+   */
   const lastPointer = useRef<Point | null>(null);
+  /** Whether the current mousemove is a real pointer move, set before the card sees the event. */
+  const pointerMovedNow = useRef(false);
   /** The next selection change came from hovering: the card is already under the cursor, don't scroll. */
   const hoverSelected = useRef(false);
 
@@ -167,6 +173,7 @@ export function Panel() {
     // Reset while hidden so the next open slides in finished content.
     const offClosed = listen("panel://closed", () => {
       lastPointer.current = null;
+      hoverSelected.current = false;
       setOpen(false);
       setClosing(false);
       setDragging(false);
@@ -175,6 +182,7 @@ export function Panel() {
     const offDragCancelled = listen("panel://drag-cancelled", () => setDragging(false));
     // A pinned panel never closed, so the shortcut or tray only hands focus back; start fresh like an open.
     const offRefocused = listen("panel://refocused", () => {
+      hoverSelected.current = false;
       resetView();
       inputRef.current?.focus();
     });
@@ -355,10 +363,8 @@ export function Panel() {
         setConfirmingId(null);
       }}
       // Hovering only moves the selection; a pending delete confirmation stays.
-      onHover={(x, y) => {
-        const moved = pointerMoved(lastPointer.current, x, y);
-        lastPointer.current = { x, y };
-        if (!moved || dragging || i === selected) return;
+      onHover={() => {
+        if (!pointerMovedNow.current || dragging || i === selected) return;
         hoverSelected.current = true;
         setSelected(i);
       }}
@@ -382,6 +388,11 @@ export function Panel() {
     <div
       className={["panel", open && "open", closing && "closing", dragging && "dragging", panelPinned && "pinned"].filter(Boolean).join(" ")}
       onKeyDown={onKeyDown}
+      // Capture runs before the card's handler, so the card sees this event's verdict.
+      onMouseMoveCapture={(e) => {
+        pointerMovedNow.current = pointerMoved(lastPointer.current, e.screenX, e.screenY);
+        lastPointer.current = { x: e.screenX, y: e.screenY };
+      }}
       // Keep keyboard focus in the search box no matter what is clicked.
       onMouseDown={(e) => {
         if (e.target !== inputRef.current) e.preventDefault();

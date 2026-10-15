@@ -143,11 +143,20 @@ export function Settings() {
   const [error, setError] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [tab, setTab] = useState<SettingsTab>("general");
+  const changeTab = (next: SettingsTab) => {
+    setTab(next);
+    setError(null);
+  };
+  // The window is only hidden on close, so state survives; every open starts on the general tab.
+  useEffect(() => {
+    const unlisten = listen("settings://opened", () => changeTab("general"));
+    return () => void unlisten.then((off) => off());
+  }, []);
   const run = (p: Promise<unknown>) => void p.then(() => setError(null)).catch((e) => setError(String(e)));
 
   return (
     <main className="settings">
-      <Tabs value={tab} onChange={setTab} />
+      <Tabs value={tab} onChange={changeTab} />
       <div className="tab-body" id="settings-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
         {tab === "general" && (
           <section>

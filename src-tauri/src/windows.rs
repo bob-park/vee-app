@@ -361,6 +361,8 @@ pub fn follow_active_space(app: &AppHandle) {
 
 pub fn show_settings(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(SETTINGS) {
+        // Hidden, not destroyed, on close; tell the page to start over on the general tab.
+        let _ = app.emit_to(SETTINGS, "settings://opened", ());
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();

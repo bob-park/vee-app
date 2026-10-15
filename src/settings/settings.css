@@ -259,6 +259,8 @@
 }
 
 .error {
+  /* Same side padding as .tab-body, which the error sits below. */
+  padding: 8px 28px 12px;
   color: var(--danger);
   font-size: 12px;
 }

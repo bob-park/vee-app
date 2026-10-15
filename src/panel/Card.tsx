@@ -10,8 +10,8 @@ interface Props {
   clip: Clip;
   selected: boolean;
   onSelect: () => void;
-  /** Every mousemove over the card, in screen coordinates. */
-  onHover: (screenX: number, screenY: number) => void;
+  /** Every mousemove over the card; the panel decides whether the pointer really moved. */
+  onHover: () => void;
   /** `plain` copies text without its formatting (shift held). */
   onCopy: (plain: boolean) => void;
   onTogglePin: () => void;
@@ -127,7 +127,7 @@ export function Card({
         press.current = onDragOut ? { x: e.clientX, y: e.clientY } : null;
       }}
       onMouseMove={(e) => {
-        onHover(e.screenX, e.screenY);
+        onHover();
         const p = press.current;
         if (!p || !onDragOut) return;
         if ((e.buttons & 1) === 0) {

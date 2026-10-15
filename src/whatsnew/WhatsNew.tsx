@@ -45,7 +45,7 @@ export function WhatsNew() {
   const [data, setData] = useState<{ version: string; notes: string } | null>(null);
 
   useEffect(() => {
-    void api.getWhatsNew().then(setData);
+    void api.getWhatsNew().then(setData).catch(() => void api.dismissWhatsNew());
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Enter" && e.key !== "Escape") return;
       // Keeps Enter from also clicking the focused button.
