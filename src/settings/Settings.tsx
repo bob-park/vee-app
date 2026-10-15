@@ -9,6 +9,7 @@ import { ConfirmModal } from "./ConfirmModal.tsx";
 import { Dropdown } from "./Dropdown.tsx";
 import { HistorySection } from "./HistorySection.tsx";
 import { ShortcutRecorder } from "./ShortcutRecorder.tsx";
+import { Tabs, type SettingsTab } from "./Tabs.tsx";
 import "./settings.css";
 
 export function Row({
@@ -105,7 +106,10 @@ function UpdateRow() {
   );
 }
 
-/** macOS only; re-checked on focus so it updates after the user returns from System Settings. */
+/**
+ * macOS only; re-checked on focus so it updates after the user returns from System Settings.
+ * Brings its own card so no empty card shows while the state is unknown.
+ */
 function DiskAccessRow() {
   const s = usePrefs().t.settings;
   const [granted, setGranted] = useState<boolean | null>(null);
@@ -119,15 +123,17 @@ function DiskAccessRow() {
 
   if (granted === null) return null;
   return (
-    <Row label={s.diskAccess} hint={s.diskAccessHint}>
-      {granted ? (
-        <span className="granted">{s.diskAccessGranted}</span>
-      ) : (
-        <button className="btn" onClick={() => void api.openDiskAccessSettings()}>
-          {s.diskAccessGrant}
-        </button>
-      )}
-    </Row>
+    <section>
+      <Row label={s.diskAccess} hint={s.diskAccessHint}>
+        {granted ? (
+          <span className="granted">{s.diskAccessGranted}</span>
+        ) : (
+          <button className="btn" onClick={() => void api.openDiskAccessSettings()}>
+            {s.diskAccessGrant}
+          </button>
+        )}
+      </Row>
+    </section>
   );
 }
 
@@ -136,121 +142,138 @@ export function Settings() {
   const s = t.settings;
   const [error, setError] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [tab, setTab] = useState<SettingsTab>("general");
   const run = (p: Promise<unknown>) => void p.then(() => setError(null)).catch((e) => setError(String(e)));
 
   return (
     <main className="settings">
-      <h1>{s.title}</h1>
-      <section>
-        <Row label={s.theme}>
-          <Segmented
-            value={settings.theme}
-            onChange={(v) => run(api.setSetting("theme", v))}
-            options={[
-              { value: "system", label: s.system },
-              { value: "light", label: s.light },
-              { value: "dark", label: s.dark },
-            ]}
-          />
-        </Row>
-        <Row label={s.language}>
-          <Segmented
-            value={settings.locale}
-            onChange={(v) => run(api.setSetting("locale", v))}
-            options={[
-              { value: "system", label: s.system },
-              { value: "ko", label: "한국어" },
-              { value: "en", label: "English" },
-            ]}
-          />
-        </Row>
-        <Row label={s.launchAtLogin}>
-          <input
-            type="checkbox"
-            role="switch"
-            className="switch"
-            aria-label={s.launchAtLogin}
-            checked={settings.autostart}
-            onChange={(e) => run(api.setAutostart(e.target.checked))}
-          />
-        </Row>
-        <Row label={s.copySound}>
-          <input
-            type="checkbox"
-            role="switch"
-            className="switch"
-            aria-label={s.copySound}
-            checked={settings.sound === "on"}
-            onChange={(e) => run(api.setSetting("sound", e.target.checked ? "on" : "off"))}
-          />
-        </Row>
-        <Row label={s.soundName} hint={s.soundNameHint} dim={settings.sound !== "on"}>
-          <div className="sound-pick">
-            <Dropdown
-              ariaLabel={s.soundName}
-              value={settings.soundName}
-              disabled={settings.sound !== "on"}
-              options={SOUND_NAMES.map((name) => ({ value: name, label: s.sounds[name] }))}
-              onChange={(name: SoundName) => {
-                run(api.setSetting("soundName", name));
-                void api.previewSound(name);
-              }}
-            />
-            <button
-              className="btn play"
-              aria-label={s.preview}
-              title={s.preview}
-              disabled={settings.sound !== "on" || settings.soundName === "none"}
-              onClick={() => void api.previewSound(settings.soundName)}
-            >
-              ▶
-            </button>
-          </div>
-        </Row>
-        <Row label={s.confirmDelete} hint={s.confirmDeleteHint}>
-          <input
-            type="checkbox"
-            role="switch"
-            className="switch"
-            aria-label={s.confirmDelete}
-            checked={settings.confirmDelete === "on"}
-            onChange={(e) => run(api.setSetting("confirmDelete", e.target.checked ? "on" : "off"))}
-          />
-        </Row>
-        <DiskAccessRow />
-        <Row label={s.panelResize} hint={s.panelResizeHint}>
-          <input
-            type="checkbox"
-            role="switch"
-            className="switch"
-            aria-label={s.panelResize}
-            checked={settings.panelResize === "on"}
-            onChange={(e) => run(api.setSetting("panelResize", e.target.checked ? "on" : "off"))}
-          />
-        </Row>
-        {/* Stays enabled while resizing is off: the saved size is kept. */}
-        <Row label={s.panelSizeReset}>
-          <button className="btn" disabled={settings.panelHeightRatio === ""} onClick={() => setConfirmReset(true)}>
-            {s.reset}
-          </button>
-        </Row>
-        <Row label={s.shortcut} hint={s.shortcutHint}>
-          <ShortcutRecorder
-            value={settings.shortcut}
-            onSave={api.setShortcut}
-            taken={[...PANEL_KEYS, settings.panelPinShortcut]}
-          />
-        </Row>
-        <Row label={s.panelPinShortcut} hint={s.panelPinShortcutHint}>
-          <ShortcutRecorder
-            value={settings.panelPinShortcut}
-            onSave={(accel) => api.setSetting("panelPinShortcut", accel)}
-            taken={[...PANEL_KEYS, settings.shortcut]}
-          />
-        </Row>
-        <UpdateRow />
-      </section>
-      <HistorySection run={run} />
+      <Tabs value={tab} onChange={setTab} />
+      <div className="tab-body" id="settings-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
+        {tab === "general" && (
+          <section>
+            <Row label={s.theme}>
+              <Segmented
+                value={settings.theme}
+                onChange={(v) => run(api.setSetting("theme", v))}
+                options={[
+                  { value: "system", label: s.system },
+                  { value: "light", label: s.light },
+                  { value: "dark", label: s.dark },
+                ]}
+              />
+            </Row>
+            <Row label={s.language}>
+              <Segmented
+                value={settings.locale}
+                onChange={(v) => run(api.setSetting("locale", v))}
+                options={[
+                  { value: "system", label: s.system },
+                  { value: "ko", label: "한국어" },
+                  { value: "en", label: "English" },
+                ]}
+              />
+            </Row>
+            <Row label={s.launchAtLogin}>
+              <input
+                type="checkbox"
+                role="switch"
+                className="switch"
+                aria-label={s.launchAtLogin}
+                checked={settings.autostart}
+                onChange={(e) => run(api.setAutostart(e.target.checked))}
+              />
+            </Row>
+            <UpdateRow />
+          </section>
+        )}
+        {tab === "panel" && (
+          <section>
+            <Row label={s.copySound}>
+              <input
+                type="checkbox"
+                role="switch"
+                className="switch"
+                aria-label={s.copySound}
+                checked={settings.sound === "on"}
+                onChange={(e) => run(api.setSetting("sound", e.target.checked ? "on" : "off"))}
+              />
+            </Row>
+            <Row label={s.soundName} hint={s.soundNameHint} dim={settings.sound !== "on"}>
+              <div className="sound-pick">
+                <Dropdown
+                  ariaLabel={s.soundName}
+                  value={settings.soundName}
+                  disabled={settings.sound !== "on"}
+                  options={SOUND_NAMES.map((name) => ({ value: name, label: s.sounds[name] }))}
+                  onChange={(name: SoundName) => {
+                    run(api.setSetting("soundName", name));
+                    void api.previewSound(name);
+                  }}
+                />
+                <button
+                  className="btn play"
+                  aria-label={s.preview}
+                  title={s.preview}
+                  disabled={settings.sound !== "on" || settings.soundName === "none"}
+                  onClick={() => void api.previewSound(settings.soundName)}
+                >
+                  ▶
+                </button>
+              </div>
+            </Row>
+            <Row label={s.confirmDelete} hint={s.confirmDeleteHint}>
+              <input
+                type="checkbox"
+                role="switch"
+                className="switch"
+                aria-label={s.confirmDelete}
+                checked={settings.confirmDelete === "on"}
+                onChange={(e) => run(api.setSetting("confirmDelete", e.target.checked ? "on" : "off"))}
+              />
+            </Row>
+            <Row label={s.panelResize} hint={s.panelResizeHint}>
+              <input
+                type="checkbox"
+                role="switch"
+                className="switch"
+                aria-label={s.panelResize}
+                checked={settings.panelResize === "on"}
+                onChange={(e) => run(api.setSetting("panelResize", e.target.checked ? "on" : "off"))}
+              />
+            </Row>
+            {/* Stays enabled while resizing is off: the saved size is kept. */}
+            <Row label={s.panelSizeReset}>
+              <button className="btn" disabled={settings.panelHeightRatio === ""} onClick={() => setConfirmReset(true)}>
+                {s.reset}
+              </button>
+            </Row>
+          </section>
+        )}
+        {tab === "shortcuts" && (
+          <section>
+            <Row label={s.shortcut} hint={s.shortcutHint}>
+              <ShortcutRecorder
+                value={settings.shortcut}
+                onSave={api.setShortcut}
+                taken={[...PANEL_KEYS, settings.panelPinShortcut]}
+              />
+            </Row>
+            <Row label={s.panelPinShortcut} hint={s.panelPinShortcutHint}>
+              <ShortcutRecorder
+                value={settings.panelPinShortcut}
+                onSave={(accel) => api.setSetting("panelPinShortcut", accel)}
+                taken={[...PANEL_KEYS, settings.shortcut]}
+              />
+            </Row>
+          </section>
+        )}
+        {tab === "history" && (
+          <>
+            <DiskAccessRow />
+            <HistorySection run={run} />
+          </>
+        )}
+      </div>
       <ConfirmModal
         open={confirmReset}
         title={s.panelSizeReset}

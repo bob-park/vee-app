@@ -116,7 +116,6 @@ export function HistorySection({ run }: { run: (p: Promise<unknown>) => void }) 
 
   return (
     <>
-      <h2 className="sec-title">{s.historySection}</h2>
       <section>
         <div className="setting-row col">
           <div>

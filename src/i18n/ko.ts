@@ -34,6 +34,7 @@ export const ko: Dict = {
   updateFailed: "업데이트하지 못했어요",
   settings: {
     title: "설정",
+    tabs: { general: "일반", panel: "패널", shortcuts: "단축키", history: "기록" },
     theme: "테마",
     language: "언어",
     system: "시스템",
@@ -72,7 +73,6 @@ export const ko: Dict = {
     updateReady: (v: string) => `v${v} 준비됨`,
     checkNow: "업데이트 확인",
     restartToUpdate: "업데이트 후 재시작",
-    historySection: "클립보드 기록",
     retention: "보관 기간",
     retentionHint: "마지막으로 쓴 지 기간이 지난 항목은 자동으로 정리돼요",
     retentionOptions: { off: "제한 없음", "7": "최근 7일", "30": "최근 30일", "90": "최근 90일" },
