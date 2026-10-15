@@ -16,7 +16,7 @@ use crate::{CursorPosition, DragItem, DragMode, DragResult, Image, Options};
 use objc2_app_kit::{
     NSApp, NSDraggingContext, NSDraggingItem, NSDraggingSession, NSDraggingSource, NSEvent,
     NSEventModifierFlags, NSEventType, NSImage, NSPasteboardItem, NSPasteboardItemDataProvider,
-    NSView,
+    NSPasteboardTypeString, NSView,
 };
 
 type OnDropCallback = Box<dyn Fn(DragResult, CursorPosition) + Send>;
@@ -188,6 +188,16 @@ pub fn start_drag<W: HasWindowHandle, F: Fn(DragResult, CursorPosition) + Send +
                         item.setDraggingFrame_contents(image_rect, Some(&*img));
                         dragging_items.addObject(&*item);
                     }
+                }
+                DragItem::Text(text) => {
+                    let item = NSPasteboardItem::new();
+                    item.setString_forType(&NSString::from_str(&text), NSPasteboardTypeString);
+                    let drag_item = NSDraggingItem::initWithPasteboardWriter(
+                        NSDraggingItem::alloc(),
+                        &ProtocolObject::from_retained(item),
+                    );
+                    drag_item.setDraggingFrame_contents(image_rect, Some(&*img));
+                    dragging_items.addObject(&*drag_item);
                 }
                 DragItem::Data { provider, types } => {
                     let data_provider = DragRsDataProvider::new(provider, mtm);

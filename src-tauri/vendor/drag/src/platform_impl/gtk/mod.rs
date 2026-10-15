@@ -53,7 +53,7 @@ pub fn start_drag<F: Fn(DragResult, CursorPosition) + Send + 'static>(
                     data.set_uris(&uris);
                 }));
         }
-        DragItem::Data { .. } => {
+        DragItem::Text(_) | DragItem::Data { .. } => {
             // Currently leaving it as is as we can utilize it as a dummy dragging feature
             // on_drop_callback(DragResult::Cancel, get_cursor_position(window).unwrap());
             // return Ok(());

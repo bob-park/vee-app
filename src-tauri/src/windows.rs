@@ -523,7 +523,7 @@ fn stage_image(src: &Path, dir: &Path, name: &str) -> std::io::Result<PathBuf> {
     Ok(dest)
 }
 
-/// Starts dragging a files or image clip out of the panel. Drops always copy.
+/// Starts dragging any clip out of the panel. Drops always copy.
 /// `name` names the dropped file for image clips. `image` is the card itself as a base64 PNG
 /// laid out for this platform (see `dragImageLayout` in motion.ts); without it the clip's
 /// thumbnail is dragged.
@@ -534,17 +534,17 @@ pub fn start_drag(app: &AppHandle, id: i64, name: &str, image: Option<&str>) -> 
         let content = store.content(id).map_err(|e| e.to_string())?.ok_or("clip no longer exists")?;
         (content, store.preview_png(id).map_err(|e| e.to_string())?)
     };
-    let paths = match &content {
+    let item = match &content {
         ClipContent::Files(paths) => {
             if paths.iter().any(|p| !Path::new(p).exists()) {
                 return Err("a copied file no longer exists".into());
             }
-            paths.iter().map(PathBuf::from).collect()
+            DragItem::Files(paths.iter().map(PathBuf::from).collect())
         }
-        ClipContent::Image(path) => {
-            vec![stage_image(path, &std::env::temp_dir().join("vee-drag"), name).map_err(|e| e.to_string())?]
-        }
-        ClipContent::Text(_) => return Err("only files and images can be dragged".into()),
+        ClipContent::Image(path) => DragItem::Files(vec![
+            stage_image(path, &std::env::temp_dir().join("vee-drag"), name).map_err(|e| e.to_string())?,
+        ]),
+        ClipContent::Text(text) => DragItem::Text(text.clone()),
     };
     let panel = app.get_webview_window(PANEL).ok_or("panel window is missing")?;
     state.dragging.store(true, Ordering::SeqCst);
@@ -553,7 +553,7 @@ pub fn start_drag(app: &AppHandle, id: i64, name: &str, image: Option<&str>) -> 
     let handle = app.clone();
     let started = drag::start_drag(
         &panel,
-        DragItem::Files(paths),
+        item,
         drag::Image::Raw(card_image(image).unwrap_or_else(|| drag_image(preview))),
         move |result, _cursor| finish_drag(&handle, id, &content, result),
         drag::Options { mode: DragMode::Copy, ..Default::default() },

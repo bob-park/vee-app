@@ -125,6 +125,10 @@ pub enum DragItem {
     ///
     /// The paths must be absolute.
     Files(Vec<PathBuf>),
+    /// Plain text, inserted where it is dropped.
+    ///
+    /// - **Linux (gtk)**: Not supported. Will result in a dummy drag operation that contains nothing to drop.
+    Text(String),
     /// Data to share with another app.
     ///
     /// - **Windows**: Not supported. Will result in a dummy drag operation of current folder that will be cancelled upon dropping.

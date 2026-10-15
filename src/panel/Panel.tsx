@@ -365,7 +365,7 @@ export function Panel() {
       onCopy={(plain) => copy(clip, plain)}
       onTogglePin={() => togglePin(clip)}
       onDragOut={
-        (clip.kind === "files" || clip.kind === "image") && !clip.missing
+        !clip.missing
           ? (card, x, y) => liftCard(clip, card, x, y)
           : undefined
       }
