@@ -53,6 +53,10 @@ interface Props {
   panelPinned: boolean;
   panelPinShortcut: string;
   onTogglePanelPin: () => void;
+  /** A search, app tag or filter is set. */
+  searching: boolean;
+  onResetSearch: () => void;
+  resetSearchShortcut: string;
   /** The downloaded update's version, or null when there is none. */
   updateVersion: string | null;
   updateConfirming: boolean;
@@ -77,6 +81,9 @@ export function Toolbar({
   onSettings,
   panelPinned,
   panelPinShortcut,
+  searching,
+  onResetSearch,
+  resetSearchShortcut,
   onTogglePanelPin,
   updateVersion,
   updateConfirming,
@@ -152,6 +159,12 @@ export function Toolbar({
           </button>
         ))}
       </div>
+      {searching && (
+        <button className="reset-chip" onClick={onResetSearch} tabIndex={-1}>
+          ↺ {t.resetSearch}
+          <Tip label={t.resetSearchTip} accel={resetSearchShortcut} />
+        </button>
+      )}
       <span className="spacer" />
       {updateVersion && (
         <div className="update">

@@ -126,6 +126,32 @@
   font-weight: 600;
 }
 
+/* Shown only while a search, tag or filter is kept. */
+.reset-chip {
+  position: relative;
+  padding: 3px 10px;
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.reset-chip:hover {
+  background: var(--accent-subtle);
+}
+
+/* Opens rightwards: the chip sits mid-toolbar, so a right-anchored tip would cover the chips. */
+.reset-chip .tip {
+  right: auto;
+  left: 0;
+}
+
+.reset-chip:hover .tip {
+  visibility: visible;
+  opacity: 1;
+  transition-delay: 0.5s;
+}
+
 .spacer {
   flex: 1;
 }

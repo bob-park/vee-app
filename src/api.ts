@@ -44,6 +44,7 @@ export interface Settings {
   shortcut: string;
   /** Toggles panel pinning while the panel has focus; not a global shortcut. */
   panelPinShortcut: string;
+  resetSearchShortcut: string;
   sound: "on" | "off";
   soundName: SoundName;
   confirmDelete: "on" | "off";
@@ -102,7 +103,7 @@ export const api = {
   openSettings: () => invoke<void>("open_settings"),
   previewSound: (name: SoundName) => invoke<void>("preview_sound", { name }),
   getSettings: () => invoke<Settings>("get_settings"),
-  setSetting: (key: "theme" | "locale" | "sound" | "soundName" | "confirmDelete" | "retention" | "panelResize" | "panelPinShortcut", value: string) =>
+  setSetting: (key: "theme" | "locale" | "sound" | "soundName" | "confirmDelete" | "retention" | "panelResize" | "panelPinShortcut" | "resetSearchShortcut", value: string) =>
     invoke<void>("set_setting", { key, value }),
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   setShortcut: (accel: string) => invoke<void>("set_shortcut", { accel }),

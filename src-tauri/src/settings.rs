@@ -9,6 +9,8 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 pub const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+V";
 /// Panel-only, so it is matched in the panel instead of being registered with the OS.
 pub const DEFAULT_PANEL_PIN_SHORTCUT: &str = "CommandOrControl+Shift+KeyP";
+/// Panel-only, like the pin shortcut.
+pub const DEFAULT_RESET_SEARCH_SHORTCUT: &str = "CommandOrControl+KeyK";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,6 +19,7 @@ pub struct SettingsDto {
     locale: String,
     shortcut: String,
     panel_pin_shortcut: String,
+    reset_search_shortcut: String,
     sound: String,
     sound_name: String,
     confirm_delete: String,
@@ -33,6 +36,7 @@ pub fn get(store: &Store, key: &str) -> String {
         "theme" | "locale" => "system",
         "shortcut" => DEFAULT_SHORTCUT,
         "panelPinShortcut" => DEFAULT_PANEL_PIN_SHORTCUT,
+        "resetSearchShortcut" => DEFAULT_RESET_SEARCH_SHORTCUT,
         "sound" => "on",
         "soundName" => "pop",
         "confirmDelete" => "off",
@@ -107,7 +111,7 @@ fn validate(key: &str, value: &str) -> Result<(), String> {
         "retention" => matches!(value, "off" | "7" | "30" | "90"),
         "panelResize" => matches!(value, "on" | "off"),
         // Modifiers and a key code joined by `+`, as built by the settings recorder.
-        "panelPinShortcut" => {
+        "panelPinShortcut" | "resetSearchShortcut" => {
             value.contains('+') && value.split('+').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric()))
         }
         // `panelHeightRatio` is written only by the resize commands.
@@ -151,6 +155,7 @@ pub fn get_settings(app: AppHandle, state: State<AppState>) -> SettingsDto {
         locale: get(&store, "locale"),
         shortcut: get(&store, "shortcut"),
         panel_pin_shortcut: get(&store, "panelPinShortcut"),
+        reset_search_shortcut: get(&store, "resetSearchShortcut"),
         sound: get(&store, "sound"),
         sound_name: get(&store, "soundName"),
         confirm_delete: get(&store, "confirmDelete"),
@@ -294,6 +299,8 @@ mod tests {
         assert!(validate("panelPinShortcut", "KeyP").is_err());
         assert!(validate("panelPinShortcut", "Alt+").is_err());
         assert!(validate("panelPinShortcut", "").is_err());
+        assert!(validate("resetSearchShortcut", "CommandOrControl+KeyK").is_ok());
+        assert!(validate("resetSearchShortcut", "KeyK").is_err());
     }
 
     #[test]
@@ -303,6 +310,7 @@ mod tests {
         assert_eq!(get(&store, "theme"), "system");
         assert_eq!(get(&store, "shortcut"), DEFAULT_SHORTCUT);
         assert_eq!(get(&store, "panelPinShortcut"), DEFAULT_PANEL_PIN_SHORTCUT);
+        assert_eq!(get(&store, "resetSearchShortcut"), DEFAULT_RESET_SEARCH_SHORTCUT);
         assert_eq!(get(&store, "panelResize"), "off");
         assert_eq!(get(&store, "panelHeightRatio"), "");
         store.set_setting("theme", "dark").unwrap();

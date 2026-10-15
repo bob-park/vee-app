@@ -135,15 +135,12 @@ export function Panel() {
   // Subscribe once; always call the latest reload.
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
-  /** Back to the newest card with no search, filter or pending confirmation. */
+  /** Back to the newest card with no pending confirmation; the search, tag and filter stay. */
   const resetView = () => {
     setConfirmingId(null);
     setUpdateConfirming(false);
     setUpdateFailed(false);
     setPinNotice(false);
-    setQuery("");
-    setApp(null);
-    setFilter("all");
     void reloadRef.current(false);
   };
   useEffect(() => {
@@ -245,6 +242,15 @@ export function Panel() {
     if (clip) void api.deleteClip(clip.id);
   };
 
+  const searching = query !== "" || app !== null || filter !== "all";
+  /** Clears the search, app tag and filter; the reload then selects the newest card. */
+  const resetSearch = () => {
+    setQuery("");
+    setApp(null);
+    setFilter("all");
+    inputRef.current?.focus();
+  };
+
   const pickApp = (picked: App) => {
     setApp(picked);
     setQuery("");
@@ -280,6 +286,7 @@ export function Panel() {
       metaOrCtrl: e.metaKey || e.ctrlKey,
       code: e.code,
       panelPinCombo: acceleratorFromEvent(e, isMac) === settings.panelPinShortcut,
+      resetCombo: acceleratorFromEvent(e, isMac) === settings.resetSearchShortcut,
     });
     if (!action) return;
     e.preventDefault();
@@ -295,6 +302,9 @@ export function Panel() {
         break;
       case "togglePanelPin":
         togglePanelPin();
+        break;
+      case "resetSearch":
+        resetSearch();
         break;
       case "hide":
         // hide_panel would still hand focus to the previous app.
@@ -415,6 +425,9 @@ export function Panel() {
         onSettings={() => void api.openSettings()}
         panelPinned={panelPinned}
         panelPinShortcut={settings.panelPinShortcut}
+        searching={searching}
+        onResetSearch={resetSearch}
+        resetSearchShortcut={settings.resetSearchShortcut}
         onTogglePanelPin={togglePanelPin}
         updateVersion={updateVersion}
         updateConfirming={updateConfirming}

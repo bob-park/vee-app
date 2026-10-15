@@ -3,6 +3,7 @@ export type KeyAction =
   | { type: "copy"; plain: boolean }
   | { type: "togglePin" }
   | { type: "togglePanelPin" }
+  | { type: "resetSearch" }
   | { type: "openSettings" }
   | { type: "hide" }
   | { type: "cycleFilter"; delta: 1 | -1 }
@@ -35,6 +36,8 @@ export interface KeyInput {
   code: string;
   /** The keys match the panel pin shortcut from settings. */
   panelPinCombo: boolean;
+  /** The keys match the reset-search shortcut from settings. */
+  resetCombo: boolean;
 }
 
 const MODIFIERS = ["Shift", "Meta", "Control", "Alt"];
@@ -63,6 +66,7 @@ export function panelKeyAction(e: KeyInput): KeyAction {
   }
   // Before Cmd+P: the default Cmd+Shift+P would otherwise pin the card.
   if (e.panelPinCombo) return e.repeat ? null : { type: "togglePanelPin" };
+  if (e.resetCombo) return e.repeat ? null : { type: "resetSearch" };
   if (e.metaOrCtrl && e.code === "KeyP") return e.repeat ? null : { type: "togglePin" };
   if (e.metaOrCtrl && e.code === "Comma") return e.repeat ? null : { type: "openSettings" };
   switch (e.key) {

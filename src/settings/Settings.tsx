@@ -264,14 +264,21 @@ export function Settings() {
               <ShortcutRecorder
                 value={settings.shortcut}
                 onSave={api.setShortcut}
-                taken={[...PANEL_KEYS, settings.panelPinShortcut]}
+                taken={[...PANEL_KEYS, settings.panelPinShortcut, settings.resetSearchShortcut]}
               />
             </Row>
             <Row label={s.panelPinShortcut} hint={s.panelPinShortcutHint}>
               <ShortcutRecorder
                 value={settings.panelPinShortcut}
                 onSave={(accel) => api.setSetting("panelPinShortcut", accel)}
-                taken={[...PANEL_KEYS, settings.shortcut]}
+                taken={[...PANEL_KEYS, settings.shortcut, settings.resetSearchShortcut]}
+              />
+            </Row>
+            <Row label={s.resetSearchShortcut} hint={s.resetSearchShortcutHint}>
+              <ShortcutRecorder
+                value={settings.resetSearchShortcut}
+                onSave={(accel) => api.setSetting("resetSearchShortcut", accel)}
+                taken={[...PANEL_KEYS, settings.shortcut, settings.panelPinShortcut]}
               />
             </Row>
           </section>
