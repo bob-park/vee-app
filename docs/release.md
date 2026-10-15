@@ -5,8 +5,8 @@ CI는 없다. 모든 빌드·서명·업로드는 개인 장비에서 한다. ma
 ## 준비 (한 번만)
 - macOS: `gh auth login`, 로그인 키체인의 `Developer ID Application` 인증서
 - `~/.config/vee/sign.env`: `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`, `TAURI_SIGNING_PRIVATE_KEY`(절대 경로 또는 키 내용), `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
-- Windows PC: Rust, Node 24/yarn 4, `gh auth login`, PowerShell 7, `%USERPROFILE%\.config\vee\sign.env`(Tauri 키 두 줄, Windows 경로)와 개인키 파일
-- yarn은 반드시 4.18(`.mise.toml`)로 실행한다. mise가 활성화되지 않아 전역 yarn 1.x가 잡히면 `yarn.lock`이 Yarn 1 형식으로 통째로 바뀐다. `yarn --version`으로 확인하고, 4.x가 아니면 `corepack yarn@4.18.0 <명령>`으로 실행한다.
+- Windows PC: Rust, Node 26/yarn 4, `gh auth login`, PowerShell 7, `%USERPROFILE%\.config\vee\sign.env`(Tauri 키 두 줄, Windows 경로)와 개인키 파일
+- yarn은 반드시 4.18.1(`.mise.toml`)로 실행한다. mise가 활성화되지 않아 전역 yarn 1.x가 잡히면 `yarn.lock`이 Yarn 1 형식으로 통째로 바뀐다. `yarn --version`으로 확인하고, 4.x가 아니면 `corepack yarn@4.18.1 <명령>`으로 실행한다.
 
 ## 절차
 1. 버전을 올리고 커밋·푸시: `src-tauri/tauri.conf.json`의 `version`(기준), 같은 값으로 `package.json`, `src-tauri/Cargo.toml`(빌드하면 `Cargo.lock`도 따라 바뀜)
