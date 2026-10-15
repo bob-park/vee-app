@@ -28,7 +28,7 @@ export default function Suggest({ apps, index, query, listRef, className, onHove
     // The list scrolls; the hint below it always stays visible.
     <div
       className={cx(
-        'rounded-box border-base-300 bg-card text-base-content absolute top-[calc(100%+6px)] left-0 z-3 flex flex-col border p-1 [box-shadow:rgba(0,0,0,0.12)_0_8px_24px]',
+        'rounded-box border-base-300 bg-card text-base-content shadow-suggest absolute top-[calc(100%+6px)] left-0 z-3 flex flex-col border p-1',
         className,
       )}
     >

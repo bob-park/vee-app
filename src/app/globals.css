@@ -135,16 +135,20 @@
   --color-toast-bg: var(--vee-toast-bg);
   --color-toast-fg: var(--vee-toast-fg);
   --color-toast-border: var(--vee-toast-border);
+  --shadow-suggest: rgba(0, 0, 0, 0.12) 0 8px 24px;
 }
 
 /*
  * Legacy names still read by the per-screen CSS (panel.css, settings.css, toast.css, whatsnew.css).
  * Delete each one once nothing uses it. Unlayered, so `--border` here beats daisyUI's `--border: 1px`.
  */
-:root[data-theme] {
+:root {
   --font: 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --mono: Menlo, Consolas, monospace;
   --radius: 12px;
+}
+
+:root[data-theme] {
   --surface: var(--color-base-100);
   --card: var(--vee-card);
   --border: var(--color-base-300);

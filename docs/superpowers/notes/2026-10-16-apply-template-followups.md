@@ -10,3 +10,9 @@
 - `ReactQueryDevtools` renders in the dev settings window only, in its bottom-right ~55pt corner. Dev settings screenshots differ from the Task 1 baseline there, so mask that corner when comparing.
 - `ShortcutRecorder.onSave` needs a Promise, so the three shortcut saves still call `setShortcut`/`setSetting` directly. So do the other non-key/value writes (`setAutostart`, `setAppExcluded`, `resetPanelHeight`, `clearHistory`, `checkUpdate`/`installUpdate`), through `run()`. Every one of them emits `settings://changed` or `clips://*`, so the caches still refresh. Candidates for mutation hooks.
 - `react-sections` order can't hold in `PanelApp`: the `useCallback`s (`reload`, `loadMore`) must come before the effects that list them as deps. The `callback` section sits before `useEffect` there.
+
+## Task 9 (globals.css, Tailwind base)
+- `--border` clash: daisyUI themes set `--border: 1px`, but the unlayered legacy block in `globals.css` redefines `--border` as a color for the per-screen CSS. Until that legacy block is deleted (Tasks 10–12), any daisyUI component added would read a color as its border width and break silently.
+- The daisyUI `exclude` list hides components whose names collide with per-screen classes (`badge, button, card, dropdown, kbd, link, modal, select, stack, stat, tab, toast`). Remove each entry once no screen uses that class name; keep `rootcolor, rootscrollgutter, rootscrolllock, scrollbar`.
+- The second `@layer base` block in `globals.css` holds temporary preflight reverts (`input` padding, `::placeholder`, `ul` list-style, `img` max-width). Delete each one as the screens using that element move to Tailwind.
+- `docs/development.md` "프로젝트 구조" still lists `src/theme.css`; the whole tree there is stale since Task 4.
