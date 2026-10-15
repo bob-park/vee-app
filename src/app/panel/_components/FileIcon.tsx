@@ -1,4 +1,4 @@
-import { fileColor, fileExt } from "@/utils/fileThumb";
+import { fileColor, fileExt } from '@/utils/fileThumb';
 
 /** A document with a folded corner and the file's extension on a coloured band. */
 export function DocIcon({ path }: { path: string }) {

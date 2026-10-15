@@ -1,50 +1,59 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { App } from "@/domain/source_app/apis/sourceApp.dto";
-import { highlight } from "@/shared/components/highlight";
-import { usePrefs } from "@/prefs";
-import { nextIndex } from "@/utils/dropdownKeys";
+import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
+
+import type { App } from '@/domain/source_app/apis/sourceApp.dto';
+import { highlight } from '@/shared/components/highlight';
+import { useI18n } from '@/shared/providers/i18n/I18nProvider';
+import { nextIndex } from '@/utils/dropdownKeys';
 
 /** Search box with the panel's `@app` suggestion popup, for picking an app to exclude. */
 export function AppPicker({ apps, onPick }: { apps: App[]; onPick: (app: App) => void }) {
-  const { t } = usePrefs();
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const [index, setIndex] = useState(0);
+  // ref
   const root = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // state
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [index, setIndex] = useState(0);
+
+  // hooks
+  const { t } = useI18n();
+
   const q = query.trim().toLowerCase();
   const matches = q ? apps.filter((a) => a.name.toLowerCase().includes(q)) : apps;
 
+  // useEffect
   useEffect(() => {
     if (!open) return;
     const close = (e: PointerEvent) => {
       if (!root.current?.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
   }, [open]);
 
   useEffect(() => {
-    listRef.current?.children[index]?.scrollIntoView({ block: "nearest" });
+    listRef.current?.children[index]?.scrollIntoView({ block: 'nearest' });
   }, [index, open]);
 
+  // handle
   const pick = (app: App | undefined) => {
     if (!app) return;
-    setQuery("");
+    setQuery('');
     setOpen(false);
     onPick(app);
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
+    if (e.key === 'Escape') {
       e.preventDefault();
       setOpen(false);
     } else if (!open) {
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") setOpen(true);
-    } else if (e.key === "Enter") {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') setOpen(true);
+    } else if (e.key === 'Enter') {
       e.preventDefault();
       pick(matches[index]);
-    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       setIndex((i) => nextIndex(e.key, i, matches.length) ?? i);
     }
@@ -78,7 +87,7 @@ export function AppPicker({ apps, onPick }: { apps: App[]; onPick: (app: App) =>
                   key={a.id}
                   role="option"
                   aria-selected={i === index}
-                  className={i === index ? "suggest-item on" : "suggest-item"}
+                  className={i === index ? 'suggest-item on' : 'suggest-item'}
                   onPointerEnter={() => setIndex(i)}
                   onClick={() => pick(a)}
                 >

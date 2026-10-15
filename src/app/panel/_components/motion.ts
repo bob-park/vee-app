@@ -1,19 +1,18 @@
 /** Shared motion for the panel. Everything here is a no-op under reduced motion. */
+import { ghostLeaves, nextTilt } from '../../../utils/motion.ts';
+import { cardImage } from './cardImage.ts';
 
-import { ghostLeaves, nextTilt } from "../../../utils/motion.ts";
-import { cardImage } from "./cardImage.ts";
-
-export const EASE_MOVE = "cubic-bezier(0.32, 0.72, 0, 1)";
-export const EASE_SPRING = "cubic-bezier(0.34, 1.56, 0.64, 1)";
+export const EASE_MOVE = 'cubic-bezier(0.32, 0.72, 0, 1)';
+export const EASE_SPRING = 'cubic-bezier(0.34, 1.56, 0.64, 1)';
 
 export function reducedMotion(): boolean {
-  return matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
 /** Each card's left edge on screen, by clip id, across every card area inside `container`. */
 export function cardLefts(container: HTMLElement | null): Map<number, number> {
   const lefts = new Map<number, number>();
-  for (const card of container?.querySelectorAll<HTMLElement>(".card[data-id]") ?? []) {
+  for (const card of container?.querySelectorAll<HTMLElement>('.card[data-id]') ?? []) {
     lefts.set(Number(card.dataset.id), card.getBoundingClientRect().left);
   }
   return lefts;
@@ -24,26 +23,32 @@ export function cardLefts(container: HTMLElement | null): Map<number, number> {
  * ringing them once in the accent colour so a copy made elsewhere is easy to spot.
  */
 export function playFlip(container: HTMLElement, before: Map<number, number>): void {
-  for (const card of container.querySelectorAll<HTMLElement>(".card[data-id]")) {
+  for (const card of container.querySelectorAll<HTMLElement>('.card[data-id]')) {
     const prev = before.get(Number(card.dataset.id));
     if (prev === undefined) {
-      card.animate([{ transform: "scale(0.86)", opacity: 0 }, { transform: "none", opacity: 1 }], {
-        duration: 360,
-        easing: EASE_MOVE,
-      });
       card.animate(
         [
-          { boxShadow: "0 0 0 0 rgba(113, 50, 245, 0.5)" },
-          { boxShadow: "0 0 0 6px rgba(113, 50, 245, 0.28)", offset: 0.3 },
-          { boxShadow: "0 0 0 0 rgba(113, 50, 245, 0)" },
+          { transform: 'scale(0.86)', opacity: 0 },
+          { transform: 'none', opacity: 1 },
         ],
-        { duration: 1400, easing: "ease-out" },
+        {
+          duration: 360,
+          easing: EASE_MOVE,
+        },
+      );
+      card.animate(
+        [
+          { boxShadow: '0 0 0 0 rgba(113, 50, 245, 0.5)' },
+          { boxShadow: '0 0 0 6px rgba(113, 50, 245, 0.28)', offset: 0.3 },
+          { boxShadow: '0 0 0 0 rgba(113, 50, 245, 0)' },
+        ],
+        { duration: 1400, easing: 'ease-out' },
       );
       continue;
     }
     const dx = prev - card.getBoundingClientRect().left;
     if (dx !== 0) {
-      card.animate([{ transform: `translateX(${dx}px)` }, { transform: "none" }], { duration: 360, easing: EASE_MOVE });
+      card.animate([{ transform: `translateX(${dx}px)` }, { transform: 'none' }], { duration: 360, easing: EASE_MOVE });
     }
   }
 }
@@ -76,11 +81,16 @@ export function floatCard(card: HTMLElement, x0: number, y0: number, onLeave: (i
   );
   const r = card.getBoundingClientRect();
   const ghost = card.cloneNode(true) as HTMLElement;
-  ghost.classList.add("ghost");
-  Object.assign(ghost.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  ghost.classList.add('ghost');
+  Object.assign(ghost.style, {
+    left: `${r.left}px`,
+    top: `${r.top}px`,
+    width: `${r.width}px`,
+    height: `${r.height}px`,
+  });
   document.body.appendChild(ghost);
   // An attribute, not a class: React rewrites className whenever the card re-renders.
-  card.dataset.slot = "";
+  card.dataset.slot = '';
 
   let tilt = 0;
   let lastX = x0;
@@ -94,9 +104,9 @@ export function floatCard(card: HTMLElement, x0: number, y0: number, onLeave: (i
     cancelActive = null;
   };
   const stop = () => {
-    window.removeEventListener("mousemove", move);
-    window.removeEventListener("mouseup", drop);
-    document.documentElement.removeEventListener("mouseleave", leave);
+    window.removeEventListener('mousemove', move);
+    window.removeEventListener('mouseup', drop);
+    document.documentElement.removeEventListener('mouseleave', leave);
   };
   function leave() {
     stop();
@@ -105,7 +115,7 @@ export function floatCard(card: HTMLElement, x0: number, y0: number, onLeave: (i
   }
   function drop() {
     stop();
-    back = ghost.animate([{ transform: ghost.style.transform }, { transform: "none" }], {
+    back = ghost.animate([{ transform: ghost.style.transform }, { transform: 'none' }], {
       duration: 320,
       easing: EASE_SPRING,
     });
@@ -126,7 +136,7 @@ export function floatCard(card: HTMLElement, x0: number, y0: number, onLeave: (i
   };
   place(x0, y0);
   const lifted = ghost.getBoundingClientRect();
-  window.addEventListener("mousemove", move);
-  window.addEventListener("mouseup", drop);
-  document.documentElement.addEventListener("mouseleave", leave);
+  window.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', drop);
+  document.documentElement.addEventListener('mouseleave', leave);
 }

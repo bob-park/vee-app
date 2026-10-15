@@ -1,13 +1,15 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { dismissWhatsNew, getWhatsNew } from "@/domain/whats_new/apis/whatsNew";
-import type { WhatsNew } from "@/domain/whats_new/apis/whatsNew.dto";
-import { usePrefs } from "@/prefs";
-import { parseNotes, type Block, type Inline } from "@/utils/notes";
-import "./whatsnew.css";
+import { type ReactNode, useEffect } from 'react';
+
+import { dismissWhatsNew } from '@/domain/whats_new/apis/whatsNew';
+import { useWhatsNew } from '@/domain/whats_new/queries/whatsNew';
+import { useI18n } from '@/shared/providers/i18n/I18nProvider';
+import { type Block, type Inline, parseNotes } from '@/utils/notes';
+
+import './whatsnew.css';
 
 function inlines(list: Inline[]) {
   return list.map((s, i) =>
-    s.kind === "bold" ? <b key={i}>{s.text}</b> : s.kind === "code" ? <kbd key={i}>{s.text}</kbd> : s.text,
+    s.kind === 'bold' ? <b key={i}>{s.text}</b> : s.kind === 'code' ? <kbd key={i}>{s.text}</kbd> : s.text,
   );
 }
 
@@ -20,7 +22,7 @@ function render(blocks: Block[]) {
     items = [];
   };
   blocks.forEach((b, i) => {
-    if (b.kind === "item") {
+    if (b.kind === 'item') {
       items.push(
         <li key={i} style={{ marginLeft: b.depth * 16 }}>
           {inlines(b.inlines)}
@@ -30,8 +32,12 @@ function render(blocks: Block[]) {
     }
     flush();
     out.push(
-      b.kind === "heading" ? (
-        b.level === 2 ? <h2 key={out.length}>{inlines(b.inlines)}</h2> : <h3 key={out.length}>{inlines(b.inlines)}</h3>
+      b.kind === 'heading' ? (
+        b.level === 2 ? (
+          <h2 key={out.length}>{inlines(b.inlines)}</h2>
+        ) : (
+          <h3 key={out.length}>{inlines(b.inlines)}</h3>
+        )
       ) : (
         <p key={out.length}>{inlines(b.inlines)}</p>
       ),
@@ -42,19 +48,26 @@ function render(blocks: Block[]) {
 }
 
 export function WhatsNewApp() {
-  const { t } = usePrefs();
-  const [data, setData] = useState<WhatsNew | null>(null);
+  // hooks
+  const { t } = useI18n();
+
+  // queries
+  const { whatsNew: data, isError } = useWhatsNew();
+
+  // useEffect
+  useEffect(() => {
+    if (isError) void dismissWhatsNew();
+  }, [isError]);
 
   useEffect(() => {
-    void getWhatsNew().then(setData).catch(() => void dismissWhatsNew());
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Enter" && e.key !== "Escape") return;
+      if (e.key !== 'Enter' && e.key !== 'Escape') return;
       // Keeps Enter from also clicking the focused button.
       e.preventDefault();
       void dismissWhatsNew();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   if (!data) return null;

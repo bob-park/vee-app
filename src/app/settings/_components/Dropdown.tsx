@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import { nextIndex } from "@/utils/dropdownKeys";
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
+
+import { nextIndex } from '@/utils/dropdownKeys';
 
 export interface DropdownOption<T> {
   value: T;
@@ -26,31 +27,39 @@ export function Dropdown<T extends string | number>({
   disabled?: boolean;
   className?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(-1);
+  // ref
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLUListElement>(null);
+
+  // state
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+
+  // hooks
   const id = useId();
+
   const selected = options.findIndex((o) => o.value === value);
 
+  // useEffect
   useEffect(() => {
     if (!open) return;
     const close = (e: PointerEvent) => {
       if (!root.current?.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
   }, [open]);
 
   useEffect(() => {
-    if (open) list.current?.children[active]?.scrollIntoView({ block: "nearest" });
+    if (open) list.current?.children[active]?.scrollIntoView({ block: 'nearest' });
   }, [open, active]);
 
   useEffect(() => {
     if (disabled) setOpen(false);
   }, [disabled]);
 
+  // handle
   const show = () => {
     setActive(selected);
     setOpen(true);
@@ -68,16 +77,16 @@ export function Dropdown<T extends string | number>({
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (!open) {
-      if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === " ") {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         show();
       }
       return;
     }
-    if (e.key === "Escape" || e.key === "Tab") {
-      if (e.key === "Escape") e.preventDefault();
+    if (e.key === 'Escape' || e.key === 'Tab') {
+      if (e.key === 'Escape') e.preventDefault();
       close();
-    } else if (e.key === "Enter" || e.key === " ") {
+    } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       pick(active);
     } else {
@@ -91,7 +100,7 @@ export function Dropdown<T extends string | number>({
 
   const current = options[selected];
   return (
-    <div className={["dropdown", className].filter(Boolean).join(" ")} ref={root}>
+    <div className={['dropdown', className].filter(Boolean).join(' ')} ref={root}>
       <button
         ref={button}
         type="button"
@@ -118,13 +127,17 @@ export function Dropdown<T extends string | number>({
               id={`${id}-${i}`}
               role="option"
               aria-selected={i === selected}
-              className={i === active ? "active" : undefined}
+              className={i === active ? 'active' : undefined}
               onPointerEnter={() => setActive(i)}
               onClick={() => pick(i)}
             >
               {o.icon && <img src={o.icon} alt="" />}
               <span>{o.label}</span>
-              {i === selected && <span className="check" aria-hidden>✓</span>}
+              {i === selected && (
+                <span className="check" aria-hidden>
+                  ✓
+                </span>
+              )}
             </li>
           ))}
         </ul>

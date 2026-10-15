@@ -2,13 +2,13 @@
 export function nextIndex(key: string, current: number, count: number): number | null {
   if (count === 0) return null;
   switch (key) {
-    case "ArrowDown":
+    case 'ArrowDown':
       return current < 0 ? 0 : Math.min(current + 1, count - 1);
-    case "ArrowUp":
+    case 'ArrowUp':
       return Math.max(current - 1, 0);
-    case "Home":
+    case 'Home':
       return 0;
-    case "End":
+    case 'End':
       return count - 1;
     default:
       return null;

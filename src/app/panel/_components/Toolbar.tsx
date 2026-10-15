@@ -1,13 +1,14 @@
-import { useEffect, useRef, type RefObject } from "react";
-import type { Filter } from "@/domain/clip/apis/clip.dto";
-import type { App } from "@/domain/source_app/apis/sourceApp.dto";
-import { usePrefs } from "@/prefs";
-import { highlight } from "@/shared/components/highlight";
-import { acceleratorKeys } from "@/utils/accelerator";
+import { type RefObject, useEffect, useRef } from 'react';
 
-export const FILTERS: Filter[] = ["all", "text", "image", "files", "link"];
+import type { Filter } from '@/domain/clip/apis/clip.dto';
+import type { App } from '@/domain/source_app/apis/sourceApp.dto';
+import { highlight } from '@/shared/components/highlight';
+import { useI18n } from '@/shared/providers/i18n/I18nProvider';
+import { acceleratorKeys } from '@/utils/accelerator';
 
-const isMac = navigator.userAgent.includes("Mac");
+export const FILTERS: Filter[] = ['all', 'text', 'image', 'files', 'link'];
+
+const isMac = navigator.userAgent.includes('Mac');
 
 /** Hover label under a toolbar button, with the shortcut drawn as keycaps. */
 function Tip({ label, accel }: { label: string; accel: string }) {
@@ -81,11 +82,16 @@ export function Toolbar({
   onConfirmUpdate,
   onCancelUpdate,
 }: Props) {
-  const { t } = usePrefs();
+  // ref
   const listRef = useRef<HTMLDivElement>(null);
+
+  // hooks
+  const { t } = useI18n();
+
+  // useEffect
   // Only the list scrolls, so keep the highlighted app in view while moving with the arrows.
   useEffect(() => {
-    listRef.current?.children[suggestIndex]?.scrollIntoView({ block: "nearest" });
+    listRef.current?.children[suggestIndex]?.scrollIntoView({ block: 'nearest' });
   }, [suggestIndex, suggestions]);
   return (
     <div className="toolbar">
@@ -103,7 +109,7 @@ export function Toolbar({
         <input
           ref={inputRef}
           value={query}
-          placeholder={app ? "" : t.search}
+          placeholder={app ? '' : t.search}
           aria-label={t.search}
           onChange={(e) => onQuery(e.target.value)}
           autoFocus
@@ -120,7 +126,7 @@ export function Toolbar({
                     key={a.id}
                     role="option"
                     aria-selected={i === suggestIndex}
-                    className={i === suggestIndex ? "suggest-item on" : "suggest-item"}
+                    className={i === suggestIndex ? 'suggest-item on' : 'suggest-item'}
                     onClick={() => onPickApp(a)}
                   >
                     {a.icon ? <img src={a.icon} alt="" /> : <span className="suggest-noicon" />}
@@ -140,7 +146,7 @@ export function Toolbar({
             key={f}
             role="tab"
             aria-selected={f === filter}
-            className={f === filter ? "chip on" : "chip"}
+            className={f === filter ? 'chip on' : 'chip'}
             onClick={() => onFilter(f)}
             tabIndex={-1}
           >
@@ -165,7 +171,7 @@ export function Toolbar({
             <div className="update-pop" role="dialog">
               <div>
                 <p className="update-title">{t.updateConfirm(updateVersion)}</p>
-                <p className={updateFailed ? "update-sub failed" : "update-sub"}>
+                <p className={updateFailed ? 'update-sub failed' : 'update-sub'}>
                   {updateFailed ? t.updateFailed : t.updateRestartHint}
                 </p>
               </div>
@@ -182,7 +188,7 @@ export function Toolbar({
         </div>
       )}
       <button
-        className={panelPinned ? "icon-btn on" : "icon-btn"}
+        className={panelPinned ? 'icon-btn on' : 'icon-btn'}
         onClick={onTogglePanelPin}
         aria-pressed={panelPinned}
         aria-label={panelPinned ? t.unpinPanel : t.pinPanel}

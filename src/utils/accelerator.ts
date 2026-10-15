@@ -1,4 +1,4 @@
-const MODIFIER_KEYS = new Set(["Meta", "Control", "Alt", "Shift", "OS"]);
+const MODIFIER_KEYS = new Set(['Meta', 'Control', 'Alt', 'Shift', 'OS']);
 
 export interface KeyLike {
   key: string;
@@ -13,24 +13,32 @@ export interface KeyLike {
 export function acceleratorFromEvent(e: KeyLike, mac: boolean): string | null {
   if (MODIFIER_KEYS.has(e.key)) return null;
   const mods: string[] = [];
-  if (mac ? e.metaKey : e.ctrlKey) mods.push("CommandOrControl");
-  if (mac && e.ctrlKey) mods.push("Control");
-  if (!mac && e.metaKey) mods.push("Super");
-  if (e.altKey) mods.push("Alt");
-  if (e.shiftKey) mods.push("Shift");
-  const realModifiers = mods.filter((m) => m !== "Shift");
+  if (mac ? e.metaKey : e.ctrlKey) mods.push('CommandOrControl');
+  if (mac && e.ctrlKey) mods.push('Control');
+  if (!mac && e.metaKey) mods.push('Super');
+  if (e.altKey) mods.push('Alt');
+  if (e.shiftKey) mods.push('Shift');
+  const realModifiers = mods.filter((m) => m !== 'Shift');
   if (realModifiers.length === 0) return null;
-  return [...mods, e.code].join("+");
+  return [...mods, e.code].join('+');
 }
 
 /** One display label per key, e.g. `["⌘", "⇧", "P"]`. */
 export function acceleratorKeys(accel: string, mac: boolean): string[] {
   const names: Record<string, string> = mac
-    ? { CommandOrControl: "⌘", Command: "⌘", Super: "⌘", Control: "⌃", Alt: "⌥", Shift: "⇧", Comma: "," }
-    : { CommandOrControl: "Ctrl", Command: "Win", Super: "Win", Control: "Ctrl", Alt: "Alt", Shift: "Shift", Comma: "," };
-  return accel.split("+").map((part) => names[part] ?? part.replace(/^(Key|Digit)/, ""));
+    ? { CommandOrControl: '⌘', Command: '⌘', Super: '⌘', Control: '⌃', Alt: '⌥', Shift: '⇧', Comma: ',' }
+    : {
+        CommandOrControl: 'Ctrl',
+        Command: 'Win',
+        Super: 'Win',
+        Control: 'Ctrl',
+        Alt: 'Alt',
+        Shift: 'Shift',
+        Comma: ',',
+      };
+  return accel.split('+').map((part) => names[part] ?? part.replace(/^(Key|Digit)/, ''));
 }
 
 export function formatAccelerator(accel: string, mac: boolean): string {
-  return acceleratorKeys(accel, mac).join(mac ? " " : " + ");
+  return acceleratorKeys(accel, mac).join(mac ? ' ' : ' + ');
 }

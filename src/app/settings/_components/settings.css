@@ -105,7 +105,7 @@
 }
 
 .switch::after {
-  content: "";
+  content: '';
   position: absolute;
   top: 2px;
   left: 2px;
@@ -189,7 +189,7 @@
   font-size: 12px;
 }
 
-.select[aria-expanded="true"] {
+.select[aria-expanded='true'] {
   border-color: var(--accent);
 }
 
@@ -237,7 +237,7 @@
   background: var(--subtle);
 }
 
-.dropdown-list li[aria-selected="true"] {
+.dropdown-list li[aria-selected='true'] {
   background: var(--accent-subtle);
   color: var(--accent);
   font-weight: 600;

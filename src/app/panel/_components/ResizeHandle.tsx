@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { resizePanel } from "@/domain/panel/apis/panel";
-import { usePrefs } from "@/prefs";
+import { type PointerEvent, useEffect, useRef, useState } from 'react';
+
+import { resizePanel } from '@/domain/panel/apis/panel';
+import { useSettings } from '@/domain/settings/queries/settings';
 
 interface Drag {
   startY: number;
@@ -11,9 +12,16 @@ interface Drag {
 
 /** A grab bar on the panel's top edge. screenY is in CSS px, which match design points on macOS and Windows. */
 export function ResizeHandle() {
-  const { settings } = usePrefs();
+  // ref
   const drag = useRef<Drag | null>(null);
+
+  // state
   const [active, setActive] = useState(false);
+
+  // queries
+  const { settings } = useSettings();
+
+  // useEffect
   // Unmounted mid-drag (panel closing, setting flipped): drop the pending frame so it can't resize.
   useEffect(
     () => () => {
@@ -22,7 +30,9 @@ export function ResizeHandle() {
     },
     [],
   );
-  if (settings.panelResize !== "on") return null;
+  if (settings?.panelResize !== 'on') return null;
+
+  // handle
 
   // No preventDefault here: that would swallow the mousedown the panel uses to keep focus in the search box.
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -57,7 +67,7 @@ export function ResizeHandle() {
 
   return (
     <div
-      className={active ? "resize-handle active" : "resize-handle"}
+      className={active ? 'resize-handle active' : 'resize-handle'}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerEnd}

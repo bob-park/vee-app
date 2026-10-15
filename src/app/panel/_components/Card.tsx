@@ -1,10 +1,12 @@
-import { useRef } from "react";
-import type { Clip } from "@/domain/clip/apis/clip.dto";
-import type { Dict } from "@/shared/i18n/en";
-import { relativeTime } from "@/shared/i18n";
-import { usePrefs } from "@/prefs";
-import { imageTag } from "@/utils/fileThumb";
-import { DocIcon, FolderIcon } from "./FileIcon";
+import { useRef } from 'react';
+
+import type { Clip } from '@/domain/clip/apis/clip.dto';
+import { relativeTime } from '@/shared/i18n';
+import type { Dict } from '@/shared/i18n/en';
+import { useI18n } from '@/shared/providers/i18n/I18nProvider';
+import { imageTag } from '@/utils/fileThumb';
+
+import { DocIcon, FolderIcon } from './FileIcon';
 
 interface Props {
   clip: Clip;
@@ -25,12 +27,12 @@ interface Props {
 const DRAG_THRESHOLD = 5;
 
 function fileCount(clip: Clip): number {
-  return Number(clip.meta ?? "1");
+  return Number(clip.meta ?? '1');
 }
 
 function badgeLabel(clip: Clip, t: Dict): string {
   switch (clip.kind) {
-    case "files":
+    case 'files':
       return clip.isDir ? t.kinds.folder : t.filesCount(fileCount(clip));
     default:
       return t.kinds[clip.kind];
@@ -38,7 +40,7 @@ function badgeLabel(clip: Clip, t: Dict): string {
 }
 
 function paths(clip: Clip): string[] {
-  return (clip.textPreview ?? "").split("\n");
+  return (clip.textPreview ?? '').split('\n');
 }
 
 function firstPath(clip: Clip): string {
@@ -48,9 +50,9 @@ function firstPath(clip: Clip): string {
 function footLabel(clip: Clip, t: Dict): string {
   if (clip.missing) return t.missing;
   switch (clip.kind) {
-    case "image":
-      return clip.meta ?? "";
-    case "files": {
+    case 'image':
+      return clip.meta ?? '';
+    case 'files': {
       const first = firstPath(clip);
       const name = first.split(/[\\/]/).filter(Boolean).pop() ?? first;
       return t.moreFiles(name, fileCount(clip) - 1);
@@ -72,7 +74,7 @@ function FilesBody({ clip }: { clip: Clip }) {
     const tag = imageTag(firstPath(clip));
     return (
       <>
-        <img className="thumb" src={stack[0] ?? ""} alt="" />
+        <img className="thumb" src={stack[0] ?? ''} alt="" />
         {tag && <span className="ext-tag">{tag}</span>}
       </>
     );
@@ -85,7 +87,7 @@ function FilesBody({ clip }: { clip: Clip }) {
           <img key={i} src={src} alt="" style={style} />
         ) : (
           <div key={i} className="stack-doc" style={style}>
-            <DocIcon path={paths(clip)[i] ?? ""} />
+            <DocIcon path={paths(clip)[i] ?? ''} />
           </div>
         );
       })}
@@ -94,9 +96,9 @@ function FilesBody({ clip }: { clip: Clip }) {
 }
 
 function Body({ clip }: { clip: Clip }) {
-  if (clip.kind === "image") return clip.thumb ? <img className="thumb" src={clip.thumb} alt="" /> : null;
-  if (clip.kind === "files") return <FilesBody clip={clip} />;
-  return <p className={clip.kind === "link" ? "preview link" : "preview"}>{clip.textPreview}</p>;
+  if (clip.kind === 'image') return clip.thumb ? <img className="thumb" src={clip.thumb} alt="" /> : null;
+  if (clip.kind === 'files') return <FilesBody clip={clip} />;
+  return <p className={clip.kind === 'link' ? 'preview link' : 'preview'}>{clip.textPreview}</p>;
 }
 
 export function Card({
@@ -111,13 +113,17 @@ export function Card({
   onConfirmDelete,
   onCancelDelete,
 }: Props) {
-  const { t, locale } = usePrefs();
+  // ref
   const press = useRef<{ x: number; y: number } | null>(null);
+
+  // hooks
+  const { t, locale } = useI18n();
+
   return (
     <div
-      className={["card", selected && "selected", confirming && "confirming", clip.pinned && "pinned"]
+      className={['card', selected && 'selected', confirming && 'confirming', clip.pinned && 'pinned']
         .filter(Boolean)
-        .join(" ")}
+        .join(' ')}
       data-id={clip.id}
       role="option"
       aria-selected={selected}
@@ -144,8 +150,8 @@ export function Card({
     >
       {clip.appIcon && <img className="card-bg" src={clip.appIcon} alt="" aria-hidden />}
       <div className="card-head">
-        <span className="app-name">{clip.appName ?? ""}</span>
-        <span className={clip.kind === "files" ? "badge badge-file" : "badge"}>{badgeLabel(clip, t)}</span>
+        <span className="app-name">{clip.appName ?? ''}</span>
+        <span className={clip.kind === 'files' ? 'badge badge-file' : 'badge'}>{badgeLabel(clip, t)}</span>
         <span className="time">{relativeTime(clip.lastUsedAt, locale)}</span>
         <button
           className="pin"
@@ -169,7 +175,7 @@ export function Card({
       <div className="card-body">
         <Body clip={clip} />
       </div>
-      <div className={clip.missing ? "card-foot missing" : "card-foot"}>
+      <div className={clip.missing ? 'card-foot missing' : 'card-foot'}>
         <span>{footLabel(clip, t)}</span>
         {selected && <span>{t.copyHint}</span>}
       </div>

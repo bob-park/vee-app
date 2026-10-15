@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
-import { usePrefs } from "@/prefs";
+import { useEffect, useRef } from 'react';
+
+import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
 /** Native modal dialog: the browser handles Esc, focus trapping and aria-modal. */
 export function ConfirmModal({
@@ -17,8 +18,13 @@ export function ConfirmModal({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const { t } = usePrefs();
+  // ref
   const ref = useRef<HTMLDialogElement>(null);
+
+  // hooks
+  const { t } = useI18n();
+
+  // useEffect
 
   useEffect(() => {
     const dialog = ref.current;

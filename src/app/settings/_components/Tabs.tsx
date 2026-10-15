@@ -1,7 +1,8 @@
-import type { KeyboardEvent, ReactNode } from "react";
-import { usePrefs } from "@/prefs";
+import type { KeyboardEvent, ReactNode } from 'react';
 
-export type SettingsTab = "general" | "panel" | "shortcuts" | "history";
+import { useI18n } from '@/shared/providers/i18n/I18nProvider';
+
+export type SettingsTab = 'general' | 'panel' | 'shortcuts' | 'history';
 
 const svg = (children: ReactNode) => (
   <svg
@@ -21,7 +22,7 @@ const svg = (children: ReactNode) => (
 
 const TABS: { value: SettingsTab; icon: ReactNode }[] = [
   {
-    value: "general",
+    value: 'general',
     icon: svg(
       <>
         <circle cx="12" cy="12" r="3" />
@@ -30,7 +31,7 @@ const TABS: { value: SettingsTab; icon: ReactNode }[] = [
     ),
   },
   {
-    value: "panel",
+    value: 'panel',
     icon: svg(
       <>
         <rect x="3" y="5" width="18" height="14" rx="2.5" />
@@ -39,11 +40,11 @@ const TABS: { value: SettingsTab; icon: ReactNode }[] = [
     ),
   },
   {
-    value: "shortcuts",
+    value: 'shortcuts',
     icon: svg(<path d="M9 9V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V9Z" />),
   },
   {
-    value: "history",
+    value: 'history',
     icon: svg(
       <>
         <circle cx="12" cy="12" r="9" />
@@ -54,11 +55,14 @@ const TABS: { value: SettingsTab; icon: ReactNode }[] = [
 ];
 
 export function Tabs({ value, onChange }: { value: SettingsTab; onChange: (tab: SettingsTab) => void }) {
-  const labels = usePrefs().t.settings.tabs;
+  // hooks
+  const labels = useI18n().t.settings.tabs;
+
+  // handle
 
   // Arrow keys move between tabs (WAI-ARIA tabs pattern, automatic activation).
   const onKeyDown = (e: KeyboardEvent) => {
-    const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
     if (!step) return;
     e.preventDefault();
     const i = TABS.findIndex((tab) => tab.value === value);
@@ -77,7 +81,7 @@ export function Tabs({ value, onChange }: { value: SettingsTab; onChange: (tab: 
           aria-selected={tab.value === value}
           aria-controls="settings-panel"
           tabIndex={tab.value === value ? 0 : -1}
-          className={tab.value === value ? "on" : undefined}
+          className={tab.value === value ? 'on' : undefined}
           onClick={() => onChange(tab.value)}
         >
           {tab.icon}

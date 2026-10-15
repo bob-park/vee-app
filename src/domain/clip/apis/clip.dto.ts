@@ -1,5 +1,5 @@
-export type Kind = "text" | "link" | "image" | "files";
-export type Filter = Kind | "all";
+export type Kind = 'text' | 'link' | 'image' | 'files';
+export type Filter = Kind | 'all';
 
 export interface Clip {
   id: number;

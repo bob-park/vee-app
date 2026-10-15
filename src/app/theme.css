@@ -1,10 +1,10 @@
 :root {
-  --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font: 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --mono: Menlo, Consolas, monospace;
   --radius: 12px;
 }
 
-:root[data-theme="light"] {
+:root[data-theme='light'] {
   color-scheme: light;
   --surface: #ffffff;
   --card: #ffffff;
@@ -25,7 +25,7 @@
   --toast-border: #dedee5;
 }
 
-:root[data-theme="dark"] {
+:root[data-theme='dark'] {
   color-scheme: dark;
   --surface: #16171c;
   --card: #1f2027;
@@ -68,8 +68,8 @@ body {
   user-select: none;
 }
 
-html[data-window="panel"] body,
-html[data-window="toast"] body {
+html[data-window='panel'] body,
+html[data-window='toast'] body {
   background: transparent;
 }
 

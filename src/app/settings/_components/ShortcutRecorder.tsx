@@ -1,8 +1,9 @@
-import { useState, type KeyboardEvent } from "react";
-import { usePrefs } from "@/prefs";
-import { acceleratorFromEvent, formatAccelerator } from "@/utils/accelerator";
+import { type KeyboardEvent, useState } from 'react';
 
-const isMac = navigator.userAgent.includes("Mac");
+import { useI18n } from '@/shared/providers/i18n/I18nProvider';
+import { acceleratorFromEvent, formatAccelerator } from '@/utils/accelerator';
+
+const isMac = navigator.userAgent.includes('Mac');
 
 interface Props {
   value: string;
@@ -12,14 +13,19 @@ interface Props {
 }
 
 export function ShortcutRecorder({ value, onSave, taken }: Props) {
-  const { t } = usePrefs();
+  // state
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // hooks
+  const { t } = useI18n();
+
+  // handle
 
   const onKeyDown = async (e: KeyboardEvent) => {
     if (!recording) return;
     e.preventDefault();
-    if (e.key === "Escape") {
+    if (e.key === 'Escape') {
       setRecording(false);
       return;
     }
@@ -41,7 +47,7 @@ export function ShortcutRecorder({ value, onSave, taken }: Props) {
   return (
     <div className="recorder">
       <button
-        className={recording ? "kbd recording" : "kbd"}
+        className={recording ? 'kbd recording' : 'kbd'}
         onClick={(e) => {
           setRecording(true);
           // WebKit does not focus a clicked <button>, so keydown/blur would never reach it.
