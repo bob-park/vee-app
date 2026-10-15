@@ -144,6 +144,11 @@
   --color-danger-border: color-mix(in srgb, var(--color-error) 20%, transparent);
   --color-danger-tint: color-mix(in srgb, var(--color-error) 6%, transparent);
   --color-backdrop: rgba(0, 0, 0, 0.45);
+  --color-grab: color-mix(in srgb, var(--vee-muted) 50%, transparent);
+  --color-pinned-border: color-mix(in srgb, var(--color-primary) 45%, transparent);
+  --color-confirm-veil: color-mix(in srgb, var(--vee-card) 94%, transparent);
+  --color-tip: #101114;
+  --color-ext-tag: rgba(16, 17, 20, 0.65);
   --shadow-suggest: rgba(0, 0, 0, 0.12) 0 8px 24px;
   --shadow-toast: var(--vee-toast-shadow);
 }
@@ -162,6 +167,30 @@
 
 @utility shadow-modal {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+/* Drawn inset: the panel window is exactly the panel's size, so an outer ring would be clipped. */
+@utility shadow-panel-pinned {
+  box-shadow: inset 0 0 0 0.5px var(--color-primary);
+}
+
+@utility shadow-card {
+  box-shadow: 0 1px 4px rgba(16, 24, 40, 0.04);
+}
+
+/* The second pixel of the ring is inset so the border width, and the card's content, stay put. */
+@utility shadow-card-selected {
+  box-shadow:
+    inset 0 0 0 1px var(--color-primary),
+    0 0 0 4px var(--vee-accent-subtle);
+}
+
+@utility shadow-card-confirm {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-error) 14%, transparent);
+}
+
+@utility shadow-stack {
+  box-shadow: 0 2px 8px rgba(16, 24, 40, 0.18);
 }
 
 @theme {
@@ -202,33 +231,6 @@
   }
 }
 
-/*
- * Legacy names still read by panel.css.
- * Delete each one once nothing uses it. Unlayered, so `--border` here beats daisyUI's `--border: 1px`.
- */
-:root {
-  --font: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-  --mono: Menlo, Consolas, monospace;
-  --radius: 12px;
-}
-
-:root[data-theme] {
-  --surface: var(--color-base-100);
-  --card: var(--vee-card);
-  --border: var(--color-base-300);
-  --divider: var(--vee-divider);
-  --subtle: var(--vee-subtle);
-  --text: var(--color-base-content);
-  --muted: var(--vee-muted);
-  --accent: var(--color-primary);
-  --accent-subtle: var(--vee-accent-subtle);
-  --badge-bg: var(--vee-badge-bg);
-  --badge-fg: var(--vee-badge-fg);
-  --ok-bg: var(--vee-ok-bg);
-  --ok-fg: var(--vee-ok-fg);
-  --danger: var(--color-error);
-}
-
 @layer base {
   /* The browser default, not preflight's 1.5: every vee metric is measured against it. */
   html {
@@ -265,22 +267,16 @@
   }
 }
 
-/*
- * Preflight resets panel.css still relies on as browser defaults; the settings app picker input
- * reads the input padding and placeholder ones too. Delete each rule once nothing needs it.
- */
-@layer base {
-  input {
-    padding: revert;
-  }
-
-  ::placeholder {
-    color: revert;
-    opacity: revert;
-  }
-
-  /* A percentage max-width lets a flex item's image shrink to nothing at min-content (the app tag). */
-  img {
-    max-width: none;
+@layer components {
+  /*
+   * The copy of a card that follows the cursor while dragging it; motion.ts adds the class.
+   * `!important` beats the card's own position and shadow utilities, which sit in a later layer.
+   */
+  .ghost {
+    position: fixed !important;
+    z-index: 10;
+    margin: 0;
+    pointer-events: none;
+    box-shadow: 0 14px 34px rgba(16, 24, 40, 0.25) !important;
   }
 }

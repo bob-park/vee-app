@@ -142,7 +142,7 @@ export function Dropdown<T extends string | number>({
               onPointerEnter={() => setActive(i)}
               onClick={() => pick(i)}
             >
-              {o.icon && <img className="size-3.5" src={o.icon} alt="" />}
+              {o.icon && <img className="size-3.5 max-w-none" src={o.icon} alt="" />}
               <span>{o.label}</span>
               {i === selected && (
                 <span className="ml-auto pl-3" aria-hidden>

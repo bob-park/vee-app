@@ -175,7 +175,7 @@ export function HistorySection({ run, updateSetting }: Props) {
                   key={a.id}
                   className="bg-badge-bg text-badge-fg inline-flex items-center gap-1 rounded-lg py-[3px] pr-1 pl-2 text-[12px]"
                 >
-                  {a.icon && <img className="size-3.5" src={a.icon} alt="" />}
+                  {a.icon && <img className="size-3.5 max-w-none" src={a.icon} alt="" />}
                   {a.name}
                   <button
                     className="text-muted px-1"

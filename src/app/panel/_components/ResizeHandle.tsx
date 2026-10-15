@@ -3,6 +3,8 @@ import { type PointerEvent, useEffect, useRef, useState } from 'react';
 import { resizePanel } from '@/domain/panel/apis/panel';
 import { useSettings } from '@/domain/settings/queries/settings';
 
+import cx from 'classnames';
+
 interface Drag {
   startY: number;
   startH: number;
@@ -67,7 +69,11 @@ export function ResizeHandle() {
 
   return (
     <div
-      className={active ? 'resize-handle active' : 'resize-handle'}
+      // A drag strip along the top edge with a small grab bar in the middle.
+      className={cx(
+        "absolute inset-x-0 top-0 z-1 h-1.5 cursor-ns-resize touch-none select-none after:absolute after:top-px after:left-1/2 after:-ml-3.5 after:h-1 after:w-7 after:rounded-xs after:content-['']",
+        active ? 'after:bg-primary' : 'after:bg-grab hover:after:bg-primary',
+      )}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerEnd}

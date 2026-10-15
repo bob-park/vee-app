@@ -37,8 +37,7 @@ import {
 } from '@/utils/selection';
 
 import { listen } from '@tauri-apps/api/event';
-
-import './_components/panel.css';
+import cx from 'classnames';
 
 const PAGE = 50;
 const isMac = navigator.userAgent.includes('Mac');
@@ -420,9 +419,20 @@ export function PanelApp() {
 
   return (
     <div
-      className={['panel', open && 'open', closing && 'closing', dragging && 'dragging', panelPinned && 'pinned']
-        .filter(Boolean)
-        .join(' ')}
+      className={cx(
+        // Thumbnails must not start WebKit's own HTML drag.
+        'bg-base-100 relative flex h-full flex-col overflow-hidden rounded-2xl border px-3 pt-2.5 pb-3 [&_img]:[-webkit-user-drag:none]',
+        panelPinned ? 'border-primary shadow-panel-pinned' : 'border-base-300',
+        /*
+         * Entrance: the window appears instantly with the panel parked below its bottom edge (set
+         * while hidden), then the panel slides up like a sheet. Closing, or dragging a file out so the
+         * whole screen is a drop target, slides it back down.
+         */
+        (!open || closing || dragging) && 'translate-y-[calc(100%+16px)]',
+        open && 'transition-[translate] motion-reduce:transition-none',
+        open &&
+          (closing || dragging ? 'duration-200 ease-[ease-in]' : 'duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]'),
+      )}
       onKeyDown={onKeyDown}
       // Capture runs before the card's handler, so the card sees this event's verdict.
       onMouseMoveCapture={(e) => {
@@ -466,24 +476,36 @@ export function PanelApp() {
         onConfirmUpdate={installUpdate}
         onCancelUpdate={cancelUpdate}
       />
-      <div className="body" ref={bodyRef}>
+      {/* Pins on the left, history scrolling on the right. */}
+      <div className="flex min-h-0 flex-1" ref={bodyRef}>
         {pinned.length > 0 && (
           <>
-            <div className="pinned-row" role="listbox">
+            <div className="relative flex flex-none gap-2.5 p-1" role="listbox">
               {pinned.map((clip, i) => renderCard(clip, i))}
               {pinNotice && (
-                <div className="pin-notice" role="status">
+                <div
+                  className="rounded-box border-base-300 bg-card shadow-suggest absolute top-3 left-1/2 z-3 -translate-x-1/2 border px-3 py-2 text-[12px] font-semibold whitespace-nowrap"
+                  role="status"
+                >
                   {t.pinLimit}
                 </div>
               )}
             </div>
-            <div className="pin-divider" aria-hidden />
+            <div className="bg-base-300 mx-1.5 my-2 w-px flex-none" aria-hidden />
           </>
         )}
         {clips.length === 0 ? (
-          <div className="empty">{query || filter !== 'all' || app ? t.noResults : t.empty}</div>
+          <div className="text-muted flex flex-1 items-center justify-center">
+            {query || filter !== 'all' || app ? t.noResults : t.empty}
+          </div>
         ) : (
-          <div className="row" ref={rowRef} role="listbox" onWheel={onWheel} onScroll={onScroll}>
+          <div
+            className="flex min-w-0 flex-1 [scrollbar-width:none] gap-2.5 overflow-x-auto overflow-y-hidden p-1 [&::-webkit-scrollbar]:hidden"
+            ref={rowRef}
+            role="listbox"
+            onWheel={onWheel}
+            onScroll={onScroll}
+          >
             {clips.map((clip, i) => renderCard(clip, pinned.length + i))}
           </div>
         )}
