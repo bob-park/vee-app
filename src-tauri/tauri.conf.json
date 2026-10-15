@@ -53,6 +53,16 @@
         "height": 600,
         "resizable": false,
         "center": true
+      },
+      {
+        "label": "whats-new",
+        "create": false,
+        "title": "Vee",
+        "visible": false,
+        "width": 400,
+        "height": 480,
+        "resizable": false,
+        "center": true
       }
     ],
     "security": {

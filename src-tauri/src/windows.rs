@@ -11,6 +11,7 @@ use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, 
 pub const PANEL: &str = "panel";
 pub const TOAST: &str = "toast";
 pub const SETTINGS: &str = "settings";
+pub const WHATS_NEW: &str = "whats-new";
 
 const PANEL_RATIO: f64 = 0.30;
 const PANEL_MIN: f64 = 300.0;

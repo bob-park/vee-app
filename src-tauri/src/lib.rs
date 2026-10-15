@@ -5,6 +5,7 @@ mod source_app;
 mod store;
 mod tray;
 mod updater;
+mod whats_new;
 mod watcher;
 mod windows;
 
@@ -226,6 +227,7 @@ pub fn run() {
             for config in app.config().app.windows.clone() {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
             }
+            whats_new::show_if_due(app.handle());
             disk_access::prompt_once(app.handle());
             tray::create(app.handle())?;
             settings::spawn_pruner(app.handle().clone());
@@ -238,6 +240,10 @@ pub fn run() {
             (windows::SETTINGS, WindowEvent::CloseRequested { api, .. }) => {
                 api.prevent_close();
                 let _ = window.hide();
+            }
+            (windows::WHATS_NEW, WindowEvent::CloseRequested { api, .. }) => {
+                api.prevent_close();
+                whats_new::dismiss(window.app_handle());
             }
             (windows::PANEL, WindowEvent::Focused(false)) => {
                 let (app, state) = (window.app_handle(), window.app_handle().state::<AppState>());
@@ -279,7 +285,9 @@ pub fn run() {
             disk_access::open_disk_access_settings,
             updater::check_update,
             updater::get_update_status,
-            updater::install_update_and_restart
+            updater::install_update_and_restart,
+            whats_new::get_whats_new,
+            whats_new::dismiss_whats_new
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
