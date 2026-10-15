@@ -1,6 +1,6 @@
 //! Checks GitHub Releases, downloads in the background, installs only when asked.
 
-use crate::{now_ms, tray};
+use crate::{AppState, now_ms, tray, whats_new};
 use serde::Serialize;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -56,6 +56,7 @@ pub async fn check(app: &AppHandle) -> UpdateStatus {
     let status = match fetch(app).await {
         Ok(Some((update, bytes))) => {
             let version = update.version.clone();
+            whats_new::save(&app.state::<AppState>().store.lock().unwrap(), &version, update.body.as_deref());
             *app.state::<UpdateState>().pending.lock().unwrap() = Some((update, bytes));
             UpdateStatus::Ready { version }
         }

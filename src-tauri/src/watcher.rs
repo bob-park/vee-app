@@ -5,6 +5,8 @@ use clipboard_rs::{
     Clipboard, ClipboardContext, ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext, ContentFormat,
     RustImageData, common::RustImage,
 };
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Pasteboard markers set by password managers and other privacy-aware apps.
@@ -105,66 +107,99 @@ fn read(ctx: &ClipboardContext) -> clipboard_rs::Result<Option<NewClip>> {
     Ok(None)
 }
 
-struct Handler {
-    app: AppHandle,
-    ctx: ClipboardContext,
-}
+/// How long the clipboard must stay unchanged before it's recorded. Terminals with
+/// copy-on-select rewrite it continuously while a selection is dragged.
+const QUIET: Duration = Duration::from_millis(500);
+/// How often clipboard-rs checks the macOS change count (ignored on Windows).
+const POLL: Duration = Duration::from_millis(200);
 
-impl Handler {
-    fn capture(&self) -> crate::store::Result<()> {
-        let state = self.app.state::<AppState>();
-        if state.watcher_suppressed() {
-            return Ok(());
+/// Blocks until no change arrives for `quiet`. False when the watcher is gone.
+fn wait_quiet(rx: &Receiver<()>, quiet: Duration) -> bool {
+    loop {
+        match rx.recv_timeout(quiet) {
+            Ok(()) => continue,
+            Err(RecvTimeoutError::Timeout) => return true,
+            Err(RecvTimeoutError::Disconnected) => return false,
         }
-        let Some(clip) = read(&self.ctx)? else { return Ok(()) };
-        // File clips are restored from their paths, which handles multiple files.
-        let formats = if matches!(clip, NewClip::Files { .. }) { Vec::new() } else { snapshot(&self.ctx) };
-        let front = source_app::frontmost();
-        let store = state.store.lock().unwrap();
-        let app_id = match front {
-            Some(front) => {
-                if store.is_excluded(&front.bundle_id)? {
-                    return Ok(());
-                }
-                let icon = if store.app_known(&front.bundle_id)? { None } else { source_app::icon_png(&front) };
-                Some(store.upsert_app(&front.bundle_id, &front.name, icon.as_deref())?)
-            }
-            None => None,
-        };
-        let id = store.upsert(clip, app_id, now_ms())?;
-        store.set_formats(id, &formats)?;
-        let sound = crate::settings::copy_sound(&store);
-        drop(store);
-        if let Some(name) = sound {
-            // AppKit sound playback belongs on the main thread.
-            self.app.run_on_main_thread(move || crate::sound::play(&name))?;
-        }
-        self.app.emit("clips://added", ())?;
-        Ok(())
     }
 }
 
-impl ClipboardHandler for Handler {
-    fn on_clipboard_change(&mut self) {
+fn capture(app: &AppHandle, ctx: &ClipboardContext) -> crate::store::Result<()> {
+    let state = app.state::<AppState>();
+    if state.watcher_suppressed() {
+        return Ok(());
+    }
+    let Some(clip) = read(ctx)? else { return Ok(()) };
+    // File clips are restored from their paths, which handles multiple files.
+    let formats = if matches!(clip, NewClip::Files { .. }) { Vec::new() } else { snapshot(ctx) };
+    let front = source_app::frontmost();
+    let store = state.store.lock().unwrap();
+    let app_id = match front {
+        Some(front) => {
+            if store.is_excluded(&front.bundle_id)? {
+                return Ok(());
+            }
+            let icon = if store.app_known(&front.bundle_id)? { None } else { source_app::icon_png(&front) };
+            Some(store.upsert_app(&front.bundle_id, &front.name, icon.as_deref())?)
+        }
+        None => None,
+    };
+    let id = store.upsert(clip, app_id, now_ms())?;
+    store.set_formats(id, &formats)?;
+    let sound = crate::settings::copy_sound(&store);
+    drop(store);
+    if let Some(name) = sound {
+        // AppKit sound playback belongs on the main thread.
+        app.run_on_main_thread(move || crate::sound::play(&name))?;
+    }
+    app.emit("clips://added", ())?;
+    Ok(())
+}
+
+/// Records the clipboard once changes have settled for `QUIET`.
+fn record(app: AppHandle, rx: Receiver<()>) {
+    let ctx = match ClipboardContext::new() {
+        Ok(ctx) => ctx,
+        Err(e) => return log::error!("clipboard unavailable: {e}"),
+    };
+    while rx.recv().is_ok() && wait_quiet(&rx, QUIET) {
         // This thread has no run loop, so nothing drains autoreleased Cocoa objects for it:
         // without a pool every pasteboard buffer read here (an image is ~2MB) is kept forever.
         #[cfg(target_os = "macos")]
-        let result = objc2::rc::autoreleasepool(|_| self.capture());
+        let result = objc2::rc::autoreleasepool(|_| capture(&app, &ctx));
         #[cfg(not(target_os = "macos"))]
-        let result = self.capture();
+        let result = capture(&app, &ctx);
         if let Err(e) = result {
             log::warn!("clipboard capture failed: {e}");
         }
     }
 }
 
+struct Handler {
+    app: AppHandle,
+    tx: Sender<()>,
+}
+
+impl ClipboardHandler for Handler {
+    fn on_clipboard_change(&mut self) {
+        // Our own writes are dropped here as well as at record time, so they don't
+        // hold back recording of a real copy made right after.
+        if !self.app.state::<AppState>().watcher_suppressed() {
+            let _ = self.tx.send(());
+        }
+    }
+}
+
 pub fn spawn(app: AppHandle) {
+    let (tx, rx) = channel();
+    let recorder = app.clone();
+    std::thread::spawn(move || record(recorder, rx));
     std::thread::spawn(move || {
-        let (ctx, mut watcher) = match (ClipboardContext::new(), ClipboardWatcherContext::new()) {
-            (Ok(ctx), Ok(watcher)) => (ctx, watcher),
-            (Err(e), _) | (_, Err(e)) => return log::error!("clipboard watcher unavailable: {e}"),
+        let mut watcher = match ClipboardWatcherContext::new_with_interval(POLL) {
+            Ok(watcher) => watcher,
+            Err(e) => return log::error!("clipboard watcher unavailable: {e}"),
         };
-        watcher.add_handler(Handler { app, ctx });
+        watcher.add_handler(Handler { app, tx });
         watcher.start_watch();
     });
 }
@@ -201,6 +236,30 @@ mod tests {
         let thumbs = file_thumbs(&[p(&png), p(&txt), p(&broken), p(&fourth)]);
         assert_eq!(thumbs.iter().map(|(i, _)| *i).collect::<Vec<_>>(), vec![0]);
         assert!(thumbs[0].1.starts_with(b"\x89PNG"));
+    }
+
+    #[test]
+    fn waits_until_changes_stop_for_the_quiet_period() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let start = std::time::Instant::now();
+        std::thread::spawn(move || {
+            for _ in 0..4 {
+                std::thread::sleep(Duration::from_millis(150));
+                tx.send(()).unwrap();
+            }
+            std::thread::sleep(Duration::from_secs(2)); // keep the sender alive
+        });
+        assert!(wait_quiet(&rx, Duration::from_millis(300)));
+        let waited = start.elapsed();
+        assert!(waited >= Duration::from_millis(900), "{waited:?}"); // 4×150 + 300
+        assert!(waited < Duration::from_millis(1500), "{waited:?}");
+    }
+
+    #[test]
+    fn stops_waiting_when_the_watcher_is_gone() {
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        drop(tx);
+        assert!(!wait_quiet(&rx, Duration::from_millis(300)));
     }
 
     #[test]

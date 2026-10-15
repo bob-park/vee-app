@@ -19,3 +19,13 @@ export function followSelection(id: number | undefined, index: number, ids: numb
 export function keepSelectionOnReload(panelOpen: boolean, added: boolean): boolean {
   return panelOpen && !added;
 }
+
+export type Point = { x: number; y: number };
+
+/**
+ * Whether the pointer really moved since `last`. WebKit fires mousemove when content scrolls
+ * under a still cursor; that must not steal the selection. The first event is only a baseline.
+ */
+export function pointerMoved(last: Point | null, x: number, y: number): boolean {
+  return last !== null && (last.x !== x || last.y !== y);
+}

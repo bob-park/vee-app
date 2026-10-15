@@ -30,8 +30,10 @@ export const en = {
   updateRestartHint: "Vee will restart briefly",
   restart: "Restart",
   updateFailed: "Couldn't update",
+  whatsNew: { title: "What's new in Vee", ok: "OK" },
   settings: {
     title: "Settings",
+    tabs: { general: "General", panel: "Panel", shortcuts: "Shortcuts", history: "History" },
     theme: "Theme",
     language: "Language",
     system: "System",
@@ -70,7 +72,6 @@ export const en = {
     updateReady: (v: string) => `v${v} is ready`,
     checkNow: "Check now",
     restartToUpdate: "Restart to update",
-    historySection: "Clipboard history",
     retention: "Keep history",
     retentionHint: "Items not used for longer than this are removed automatically",
     retentionOptions: { off: "Forever", "7": "7 days", "30": "30 days", "90": "90 days" },

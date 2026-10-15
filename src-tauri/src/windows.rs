@@ -11,6 +11,7 @@ use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, 
 pub const PANEL: &str = "panel";
 pub const TOAST: &str = "toast";
 pub const SETTINGS: &str = "settings";
+pub const WHATS_NEW: &str = "whats-new";
 
 const PANEL_RATIO: f64 = 0.30;
 const PANEL_MIN: f64 = 300.0;
@@ -338,8 +339,30 @@ pub fn reset_panel_height(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// macOS only: settings and what's-new open on the Space the user is looking at,
+/// instead of pulling them back to the one they were last shown on. Call once on the main thread.
+pub fn follow_active_space(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    for label in [SETTINGS, WHATS_NEW] {
+        let Some(window) = app.get_webview_window(label) else { continue };
+        match window.ns_window() {
+            // SAFETY: Tauri hands out the live NSWindow; setup runs on the main thread.
+            Ok(ptr) => unsafe {
+                use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+                let ns = &*(ptr as *const NSWindow);
+                ns.setCollectionBehavior(ns.collectionBehavior() | NSWindowCollectionBehavior::MoveToActiveSpace);
+            },
+            Err(e) => log::warn!("couldn't set {label} collection behavior: {e}"),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+}
+
 pub fn show_settings(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(SETTINGS) {
+        // Hidden, not destroyed, on close; tell the page to start over on the general tab.
+        let _ = app.emit_to(SETTINGS, "settings://opened", ());
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -523,7 +546,7 @@ fn stage_image(src: &Path, dir: &Path, name: &str) -> std::io::Result<PathBuf> {
     Ok(dest)
 }
 
-/// Starts dragging a files or image clip out of the panel. Drops always copy.
+/// Starts dragging any clip out of the panel. Drops always copy.
 /// `name` names the dropped file for image clips. `image` is the card itself as a base64 PNG
 /// laid out for this platform (see `dragImageLayout` in motion.ts); without it the clip's
 /// thumbnail is dragged.
@@ -534,17 +557,17 @@ pub fn start_drag(app: &AppHandle, id: i64, name: &str, image: Option<&str>) -> 
         let content = store.content(id).map_err(|e| e.to_string())?.ok_or("clip no longer exists")?;
         (content, store.preview_png(id).map_err(|e| e.to_string())?)
     };
-    let paths = match &content {
+    let item = match &content {
         ClipContent::Files(paths) => {
             if paths.iter().any(|p| !Path::new(p).exists()) {
                 return Err("a copied file no longer exists".into());
             }
-            paths.iter().map(PathBuf::from).collect()
+            DragItem::Files(paths.iter().map(PathBuf::from).collect())
         }
-        ClipContent::Image(path) => {
-            vec![stage_image(path, &std::env::temp_dir().join("vee-drag"), name).map_err(|e| e.to_string())?]
-        }
-        ClipContent::Text(_) => return Err("only files and images can be dragged".into()),
+        ClipContent::Image(path) => DragItem::Files(vec![
+            stage_image(path, &std::env::temp_dir().join("vee-drag"), name).map_err(|e| e.to_string())?,
+        ]),
+        ClipContent::Text(text) => DragItem::Text(text.clone()),
     };
     let panel = app.get_webview_window(PANEL).ok_or("panel window is missing")?;
     state.dragging.store(true, Ordering::SeqCst);
@@ -553,7 +576,7 @@ pub fn start_drag(app: &AppHandle, id: i64, name: &str, image: Option<&str>) -> 
     let handle = app.clone();
     let started = drag::start_drag(
         &panel,
-        DragItem::Files(paths),
+        item,
         drag::Image::Raw(card_image(image).unwrap_or_else(|| drag_image(preview))),
         move |result, _cursor| finish_drag(&handle, id, &content, result),
         drag::Options { mode: DragMode::Copy, ..Default::default() },

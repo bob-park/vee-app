@@ -22,7 +22,8 @@ use windows::{
         System::Memory::*,
         System::Ole::{DoDragDrop, OleInitialize},
         System::Ole::{
-            IDropSource, IDropSource_Impl, CF_HDROP, DROPEFFECT, DROPEFFECT_COPY, DROPEFFECT_MOVE,
+            IDropSource, IDropSource_Impl, CF_HDROP, CF_UNICODETEXT, DROPEFFECT, DROPEFFECT_COPY,
+            DROPEFFECT_MOVE,
         },
         System::SystemServices::{MK_LBUTTON, MODIFIERKEYS_FLAGS},
         UI::{
@@ -220,16 +221,19 @@ pub fn start_drag<W: HasWindowHandle, F: Fn(DragResult, CursorPosition) + Send +
     options: Options,
 ) -> crate::Result<()> {
     if let Ok(RawWindowHandle::Win32(_w)) = handle.window_handle().map(|h| h.as_raw()) {
+        init_ole();
+        unsafe {
+            #[allow(static_mut_refs)]
+            if let Err(e) = &OLE_RESULT {
+                return Err(e.clone().into());
+            }
+        }
+        let effect = match options.mode {
+            DragMode::Copy => DROPEFFECT_COPY,
+            DragMode::Move => DROPEFFECT_MOVE,
+        };
         match item {
             DragItem::Files(files) => {
-                init_ole();
-                unsafe {
-                    #[allow(static_mut_refs)]
-                    if let Err(e) = &OLE_RESULT {
-                        return Err(e.clone().into());
-                    }
-                }
-
                 let mut paths = Vec::new();
                 for f in files {
                     paths.push(dunce::canonicalize(f)?);
@@ -237,78 +241,96 @@ pub fn start_drag<W: HasWindowHandle, F: Fn(DragResult, CursorPosition) + Send +
 
                 let data_object: IDataObject = get_file_data_object(&paths).unwrap();
                 let drop_source: IDropSource = DropSource::new().into();
-
-                unsafe {
-                    if let Some(drag_image) = get_drag_image(image) {
-                        if let Ok(helper) =
-                            create_instance::<IDragSourceHelper>(&CLSID_DragDropHelper)
-                        {
-                            let _ = helper.InitializeFromBitmap(&drag_image, &data_object);
-                        }
-                    }
-
-                    let mut out_dropeffect = DROPEFFECT::default();
-                    let effect = match options.mode {
-                        DragMode::Copy => DROPEFFECT_COPY,
-                        DragMode::Move => DROPEFFECT_MOVE,
-                    };
-
-                    let drop_result =
-                        DoDragDrop(&data_object, &drop_source, effect, &mut out_dropeffect);
-                    let mut pt = POINT { x: 0, y: 0 };
-                    GetCursorPos(&mut pt)?;
-                    if drop_result == DRAGDROP_S_DROP {
-                        on_drop_callback(DragResult::Dropped, CursorPosition { x: pt.x, y: pt.y });
-                    } else {
-                        // DRAGDROP_S_CANCEL
-                        on_drop_callback(DragResult::Cancel, CursorPosition { x: pt.x, y: pt.y });
-                    }
-                }
+                do_drag(&data_object, &drop_source, effect, image, on_drop_callback)?;
+            }
+            DragItem::Text(text) => {
+                let data_object = get_text_data_object(&text)?;
+                let drop_source: IDropSource = DropSource::new().into();
+                do_drag(&data_object, &drop_source, effect, image, on_drop_callback)?;
             }
             DragItem::Data { .. } => {
-                init_ole();
-                unsafe {
-                    #[allow(static_mut_refs)]
-                    if let Err(e) = &OLE_RESULT {
-                        return Err(e.clone().into());
-                    }
-                }
-
                 let paths = vec![dunce::canonicalize("./")?];
 
                 let data_object: IDataObject = get_file_data_object(&paths).unwrap();
                 let drop_source: IDropSource = DummyDropSource::new().into();
-
-                unsafe {
-                    if let Some(drag_image) = get_drag_image(image) {
-                        if let Ok(helper) =
-                            create_instance::<IDragSourceHelper>(&CLSID_DragDropHelper)
-                        {
-                            let _ = helper.InitializeFromBitmap(&drag_image, &data_object);
-                        }
-                    }
-
-                    let mut out_dropeffect = DROPEFFECT::default();
-                    let drop_result = DoDragDrop(
-                        &data_object,
-                        &drop_source,
-                        DROPEFFECT_COPY,
-                        &mut out_dropeffect,
-                    );
-                    let mut pt = POINT { x: 0, y: 0 };
-                    GetCursorPos(&mut pt)?;
-                    if drop_result == DRAGDROP_S_DROP {
-                        on_drop_callback(DragResult::Dropped, CursorPosition { x: pt.x, y: pt.y });
-                    } else {
-                        // DRAGDROP_S_CANCEL
-                        on_drop_callback(DragResult::Cancel, CursorPosition { x: pt.x, y: pt.y });
-                    }
-                }
+                do_drag(
+                    &data_object,
+                    &drop_source,
+                    DROPEFFECT_COPY,
+                    image,
+                    on_drop_callback,
+                )?;
             }
         }
         Ok(())
     } else {
         Err(crate::Error::UnsupportedWindowHandle)
+    }
+}
+
+/// Runs the modal OLE drag loop and reports how it ended.
+fn do_drag<F: Fn(DragResult, CursorPosition)>(
+    data_object: &IDataObject,
+    drop_source: &IDropSource,
+    effect: DROPEFFECT,
+    image: Image,
+    on_drop_callback: F,
+) -> crate::Result<()> {
+    unsafe {
+        if let Some(drag_image) = get_drag_image(image) {
+            if let Ok(helper) = create_instance::<IDragSourceHelper>(&CLSID_DragDropHelper) {
+                let _ = helper.InitializeFromBitmap(&drag_image, data_object);
+            }
+        }
+
+        let mut out_dropeffect = DROPEFFECT::default();
+        let drop_result = DoDragDrop(data_object, drop_source, effect, &mut out_dropeffect);
+        let mut pt = POINT { x: 0, y: 0 };
+        GetCursorPos(&mut pt)?;
+        if drop_result == DRAGDROP_S_DROP {
+            on_drop_callback(DragResult::Dropped, CursorPosition { x: pt.x, y: pt.y });
+        } else {
+            // DRAGDROP_S_CANCEL
+            on_drop_callback(DragResult::Cancel, CursorPosition { x: pt.x, y: pt.y });
+        }
+    }
+    Ok(())
+}
+
+/// Vee patch: a shell data object carrying `text` as CF_UNICODETEXT.
+fn get_text_data_object(text: &str) -> Result<IDataObject> {
+    let wide: Vec<u16> = text.encode_utf16().chain(once(0)).collect();
+    let size = wide.len() * 2;
+    unsafe {
+        let data_object: IDataObject = SHCreateDataObject(None, None, None)?;
+        let handle = GlobalAlloc(GMEM_MOVEABLE, size)?;
+        let ptr = GlobalLock(handle);
+        if ptr.is_null() {
+            let _ = GlobalFree(handle);
+            return Err(Error::from_win32());
+        }
+        std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr as *mut u16, wide.len());
+        // Returns an "error" with code 0 once the lock count hits zero; nothing to handle.
+        let _ = GlobalUnlock(handle);
+
+        let format = FORMATETC {
+            cfFormat: CF_UNICODETEXT.0,
+            ptd: std::ptr::null_mut(),
+            dwAspect: DVASPECT_CONTENT.0,
+            lindex: -1,
+            tymed: TYMED_HGLOBAL.0 as u32,
+        };
+        let medium = STGMEDIUM {
+            tymed: TYMED_HGLOBAL.0 as u32,
+            u: STGMEDIUM_0 { hGlobal: handle },
+            pUnkForRelease: std::mem::ManuallyDrop::new(None),
+        };
+        // fRelease = true: on success the data object owns (and frees) the HGLOBAL.
+        if let Err(e) = data_object.SetData(&format, &medium, true) {
+            let _ = GlobalFree(handle);
+            return Err(e);
+        }
+        Ok(data_object)
     }
 }
 
