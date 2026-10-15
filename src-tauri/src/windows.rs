@@ -339,6 +339,26 @@ pub fn reset_panel_height(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// macOS only: settings and what's-new open on the Space the user is looking at,
+/// instead of pulling them back to the one they were last shown on. Call once on the main thread.
+pub fn follow_active_space(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    for label in [SETTINGS, WHATS_NEW] {
+        let Some(window) = app.get_webview_window(label) else { continue };
+        match window.ns_window() {
+            // SAFETY: Tauri hands out the live NSWindow; setup runs on the main thread.
+            Ok(ptr) => unsafe {
+                use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+                let ns = &*(ptr as *const NSWindow);
+                ns.setCollectionBehavior(ns.collectionBehavior() | NSWindowCollectionBehavior::MoveToActiveSpace);
+            },
+            Err(e) => log::warn!("couldn't set {label} collection behavior: {e}"),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+}
+
 pub fn show_settings(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(SETTINGS) {
         let _ = window.show();

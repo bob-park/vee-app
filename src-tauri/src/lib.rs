@@ -227,6 +227,7 @@ pub fn run() {
             for config in app.config().app.windows.clone() {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
             }
+            windows::follow_active_space(app.handle());
             whats_new::show_if_due(app.handle());
             disk_access::prompt_once(app.handle());
             tray::create(app.handle())?;
