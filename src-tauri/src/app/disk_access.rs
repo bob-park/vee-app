@@ -77,7 +77,7 @@ pub fn open_disk_access_settings() -> Result<(), String> {
 pub fn prompt_once(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     {
-        use crate::{AppState, settings, tray};
+        use crate::{app::{i18n, state::AppState}, settings};
         use tauri::Manager;
         use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
         let store = app.state::<AppState>();
@@ -86,7 +86,7 @@ pub fn prompt_once(app: &AppHandle) {
             return;
         }
         let _ = store.set_setting("diskAccessPrompted", "1");
-        let ko = tray::resolve_locale(&settings::get(&store, "locale")) == "ko";
+        let ko = i18n::resolve_locale(&settings::get(&store, "locale")) == "ko";
         drop(store);
         let (message, open, later) = if ko {
             ("파일을 드래그해서 복사하려면 Vee에 전체 디스크 접근 권한이 필요해요.\n\n시스템 설정의 목록에서 Vee를 켜 주세요. 목록에 없으면 Finder에 보이는 Vee를 목록으로 끌어다 놓으세요.", "시스템 설정 열기", "나중에")

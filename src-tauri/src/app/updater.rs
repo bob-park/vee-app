@@ -1,6 +1,12 @@
 //! Checks GitHub Releases, downloads in the background, installs only when asked.
 
-use crate::{AppState, now_ms, tray, whats_new};
+use crate::{
+    app::{
+        state::{AppState, now_ms},
+        tray,
+    },
+    whats_new,
+};
 use serde::Serialize;
 use std::sync::Mutex;
 use std::time::Duration;

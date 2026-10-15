@@ -4,11 +4,11 @@ pub const NAMES: [&str; 5] = ["pop", "click", "chime", "bubble", "tap"];
 
 pub fn wav(name: &str) -> Option<&'static [u8]> {
     Some(match name {
-        "pop" => include_bytes!("../sounds/pop.wav"),
-        "click" => include_bytes!("../sounds/click.wav"),
-        "chime" => include_bytes!("../sounds/chime.wav"),
-        "bubble" => include_bytes!("../sounds/bubble.wav"),
-        "tap" => include_bytes!("../sounds/tap.wav"),
+        "pop" => include_bytes!("../../sounds/pop.wav"),
+        "click" => include_bytes!("../../sounds/click.wav"),
+        "chime" => include_bytes!("../../sounds/chime.wav"),
+        "bubble" => include_bytes!("../../sounds/bubble.wav"),
+        "tap" => include_bytes!("../../sounds/tap.wav"),
         _ => return None,
     })
 }

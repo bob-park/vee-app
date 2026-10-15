@@ -1,6 +1,12 @@
 //! Panel, toast and settings window behaviour, plus copying a clip back.
 
-use crate::{AppState, now_ms, source_app, store::{ClipContent, Kind, classify_text}};
+use crate::{
+    app::{
+        front_app,
+        state::{AppState, now_ms},
+    },
+    store::{ClipContent, Kind, classify_text},
+};
 use drag::{DragItem, DragMode, DragResult};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -187,7 +193,7 @@ fn pinned(app: &AppHandle) -> bool {
 
 /// Records the frontmost app to hand focus back to, unless it is Vee itself (e.g. settings).
 pub fn remember_front_app(app: &AppHandle) {
-    if let Some(front) = source_app::frontmost().filter(|a| a.pid != std::process::id() as i32) {
+    if let Some(front) = front_app::frontmost().filter(|a| a.pid != std::process::id() as i32) {
         *app.state::<AppState>().prev_app_pid.lock().unwrap() = Some(front.pid);
     }
 }
@@ -204,7 +210,7 @@ pub fn show_panel(app: &AppHandle) {
         if PANEL_CLOSING.swap(false, Ordering::SeqCst) {
             // Reopened mid-close: cancel the pending hide and slide back up.
             PANEL_GENERATION.fetch_add(1, Ordering::SeqCst);
-            *app.state::<AppState>().prev_app_pid.lock().unwrap() = source_app::frontmost().map(|a| a.pid);
+            *app.state::<AppState>().prev_app_pid.lock().unwrap() = front_app::frontmost().map(|a| a.pid);
             let _ = app.emit_to(PANEL, "panel://opened", ());
         } else if pinned(app) {
             // Treated like a fresh open, so the panel resets its search and selection.
@@ -219,7 +225,7 @@ pub fn show_panel(app: &AppHandle) {
         let _ = panel.set_focus();
         return;
     }
-    *app.state::<AppState>().prev_app_pid.lock().unwrap() = source_app::frontmost().map(|a| a.pid);
+    *app.state::<AppState>().prev_app_pid.lock().unwrap() = front_app::frontmost().map(|a| a.pid);
     if let Err(e) = place_and_show(app, &panel) {
         log::error!("failed to show panel: {e}");
     }
@@ -276,9 +282,9 @@ pub fn hide_panel(app: &AppHandle, restore_focus: bool) {
         if pinned { *slot } else { slot.take() }
     };
     // Pinned, the user may have switched apps since the panel last lost focus; ask who they were in.
-    let previous = if pinned && restore_focus { source_app::menu_bar_owner_pid().or(previous) } else { previous };
+    let previous = if pinned && restore_focus { front_app::menu_bar_owner_pid().or(previous) } else { previous };
     if let (true, Some(pid)) = (restore_focus, previous) {
-        source_app::activate(pid);
+        front_app::activate(pid);
     }
     if pinned {
         return;
@@ -468,13 +474,13 @@ fn confirm_copy(app: &AppHandle, id: i64, content: &ClipContent, plain: bool) {
         crate::settings::copy_sound(&store)
     };
     if let Some(name) = sound {
-        crate::sound::play(&name);
+        crate::app::sound::play(&name);
     }
     let _ = app.emit("clips://changed", ());
     show_toast(app, ToastPayload::copied(content, plain));
 }
 
-const DRAG_ICON: &[u8] = include_bytes!("../icons/128x128.png");
+const DRAG_ICON: &[u8] = include_bytes!("../../icons/128x128.png");
 const DRAG_IMAGE_SIZE: u32 = 96;
 
 /// A small PNG to show under the cursor while dragging.

@@ -1,59 +1,19 @@
-mod disk_access;
+mod app;
 mod settings;
 // Unused until the app moves onto it (store.rs is removed in a later step).
 #[allow(dead_code)]
 mod shared;
-mod sound;
-mod source_app;
 mod store;
-mod tray;
-mod updater;
 mod whats_new;
-mod watcher;
-mod windows;
 
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use app::{
+    autostart, disk_access, retention, shortcut, sound,
+    state::{AppState, now_ms},
+    tray, updater, watcher, window,
+};
+use std::sync::atomic::Ordering;
 use store::{AppDto, ClipDto, Kind, StatsDto, Store};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
-
-pub struct AppState {
-    pub store: Mutex<Store>,
-    /// Frontmost app when the panel opened (or, while pinned, last in front), re-activated after a copy.
-    pub prev_app_pid: Mutex<Option<i32>>,
-    suppress_until: Mutex<Instant>,
-    /// A file drag out of the panel is in progress; losing focus must not hide it.
-    pub dragging: AtomicBool,
-    /// The user pinned the panel: it stays up until unpinned. Memory only.
-    pub panel_pinned: AtomicBool,
-}
-
-impl AppState {
-    fn new(store: Store) -> Self {
-        Self {
-            store: Mutex::new(store),
-            prev_app_pid: Mutex::new(None),
-            suppress_until: Mutex::new(Instant::now()),
-            dragging: AtomicBool::new(false),
-            panel_pinned: AtomicBool::new(false),
-        }
-    }
-
-    /// Ignore clipboard changes briefly after we write the clipboard ourselves.
-    /// Covers the watcher's 200ms poll plus its 0.5s debounce, even after a slow write.
-    pub fn suppress_watcher(&self) {
-        *self.suppress_until.lock().unwrap() = Instant::now() + Duration::from_millis(1200);
-    }
-
-    pub fn watcher_suppressed(&self) -> bool {
-        Instant::now() < *self.suppress_until.lock().unwrap()
-    }
-}
-
-pub fn now_ms() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
-}
 
 #[tauri::command]
 fn list_clips(
@@ -107,7 +67,7 @@ fn clear_history(app: AppHandle, state: State<AppState>) -> Result<(), String> {
 
 #[tauri::command]
 fn copy_clip(app: AppHandle, id: i64, plain: bool) -> Result<(), String> {
-    windows::copy_clip(&app, id, plain)
+    window::copy_clip(&app, id, plain)
 }
 
 #[tauri::command]
@@ -161,12 +121,12 @@ fn preview_sound(name: String) -> Result<(), String> {
 
 #[tauri::command]
 fn start_drag(app: AppHandle, id: i64, name: String, image: Option<String>) -> Result<(), String> {
-    windows::start_drag(&app, id, &name, image.as_deref())
+    window::start_drag(&app, id, &name, image.as_deref())
 }
 
 #[tauri::command]
 fn hide_panel(app: AppHandle) {
-    windows::hide_panel(&app, true);
+    window::hide_panel(&app, true);
 }
 
 /// Unpinning leaves the panel open; it closes the next time something hides it.
@@ -177,29 +137,29 @@ fn set_panel_pinned(state: State<AppState>, pinned: bool) {
 
 #[tauri::command]
 fn resize_panel(app: AppHandle, height: f64, save: bool) -> Result<(), String> {
-    windows::resize_panel(&app, height, save)
+    window::resize_panel(&app, height, save)
 }
 
 #[tauri::command]
 fn reset_panel_height(app: AppHandle) -> Result<(), String> {
-    windows::reset_panel_height(&app)
+    window::reset_panel_height(&app)
 }
 
 #[tauri::command]
 fn reveal_panel(app: AppHandle) {
-    windows::reveal_panel(&app);
+    window::reveal_panel(&app);
 }
 
 #[tauri::command]
 fn open_settings(app: AppHandle) {
-    windows::hide_panel(&app, false);
-    windows::show_settings(&app);
+    window::hide_panel(&app, false);
+    window::show_settings(&app);
 }
 
 pub fn run() {
     tauri::Builder::default()
         // Must be first: a second launch just opens the settings window.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| windows::show_settings(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| window::show_settings(app)))
         .plugin(tauri_plugin_log::Builder::new().level(log::LevelFilter::Info).build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -230,31 +190,31 @@ pub fn run() {
             for config in app.config().app.windows.clone() {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
             }
-            windows::follow_active_space(app.handle());
+            window::follow_active_space(app.handle());
             whats_new::show_if_due(app.handle());
             disk_access::prompt_once(app.handle());
             tray::create(app.handle())?;
-            settings::spawn_pruner(app.handle().clone());
+            retention::spawn_pruner(app.handle().clone());
             watcher::spawn(app.handle().clone());
-            settings::register_stored_shortcut(app.handle());
+            shortcut::register_stored_shortcut(app.handle());
             updater::spawn_periodic(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| match (window.label(), event) {
-            (windows::SETTINGS, WindowEvent::CloseRequested { api, .. }) => {
+            (window::SETTINGS, WindowEvent::CloseRequested { api, .. }) => {
                 api.prevent_close();
                 let _ = window.hide();
             }
-            (windows::WHATS_NEW, WindowEvent::CloseRequested { api, .. }) => {
+            (window::WHATS_NEW, WindowEvent::CloseRequested { api, .. }) => {
                 api.prevent_close();
                 whats_new::dismiss(window.app_handle());
             }
-            (windows::PANEL, WindowEvent::Focused(false)) => {
+            (window::PANEL, WindowEvent::Focused(false)) => {
                 let (app, state) = (window.app_handle(), window.app_handle().state::<AppState>());
                 if state.panel_pinned.load(Ordering::SeqCst) {
-                    windows::remember_front_app(app);
+                    window::remember_front_app(app);
                 } else if !state.dragging.load(Ordering::SeqCst) {
-                    windows::hide_panel(app, false)
+                    window::hide_panel(app, false)
                 }
             }
             _ => {}
@@ -282,7 +242,7 @@ pub fn run() {
             open_settings,
             settings::get_settings,
             settings::set_setting,
-            settings::set_autostart,
+            autostart::set_autostart,
             settings::set_shortcut,
             settings::count_prunable,
             disk_access::get_disk_access,
@@ -297,18 +257,3 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn self_write_suppression_outlasts_a_watcher_poll() {
-        // The watcher polls every 200ms and records after 0.5s of quiet, so the window
-        // must cover both after the write finishes, not just from when it started.
-        let dir = tempfile::tempdir().unwrap();
-        let state = AppState::new(Store::open_in_memory(dir.path()).unwrap());
-        state.suppress_watcher();
-        std::thread::sleep(Duration::from_millis(700));
-        assert!(state.watcher_suppressed());
-    }
-}

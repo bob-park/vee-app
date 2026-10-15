@@ -1,6 +1,12 @@
 //! Watches the system clipboard and records every change in the store.
 
-use crate::{AppState, now_ms, source_app, store::{NewClip, STACK_LAYERS}};
+use crate::{
+    app::{
+        front_app,
+        state::{AppState, now_ms},
+    },
+    store::{NewClip, STACK_LAYERS},
+};
 use clipboard_rs::{
     Clipboard, ClipboardContext, ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext, ContentFormat,
     RustImageData, common::RustImage,
@@ -132,14 +138,14 @@ fn capture(app: &AppHandle, ctx: &ClipboardContext) -> crate::store::Result<()> 
     let Some(clip) = read(ctx)? else { return Ok(()) };
     // File clips are restored from their paths, which handles multiple files.
     let formats = if matches!(clip, NewClip::Files { .. }) { Vec::new() } else { snapshot(ctx) };
-    let front = source_app::frontmost();
+    let front = front_app::frontmost();
     let store = state.store.lock().unwrap();
     let app_id = match front {
         Some(front) => {
             if store.is_excluded(&front.bundle_id)? {
                 return Ok(());
             }
-            let icon = if store.app_known(&front.bundle_id)? { None } else { source_app::icon_png(&front) };
+            let icon = if store.app_known(&front.bundle_id)? { None } else { front_app::icon_png(&front) };
             Some(store.upsert_app(&front.bundle_id, &front.name, icon.as_deref())?)
         }
         None => None,
@@ -150,7 +156,7 @@ fn capture(app: &AppHandle, ctx: &ClipboardContext) -> crate::store::Result<()> 
     drop(store);
     if let Some(name) = sound {
         // AppKit sound playback belongs on the main thread.
-        app.run_on_main_thread(move || crate::sound::play(&name))?;
+        app.run_on_main_thread(move || crate::app::sound::play(&name))?;
     }
     app.emit("clips://added", ())?;
     Ok(())

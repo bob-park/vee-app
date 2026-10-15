@@ -1,6 +1,9 @@
 //! Keeps the notes of a downloaded update and shows them once after it's installed.
 
-use crate::{AppState, store::Store, windows};
+use crate::{
+    app::{state::AppState, window},
+    store::Store,
+};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
@@ -39,7 +42,7 @@ pub fn show_if_due(app: &AppHandle) {
     if current_due(app).is_none() {
         return;
     }
-    if let Some(window) = app.get_webview_window(windows::WHATS_NEW) {
+    if let Some(window) = app.get_webview_window(window::WHATS_NEW) {
         let _ = window.show();
         // An Accessory app isn't active at launch; without focus the window opens behind others.
         let _ = window.set_focus();
@@ -57,7 +60,7 @@ pub fn dismiss(app: &AppHandle) {
             }
         }
     }
-    if let Some(window) = app.get_webview_window(windows::WHATS_NEW) {
+    if let Some(window) = app.get_webview_window(window::WHATS_NEW) {
         let _ = window.hide();
     }
 }

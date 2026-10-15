@@ -230,6 +230,7 @@ impl Store {
         Self::init(Connection::open(db_path)?, images_dir)
     }
 
+    #[cfg(test)]
     pub fn open_in_memory(images_dir: &Path) -> Result<Store> {
         Self::init(Connection::open_in_memory()?, images_dir)
     }

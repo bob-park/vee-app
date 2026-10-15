@@ -1,37 +1,19 @@
 //! Menu-bar / system-tray icon.
 
-use crate::{AppState, settings, updater::{self, UpdateState}, windows};
+use crate::{
+    app::{
+        i18n::{labels, resolve_locale},
+        state::AppState,
+        updater::{self, UpdateState},
+        window,
+    },
+    settings,
+};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Wry};
 
 pub const TRAY_ID: &str = "main";
-
-pub struct Labels {
-    pub open: &'static str,
-    pub settings: &'static str,
-    pub check_update: &'static str,
-    pub restart_update: &'static str,
-    pub quit: &'static str,
-}
-
-pub fn labels(locale: &str) -> Labels {
-    if locale == "ko" {
-        Labels { open: "열기", settings: "설정", check_update: "업데이트 확인", restart_update: "업데이트 후 재시작", quit: "종료" }
-    } else {
-        Labels { open: "Open", settings: "Settings", check_update: "Check for Updates", restart_update: "Restart to Update", quit: "Quit" }
-    }
-}
-
-/// Same rule as the frontend: "system" follows the OS language.
-pub fn resolve_locale(setting: &str) -> &'static str {
-    match setting {
-        "ko" => "ko",
-        "en" => "en",
-        _ if sys_locale::get_locale().is_some_and(|l| l.to_lowercase().starts_with("ko")) => "ko",
-        _ => "en",
-    }
-}
 
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let setting = settings::get(&app.state::<AppState>().store.lock().unwrap(), "locale");
@@ -53,7 +35,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let menu = build_menu(app)?;
     // macOS tints a black template glyph to match the menu bar; Windows keeps the colour icon.
     #[cfg(target_os = "macos")]
-    let (icon, template) = (tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?, true);
+    let (icon, template) = (tauri::image::Image::from_bytes(include_bytes!("../../icons/tray.png"))?, true);
     #[cfg(not(target_os = "macos"))]
     let (icon, template) = (app.default_window_icon().cloned().expect("bundle has an icon"), false);
     TrayIconBuilder::with_id(TRAY_ID)
@@ -63,8 +45,8 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "open" => windows::show_panel(app),
-            "settings" => windows::show_settings(app),
+            "open" => window::show_panel(app),
+            "settings" => window::show_settings(app),
             "update" => {
                 if app.state::<UpdateState>().ready_version().is_some() {
                     if let Err(e) = updater::install_and_restart(app) {
@@ -95,16 +77,3 @@ pub fn refresh(app: &AppHandle) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn explicit_locale_wins_over_system() {
-        assert_eq!(resolve_locale("ko"), "ko");
-        assert_eq!(resolve_locale("en"), "en");
-        assert!(["ko", "en"].contains(&resolve_locale("system")));
-        assert_eq!(labels("ko").quit, "종료");
-        assert_eq!(labels("en").quit, "Quit");
-    }
-}
