@@ -1,4 +1,4 @@
-import type { AppError } from "../shared/api/common.dto.ts";
+import type { AppError } from "@/shared/api/common.dto";
 
 /** Text for a failed command: an `AppError`'s message, a string as is, anything else stringified. */
 export function errorText(e: unknown): string {

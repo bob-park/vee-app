@@ -1,8 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { api, type Settings } from "./api.ts";
-import { dicts, resolveLocale, type Locale } from "./i18n/index.ts";
-import type { Dict } from "./i18n/en.ts";
+import type { Settings } from "@/domain/settings/apis/settings.dto";
+import { getSettings } from "@/domain/settings/apis/settings";
+import { dicts, resolveLocale, type Locale } from "@/shared/i18n";
+import type { Dict } from "@/shared/i18n/en";
 
 interface Prefs {
   settings: Settings;
@@ -19,7 +20,7 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
   const [systemDark, setSystemDark] = useState(darkQuery.matches);
 
   const reload = useCallback(async () => {
-    setSettings(await api.getSettings());
+    setSettings(await getSettings());
   }, []);
 
   useEffect(() => {
@@ -34,7 +35,7 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
   }, [reload]);
 
   const theme = settings?.theme === "light" || settings?.theme === "dark" ? settings.theme : systemDark ? "dark" : "light";
-  const locale = resolveLocale(settings?.locale ?? "system");
+  const locale = resolveLocale(settings?.locale ?? "system", navigator.language);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
