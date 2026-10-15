@@ -12,6 +12,7 @@ CI는 없다. 모든 빌드·서명·업로드는 개인 장비에서 한다. ma
 1. 버전을 올리고 커밋·푸시: `src-tauri/tauri.conf.json`의 `version`(기준), 같은 값으로 `package.json`, `src-tauri/Cargo.toml`(빌드하면 `Cargo.lock`도 따라 바뀜)
 2. macOS: `scripts/release.sh` → 초안 릴리스에 dmg, `Vee_<버전>_aarch64.app.tar.gz`와 `.sig` 업로드
 3. Windows: `pwsh scripts/release.ps1` → 같은 릴리스에 `Vee_<버전>_x64-setup.exe`와 `.sig` 업로드
+- `latest-json.mjs` 전에 릴리스 본문을 완성한다. 본문이 그대로 앱의 새 소식 창에 나온다.
 4. 2·3은 순서 무관. 둘 다 끝나면 아무 기계에서 `node scripts/latest-json.mjs v<버전>` → 릴리스의 `.sig`를 모아 `latest.json`을 만들어 올린다(올라온 플랫폼만 들어감)
 5. 출력된 플랫폼 목록에 `darwin-aarch64`, `windows-x86_64`가 모두 있는지 확인
 6. `gh release edit v<버전> -R bob-park/vee-app --draft=false`로 게시 → 설치된 앱이 6시간 안에(또는 "업데이트 확인"으로) 감지

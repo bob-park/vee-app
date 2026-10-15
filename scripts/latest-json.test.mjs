@@ -33,3 +33,13 @@ test("ignores assets that are not updater signatures", () => {
   const manifest = buildManifest("v0.2.0", [{ name: "Vee_0.2.0_aarch64.dmg.sig", body: "x" }], now);
   assert.deepEqual(manifest.platforms, {});
 });
+
+test("carries the release body as notes", () => {
+  const m = buildManifest("v0.2.0", [{ name: "Vee_0.2.0_x64-setup.exe.sig", body: "s" }], now, "## 변경 사항\n- a\n");
+  assert.equal(m.notes, "## 변경 사항\n- a");
+});
+
+test("omits notes when the body is blank", () => {
+  const m = buildManifest("v0.2.0", [{ name: "Vee_0.2.0_x64-setup.exe.sig", body: "s" }], now, "  \n");
+  assert.equal("notes" in m, false);
+});

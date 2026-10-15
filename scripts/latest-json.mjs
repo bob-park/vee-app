@@ -19,8 +19,9 @@ const PLATFORMS = [
  * @param {string} tag  예: "v0.1.0"
  * @param {{name: string, body: string}[]} sigs  .sig 파일 이름과 내용
  * @param {Date} [now]
+ * @param {string} [notes]  릴리스 본문 — 앱의 새 소식 창에 그대로 나온다. 비면 넣지 않는다.
  */
-export function buildManifest(tag, sigs, now = new Date()) {
+export function buildManifest(tag, sigs, now = new Date(), notes = "") {
   /** @type {Record<string, {signature: string, url: string}>} */
   const platforms = {};
   for (const { suffix, key } of PLATFORMS) {
@@ -32,7 +33,8 @@ export function buildManifest(tag, sigs, now = new Date()) {
       url: `https://github.com/${REPO}/releases/download/${tag}/${asset}`,
     };
   }
-  return { version: tag.replace(/^v/, ""), pub_date: now.toISOString(), platforms };
+  const body = notes.trim();
+  return { version: tag.replace(/^v/, ""), ...(body && { notes: body }), pub_date: now.toISOString(), platforms };
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
@@ -51,7 +53,9 @@ if (isMain) {
   const dir = mkdtempSync(join(tmpdir(), "vee-sig-"));
   execFileSync("gh", ["release", "download", tag, "-R", REPO, "-p", "*.sig", "-D", dir], { stdio: "inherit" });
   const sigs = readdirSync(dir).map((name) => ({ name, body: readFileSync(join(dir, name), "utf8") }));
-  const manifest = buildManifest(tag, sigs);
+  const notes = execFileSync("gh", ["release", "view", tag, "-R", REPO, "--json", "body", "-q", ".body"], { encoding: "utf8" });
+  if (!notes.trim()) console.warn(`warning: release ${tag} has an empty body — no what's new notes`);
+  const manifest = buildManifest(tag, sigs, new Date(), notes);
   const found = Object.keys(manifest.platforms);
   if (found.length === 0) {
     console.error(`no .sig assets on release ${tag}`);
