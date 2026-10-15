@@ -1,4 +1,4 @@
-import { type ReactNode, useRef } from 'react';
+import { useRef } from 'react';
 
 import type { Clip } from '@/domain/clip/apis/clip.dto';
 import { relativeTime } from '@/shared/i18n';
@@ -8,6 +8,7 @@ import { imageTag } from '@/utils/fileThumb';
 
 import cx from 'classnames';
 
+import { ConfirmButton } from './ConfirmButton';
 import { DocIcon, FolderIcon } from './FileIcon';
 
 interface Props {
@@ -27,33 +28,6 @@ interface Props {
 }
 
 const DRAG_THRESHOLD = 5;
-
-/** A button in a confirmation: the card's delete prompt and the toolbar's update prompt. */
-export function ConfirmButton({
-  tone,
-  tabIndex,
-  onClick,
-  children,
-}: {
-  tone?: 'danger' | 'go';
-  tabIndex?: number;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      className={cx('rounded-box px-3.5 py-2 text-[12px] font-semibold', {
-        'bg-subtle': !tone,
-        'bg-error text-white': tone === 'danger',
-        'bg-ok-fg text-card': tone === 'go',
-      })}
-      onClick={onClick}
-      tabIndex={tabIndex}
-    >
-      {children}
-    </button>
-  );
-}
 
 function fileCount(clip: Clip): number {
   return Number(clip.meta ?? '1');

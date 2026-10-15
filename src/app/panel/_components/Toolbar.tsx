@@ -8,7 +8,7 @@ import { acceleratorKeys } from '@/utils/accelerator';
 
 import cx from 'classnames';
 
-import { ConfirmButton } from './Card';
+import { ConfirmButton } from './ConfirmButton';
 
 export const FILTERS: Filter[] = ['all', 'text', 'image', 'files', 'link'];
 
@@ -33,7 +33,7 @@ function Tip({ label, accel, className = 'right-0' }: { label: string; accel: st
           // A keycap: thicker bottom edge.
           <kbd
             key={i}
-            className="flex h-[1.7em] min-w-[1.7em] items-center justify-center rounded-[5px] border border-b-2 border-[rgba(255,255,255,0.2)] bg-[rgba(255,255,255,0.1)] px-[0.4em] [font-family:inherit] text-[10px]"
+            className="border-keycap-border bg-keycap-bg flex h-[1.7em] min-w-[1.7em] items-center justify-center rounded-[5px] border border-b-2 px-[0.4em] [font-family:inherit] text-[10px]"
           >
             {k}
           </kbd>
@@ -133,7 +133,7 @@ export function Toolbar({
           </span>
         )}
         <input
-          className="text-base-content min-w-0 flex-1 p-px outline-none placeholder:text-[darkgray]"
+          className="text-base-content placeholder:text-placeholder min-w-0 flex-1 p-px outline-none"
           ref={inputRef}
           value={query}
           placeholder={app ? '' : t.search}

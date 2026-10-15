@@ -149,6 +149,10 @@
   --color-confirm-veil: color-mix(in srgb, var(--vee-card) 94%, transparent);
   --color-tip: #101114;
   --color-ext-tag: rgba(16, 17, 20, 0.65);
+  --color-keycap-border: rgba(255, 255, 255, 0.2);
+  --color-keycap-bg: rgba(255, 255, 255, 0.1);
+  /* WebKit's placeholder colour for an input with its native look turned off. */
+  --color-placeholder: darkgray;
   --shadow-suggest: rgba(0, 0, 0, 0.12) 0 8px 24px;
   --shadow-toast: var(--vee-toast-shadow);
 }
@@ -182,7 +186,7 @@
 @utility shadow-card-selected {
   box-shadow:
     inset 0 0 0 1px var(--color-primary),
-    0 0 0 4px var(--vee-accent-subtle);
+    0 0 0 4px var(--color-accent-subtle);
 }
 
 @utility shadow-card-confirm {
