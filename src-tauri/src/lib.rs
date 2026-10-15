@@ -37,7 +37,7 @@ impl AppState {
     }
 
     /// Ignore clipboard changes briefly after we write the clipboard ourselves.
-    /// Longer than clipboard-rs's 500ms macOS poll so the poll after a slow write is covered.
+    /// Covers the watcher's 200ms poll plus its 0.5s debounce, even after a slow write.
     pub fn suppress_watcher(&self) {
         *self.suppress_until.lock().unwrap() = Instant::now() + Duration::from_millis(1200);
     }
@@ -291,8 +291,8 @@ mod tests {
 
     #[test]
     fn self_write_suppression_outlasts_a_watcher_poll() {
-        // clipboard-rs polls macOS every 500ms, so the window must cover a full
-        // poll after the write finishes, not just 500ms from when it started.
+        // The watcher polls every 200ms and records after 0.5s of quiet, so the window
+        // must cover both after the write finishes, not just from when it started.
         let dir = tempfile::tempdir().unwrap();
         let state = AppState::new(Store::open_in_memory(dir.path()).unwrap());
         state.suppress_watcher();
