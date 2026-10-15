@@ -36,3 +36,10 @@
 - Lightning CSS folds `calc(100vh/26)` in the preview font size to `3.84615vh`, a ~1e-6 px difference; captures are pixel-identical.
 - FLIP on a new copy was verified by code only: `playFlip`/`cardLefts` still find `.card[data-id]` and nothing in the card styling changed what they animate (transform, opacity, box-shadow via WAAPI).
 - Dragging a card out with synthetic CGEvents is unsafe: once the OS drag starts, the panel ignores the cursor, so the posted drag lands on the window behind (a terminal with copy-on-select copied text, and a drop was reported). Verify drag-out by hand; the ghost/slot and the `cardImage` PNG were checked in-panel instead.
+
+## Final review
+- `main.tsx` now renders with defaults (system theme/locale) when the initial `getSettings()` fails, and the settings query fetches and retries on mount. Before, the window stayed blank until settings loaded.
+- `app/disk_access.rs` keeps its ko/en text inline rather than in `app/i18n.rs`.
+- `app/` calls `settings::commands::changed` (`window.rs`, `autostart.rs`): a domain `commands.rs` reached from the shell. It is still app → domain, and `rust-modules.md` now lists it as an allowed exception.
+- Event names (`settings://changed`, `clips://changed`, `clips://added`, …) are string literals at each emit/listen site, not shared consts.
+- daisyUI `exclude` now lists every component plus the `glass`/`join`/`typography` utilities (only `radius` and the base `properties`/`svg` remain), so the `.aura:has(> .card, …)` rule noted in Task 12 is gone; CSS bundle 81,574 → 35,616 bytes.

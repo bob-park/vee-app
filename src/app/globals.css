@@ -3,12 +3,16 @@
   themes: false;
   /*
    * Root background, scroll lock/gutter and scrollbar colors would change the transparent panel/toast
-   * and the scrollbars. vee uses none of the components below; the scanner picks their names up from
-   * any word in the source (`toast` is a window label), so keep them excluded or they ship as dead CSS.
+   * and the scrollbars. vee uses no daisyUI component (`card` in Card.tsx is only a marker class) and
+   * of the utilities only `radius` (rounded-box); the scanner picks names up from any word in the source
+   * (`toast` is a window label), so keep every component excluded or it ships as dead CSS.
    */
   exclude:
-    rootcolor, rootscrollgutter, rootscrolllock, scrollbar, badge, button, card, dropdown, kbd, link, modal, select,
-    stack, stat, tab, toast;
+    rootcolor, rootscrollgutter, rootscrolllock, scrollbar, alert, aura, avatar, badge, breadcrumbs, button, calendar,
+    card, carousel, chat, checkbox, collapse, countdown, diff, divider, dock, drawer, dropdown, fab, fieldset, fileinput,
+    filter, footer, hero, hover3d, hovergallery, indicator, input, kbd, label, link, list, loading, mask, megamenu, menu,
+    mockup, modal, navbar, otp, progress, radialprogress, radio, range, rating, select, skeleton, stack, stat, status,
+    steps, swap, tab, table, textarea, textrotate, timeline, toast, toggle, tooltip, validator, glass, join, typography;
 }
 
 /*

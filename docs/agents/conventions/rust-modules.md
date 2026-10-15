@@ -23,6 +23,7 @@ lib.rs → app/*, domain/*/commands.rs → domain/*/{mod,model,repository}.rs �
   - Check with `grep -rn "tauri::\|use tauri" src-tauri/src/domain src-tauri/src/shared | grep -v commands.rs`. The output must be empty.
 - A domain never calls another domain's `repository` directly. Use the other domain's `mod.rs` exports; they are its public API (e.g. `source_app` calls `clip::delete_unpinned_from_app`, `whats_new` calls `settings::set_raw`).
 - `app/` may call a domain's public API (e.g. `watcher` calls `clip::upsert` and `source_app::is_excluded`). Domains never call `app/`. The exception is `commands.rs`, which may trigger shell side effects such as refreshing the tray, re-registering a shortcut or playing a sound.
+- Allowed exception: `app/` (`window.rs`, `autostart.rs`) calls `settings::commands::changed` to emit `settings://changed` after changing a setting itself. It still points app → domain.
 
 ## Files in a domain
 

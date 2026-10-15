@@ -39,7 +39,8 @@ export default function ThemeProvider({ children }: Readonly<{ children: React.R
   }, [theme]);
 
   useEffect(() => {
-    // Any window may change a setting; each window has its own query cache.
+    // Any window may change a setting; each window has its own query cache. The one listener for
+    // every settings reader (theme, I18nProvider, …): every window mounts ThemeProvider.
     const unlisten = listen('settings://changed', () => {
       void queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
     });

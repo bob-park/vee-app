@@ -9,7 +9,7 @@ import type { QueryMutationHandle } from '@/shared/queries';
 
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
-/** Seeded by main.tsx before the first paint; refetched on `settings://changed` (ThemeProvider, I18nProvider). */
+/** Seeded by main.tsx before the first paint; refetched on `settings://changed` (ThemeProvider). */
 export const SETTINGS_QUERY_KEY = ['settings'];
 const DISK_ACCESS_QUERY_KEY = ['settings', 'diskAccess'];
 

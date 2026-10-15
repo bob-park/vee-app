@@ -5,8 +5,11 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } fro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
-const SCRIPT = new URL("../bump-version-up.sh", import.meta.url).pathname;
+const SCRIPT = fileURLToPath(new URL("../bump-version-up.sh", import.meta.url));
+// The script is bash; Windows runners have no guaranteed bash on PATH.
+const opts = { skip: process.platform === "win32" && "bump-version-up.sh needs bash" };
 
 function fixture(version, crate = "vee-app") {
   const dir = mkdtempSync(join(tmpdir(), "bump-"));
@@ -31,7 +34,7 @@ function assertVersion(dir, version) {
   assert.match(lock, new RegExp(`name = "vee-app"\\nversion = "${version}"`));
 }
 
-test("patch by default", () => {
+test("patch by default", opts, () => {
   const dir = fixture("0.0.1");
   assert.equal(run(dir).status, 0);
   assertVersion(dir, "0.0.2");
@@ -41,33 +44,33 @@ test("patch by default", () => {
   assert.match(lock, /name = "serde"\nversion = "1.0.0"/);
 });
 
-test("minor resets patch", () => {
+test("minor resets patch", opts, () => {
   const dir = fixture("1.2.3");
   assert.equal(run(dir, "minor").status, 0);
   assertVersion(dir, "1.3.0");
 });
 
-test("major resets minor and patch", () => {
+test("major resets minor and patch", opts, () => {
   const dir = fixture("1.2.3");
   assert.equal(run(dir, "major").status, 0);
   assertVersion(dir, "2.0.0");
 });
 
-test("rejects unknown bump type", () => {
+test("rejects unknown bump type", opts, () => {
   const dir = fixture("0.0.1");
   const before = snapshot(dir);
   assert.notEqual(run(dir, "date").status, 0);
   assert.deepEqual(snapshot(dir), before);
 });
 
-test("rejects malformed version", () => {
+test("rejects malformed version", opts, () => {
   const dir = fixture("0.1.0-rc1-20260101");
   const before = snapshot(dir);
   assert.notEqual(run(dir).status, 0);
   assert.deepEqual(snapshot(dir), before);
 });
 
-test("rejects a Cargo.lock without the crate (missed rename) and changes nothing", () => {
+test("rejects a Cargo.lock without the crate (missed rename) and changes nothing", opts, () => {
   const dir = fixture("0.0.1", "my-renamed-app");
   const before = snapshot(dir);
   assert.notEqual(run(dir).status, 0);
