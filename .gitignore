@@ -67,8 +67,7 @@ fabric.properties
 
 ### Babelay app
 node_modules/
-.yarn/*
-!.yarn/releases/
+.yarn/
 .pnp.*
 dist/
 src-tauri/gen/
@@ -79,6 +78,7 @@ src-tauri/gen/
 # kiri
 node_modules/
 dist/
+.yarn/
 src-tauri/binaries/
 src-tauri/gen/
 *.tsbuildinfo
