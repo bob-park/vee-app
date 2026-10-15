@@ -75,7 +75,7 @@ vee-app을 템플릿 프로젝트와 같은 모양으로 맞춘다. 앞으로 �
 - Cargo: `thiserror = "2"`
 - 설정 파일: `eslint.config.mjs`, `package.json`의 `"prettier"` 키, `lint`/`prettier` 스크립트, `.yarnrc.yml`의 GitHub Packages 설정(bobpark 패키지용), `vite.config.ts`에 Tailwind 플러그인.
 
-TypeScript: vee-app은 `^7.0.2`, 템플릿은 `^6`이다. 템플릿 문서에 따르면 bobpark ESLint 설정이 쓰는 `typescript-eslint`가 TS 7을 아직 지원하지 않는다. **(제 판단) 템플릿을 따라 `^6`으로 내린다.** 설치 시점에 `typescript-eslint`가 TS 7을 지원하면 7을 유지한다.
+TypeScript: vee-app은 `^7.0.2`, 템플릿은 `^6`이다. 템플릿 문서에 따르면 bobpark ESLint 설정이 쓰는 `typescript-eslint`가 TS 7을 아직 지원하지 않는다. **(사용자 결정) 템플릿을 따라 `^6`으로 내린다.**
 
 bobpark 패키지(사용자 결정): 템플릿 그대로 GitHub Packages에서 받는다. vee-app은 공개 저장소라 `GITHUB_NPM_AUTH_TOKEN`(read:packages 권한) 없이는 `yarn install`이 실패한다. 이 점과 토큰 설정 방법(macOS·Windows 모두)을 `docs/development.md`와 `docs/release.md` 준비 항목에 적는다. `.yarnrc.yml`은 템플릿의 `npmRegistries`/`npmScopes`를 가져오되, 그 밖의 키(`enableScripts`, `npmMinimalAgeGate`, `approvedGitRepositories`)도 템플릿과 맞춘다.
 
@@ -138,7 +138,6 @@ bobpark 패키지(사용자 결정): 템플릿 그대로 GitHub Packages에서 �
 
 - 브랜치 이름 `feature/apply-template`.
 - master 머지마다 bump. hotfix 규칙 없음.
-- TypeScript `^6`으로 내림(ESLint 호환).
 - 릴리스 스크립트에 "게시된 릴리스 덮어쓰기 방지" 검사 이식.
 - 이 작업 전체를 PR 하나로 낸다.
 - "똑같이 보임"의 기준은 master와 이 브랜치를 같은 창 크기로 스크린샷 찍어 나란히 놓고 눈으로 비교해 차이가 없는 것. 픽셀 diff 도구는 만들지 않는다. 단 Tailwind preflight·daisyUI 기본값(폰트, focus ring, `color-scheme`, 스크롤바)이 지금 모양을 바꾸는 곳은 모두 되돌린다.
