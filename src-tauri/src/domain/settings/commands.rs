@@ -2,6 +2,7 @@
 
 use super::{SILENT, SettingsDto, get};
 use crate::app::{
+    ocr,
     retention::prune_now,
     shortcut::register_shortcut,
     sound,
@@ -33,6 +34,7 @@ pub fn get_settings(app: AppHandle, state: State<AppState>) -> SettingsDto {
         retention: get(&conn, "retention"),
         panel_resize: get(&conn, "panelResize"),
         panel_height_ratio: get(&conn, "panelHeightRatio"),
+        ocr: get(&conn, "ocr"),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         version: app.package_info().version.to_string(),
     }
@@ -46,6 +48,9 @@ pub fn set_setting(app: AppHandle, state: State<AppState>, key: String, value: S
     }
     if key == "retention" {
         prune_now(&app)?;
+    }
+    if key == "ocr" {
+        ocr::wake();
     }
     changed(&app);
     Ok(())

@@ -25,6 +25,7 @@ pub struct SettingsDto {
     pub retention: String,
     pub panel_resize: String,
     pub panel_height_ratio: String,
+    pub ocr: String,
     pub autostart: bool,
     pub version: String,
 }

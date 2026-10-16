@@ -1,6 +1,23 @@
-//! Text in images via the OS OCR engine: Vision on macOS, `Windows.Media.Ocr` on Windows.
+//! Text in images via the OS OCR engine: Vision on macOS, `Windows.Media.Ocr` on Windows,
+//! and the background worker that fills `ocr_text` for image and files clips.
 
-use std::path::Path;
+use crate::{
+    app::{
+        state::AppState,
+        watcher::{MAX_IMAGE_BYTES, is_image_path},
+    },
+    domain::{
+        clip::{self, ClipContent},
+        settings,
+    },
+    shared::error::AppResult,
+};
+use rusqlite::Connection;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Sender, channel};
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
+use tauri::{AppHandle, Manager};
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -22,6 +39,97 @@ pub fn recognize(path: &Path) -> Result<String, Unavailable> {
         let _ = path;
         Err(Unavailable)
     }
+}
+
+/// Rest after each recognized image so a long backfill doesn't hog a core.
+const PAUSE: Duration = Duration::from_millis(200);
+
+static WAKE: OnceLock<Sender<()>> = OnceLock::new();
+
+#[derive(Debug, PartialEq, Eq)]
+enum Step {
+    /// Nothing to do (no pending clip or OCR off): wait for a wake.
+    Idle,
+    /// One clip handled; look for the next.
+    Done,
+    /// No OCR engine: give up until the next launch.
+    Stop,
+}
+
+/// Image files worth OCR in a clip: the stored PNG, or the image files among copied paths.
+fn image_paths(content: ClipContent) -> Vec<PathBuf> {
+    match content {
+        ClipContent::Image(path) => vec![path],
+        ClipContent::Files(lines) => lines
+            .into_iter()
+            .filter(|p| is_image_path(p))
+            .filter(|p| std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.len() <= MAX_IMAGE_BYTES as u64))
+            .map(PathBuf::from)
+            .collect(),
+        ClipContent::Text(_) => Vec::new(),
+    }
+}
+
+/// OCRs the newest pending clip. The DB lock is released while `recognize` runs.
+fn worker_step(db: &Mutex<Connection>, recognize: impl Fn(&Path) -> Result<String, Unavailable>) -> AppResult<Step> {
+    let (id, content) = {
+        let conn = db.lock().unwrap();
+        if settings::get(&conn, "ocr") != "on" {
+            return Ok(Step::Idle);
+        }
+        match clip::next_ocr_pending(&conn)? {
+            Some(pending) => pending,
+            None => return Ok(Step::Idle),
+        }
+    };
+    let mut texts = Vec::new();
+    for path in image_paths(content) {
+        let Ok(text) = recognize(&path) else { return Ok(Step::Stop) };
+        if !text.is_empty() {
+            texts.push(text);
+        }
+    }
+    clip::set_ocr_text(&db.lock().unwrap(), id, &texts.join("\n"))?;
+    Ok(Step::Done)
+}
+
+/// Tells the worker to look for pending clips. A no-op before `spawn`.
+pub fn wake() {
+    if let Some(tx) = WAKE.get() {
+        let _ = tx.send(());
+    }
+}
+
+/// Starts the worker thread: it OCRs every pending clip, newest first, then sleeps until woken.
+pub fn spawn(app: AppHandle) {
+    let (tx, rx) = channel();
+    if WAKE.set(tx).is_err() {
+        return;
+    }
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        let paced = |path: &Path| {
+            let result = recognize(path);
+            std::thread::sleep(PAUSE);
+            result
+        };
+        loop {
+            // No run loop on this thread, so drain autoreleased Vision objects per clip.
+            #[cfg(target_os = "macos")]
+            let step = objc2::rc::autoreleasepool(|_| worker_step(&state.db, paced));
+            #[cfg(not(target_os = "macos"))]
+            let step = worker_step(&state.db, paced);
+            match step {
+                Ok(Step::Done) => continue,
+                Ok(Step::Stop) => return log::warn!("OCR unavailable; image text won't be searchable this run"),
+                Ok(Step::Idle) => {}
+                Err(e) => log::warn!("OCR step failed: {e}"),
+            }
+            if rx.recv().is_err() {
+                return;
+            }
+        }
+    });
 }
 
 #[cfg(all(test, any(target_os = "macos", windows)))]
@@ -95,5 +203,98 @@ mod tests {
         println!("korean words: {}/{} ({:.1}%)", ko.0, ko.1, rate(ko));
         println!("other words: {}/{} ({:.1}%)", other.0, other.1, rate(other));
         println!("mean {mean:.0} ms, max {} ms", times.iter().max().unwrap_or(&0));
+    }
+}
+
+#[cfg(test)]
+mod worker_tests {
+    use super::*;
+    use crate::domain::{clip::NewClip, settings};
+    use crate::shared::db;
+    use rusqlite::Connection;
+    use std::cell::Cell;
+    use std::sync::Mutex;
+
+    fn setup() -> (Mutex<Connection>, tempfile::TempDir) {
+        (Mutex::new(db::open_in_memory().unwrap()), tempfile::tempdir().unwrap())
+    }
+
+    fn image(byte: u8) -> NewClip {
+        NewClip::Image { png: vec![byte; 8], thumb_png: vec![9], width: 10, height: 20 }
+    }
+
+    fn ocr_text(db: &Mutex<Connection>, id: i64) -> Option<String> {
+        db.lock().unwrap().query_row("SELECT ocr_text FROM clips WHERE id = ?1", [id], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn step_writes_text_for_newest_image() {
+        let (db, dir) = setup();
+        let (old, new) = {
+            let c = db.lock().unwrap();
+            (clip::upsert(&c, dir.path(), image(1), None, 1).unwrap(), clip::upsert(&c, dir.path(), image(2), None, 2).unwrap())
+        };
+        assert_eq!(worker_step(&db, |_| Ok("hello".into())).unwrap(), Step::Done);
+        assert_eq!(ocr_text(&db, new).as_deref(), Some("hello"));
+        assert_eq!(ocr_text(&db, old), None);
+    }
+
+    #[test]
+    fn step_ocrs_every_image_file_in_a_files_clip() {
+        let (db, dir) = setup();
+        let mut paths: Vec<String> = (0..5)
+            .map(|i| {
+                let p = dir.path().join(format!("{i}.png"));
+                std::fs::write(&p, "x").unwrap();
+                p.to_string_lossy().into_owned()
+            })
+            .collect();
+        let pdf = dir.path().join("doc.pdf");
+        std::fs::write(&pdf, "x").unwrap();
+        paths.insert(2, pdf.to_string_lossy().into_owned());
+        let id = clip::upsert(&db.lock().unwrap(), dir.path(), NewClip::Files { paths, thumbs: vec![] }, None, 1).unwrap();
+        let calls = Cell::new(0);
+        let step = worker_step(&db, |p| {
+            calls.set(calls.get() + 1);
+            Ok(p.file_name().unwrap().to_string_lossy().into_owned())
+        });
+        assert_eq!(step.unwrap(), Step::Done);
+        assert_eq!(calls.get(), 5);
+        assert_eq!(ocr_text(&db, id).as_deref(), Some("0.png\n1.png\n2.png\n3.png\n4.png"));
+    }
+
+    #[test]
+    fn files_clip_without_images_is_marked_done_without_ocr() {
+        let (db, dir) = setup();
+        let files = NewClip::Files { paths: vec!["/a/report.pdf".into(), "/a/missing.png".into()], thumbs: vec![] };
+        let id = clip::upsert(&db.lock().unwrap(), dir.path(), files, None, 1).unwrap();
+        assert_eq!(worker_step(&db, |_| panic!("no image to OCR")).unwrap(), Step::Done);
+        assert_eq!(ocr_text(&db, id).as_deref(), Some(""));
+    }
+
+    #[test]
+    fn step_is_idle_when_setting_off() {
+        let (db, dir) = setup();
+        let id = {
+            let c = db.lock().unwrap();
+            settings::set(&c, "ocr", "off").unwrap();
+            clip::upsert(&c, dir.path(), image(1), None, 1).unwrap()
+        };
+        assert_eq!(worker_step(&db, |_| panic!("OCR is off")).unwrap(), Step::Idle);
+        assert_eq!(ocr_text(&db, id), None);
+    }
+
+    #[test]
+    fn step_is_idle_when_nothing_is_pending() {
+        let (db, _dir) = setup();
+        assert_eq!(worker_step(&db, |_| panic!("nothing pending")).unwrap(), Step::Idle);
+    }
+
+    #[test]
+    fn unavailable_engine_stops_and_leaves_pending() {
+        let (db, dir) = setup();
+        let id = clip::upsert(&db.lock().unwrap(), dir.path(), image(1), None, 1).unwrap();
+        assert_eq!(worker_step(&db, |_| Err(Unavailable)).unwrap(), Step::Stop);
+        assert_eq!(ocr_text(&db, id), None);
     }
 }
