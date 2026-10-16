@@ -52,10 +52,12 @@ pub fn upsert(conn: &Connection, images: &Path, clip: NewClip, app_id: Option<i6
             (Kind::Files, Some(paths.join("\n")), None, None, Some(count), thumbs)
         }
     };
+    // Image and files clips start with `ocr_text` NULL (pending); text has nothing to recognize.
+    let ocr_text = matches!(kind, Kind::Text | Kind::Link).then_some("");
     conn.execute(
-        "INSERT INTO clips (kind, hash, text, image_path, thumb_png, meta, app_id, created_at, last_used_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
-        params![kind.as_str(), hash, text, image_path, thumb, meta, app_id, now],
+        "INSERT INTO clips (kind, hash, text, image_path, thumb_png, meta, app_id, created_at, last_used_at, ocr_text)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9)",
+        params![kind.as_str(), hash, text, image_path, thumb, meta, app_id, now, ocr_text],
     )?;
     let id = conn.last_insert_rowid();
     for (idx, png) in file_thumbs {
@@ -113,8 +115,9 @@ pub fn list(
     match q.chars().count() {
         0 => {}
         1 | 2 => {
-            sql.push_str(" AND c.text LIKE ? ESCAPE '\\'");
-            args.push(Value::Text(format!("%{}%", escape_like(q))));
+            sql.push_str(" AND (c.text LIKE ? ESCAPE '\\' OR c.ocr_text LIKE ? ESCAPE '\\')");
+            let pattern = Value::Text(format!("%{}%", escape_like(q)));
+            args.extend([pattern.clone(), pattern]);
         }
         _ => {
             sql.push_str(" AND c.id IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?)");
@@ -203,6 +206,33 @@ pub fn content(conn: &Connection, id: i64) -> AppResult<Option<ClipContent>> {
         Some(Kind::Files) => ClipContent::Files(text.unwrap_or_default().lines().map(String::from).collect()),
         _ => ClipContent::Text(text.unwrap_or_default()),
     }))
+}
+
+/// The newest image or files clip still waiting for OCR (`ocr_text IS NULL`).
+pub fn next_ocr_pending(conn: &Connection) -> AppResult<Option<(i64, ClipContent)>> {
+    let row = conn
+        .query_row(
+            "SELECT id, kind, text, image_path FROM clips
+             WHERE ocr_text IS NULL AND kind IN ('image','files')
+             ORDER BY last_used_at DESC, id DESC LIMIT 1",
+            [],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?, r.get::<_, Option<String>>(3)?)),
+        )
+        .optional()?;
+    Ok(row.map(|(id, kind, text, image_path)| {
+        let content = if kind == "image" {
+            ClipContent::Image(PathBuf::from(image_path.unwrap_or_default()))
+        } else {
+            ClipContent::Files(text.unwrap_or_default().lines().map(String::from).collect())
+        };
+        (id, content)
+    }))
+}
+
+/// Stores a clip's OCR result. A clip deleted in the meantime is a silent no-op.
+pub fn set_ocr_text(conn: &Connection, id: i64, text: &str) -> AppResult<()> {
+    conn.execute("UPDATE clips SET ocr_text = ?1 WHERE id = ?2", params![text, id])?;
+    Ok(())
 }
 
 pub fn touch(conn: &Connection, id: i64, now: i64) -> AppResult<()> {
@@ -664,5 +694,69 @@ mod tests {
         // Re-pinning keeps the original slot.
         set_pinned(&c, second, true, 40).unwrap();
         assert_eq!(texts(&list_pinned(&c).unwrap()), vec!["second", "first"]);
+    }
+
+    fn ids(clips: &[ClipDto]) -> Vec<i64> {
+        clips.iter().map(|c| c.id).collect()
+    }
+
+    #[test]
+    fn ocr_text_is_searched_with_trigram_and_like() {
+        let (c, d) = db();
+        upsert(&c, d.path(), text("unrelated"), None, 1).unwrap();
+        let id = upsert(&c, d.path(), image(1), None, 2).unwrap();
+        set_ocr_text(&c, id, "회의록 Deploy 실패").unwrap();
+        assert_eq!(ids(&list(&c, "회의록", None, None, 0, 50).unwrap()), vec![id]);
+        assert_eq!(ids(&list(&c, "deploy", None, None, 0, 50).unwrap()), vec![id]);
+        assert_eq!(ids(&list(&c, "실패", None, None, 0, 50).unwrap()), vec![id]);
+        assert!(list(&c, "없는말", None, None, 0, 50).unwrap().is_empty());
+    }
+
+    #[test]
+    fn ocr_search_treats_special_characters_literally() {
+        let (c, d) = db();
+        upsert(&c, d.path(), text("plain"), None, 1).unwrap();
+        let id = upsert(&c, d.path(), image(1), None, 2).unwrap();
+        set_ocr_text(&c, id, "100% done").unwrap();
+        assert_eq!(ids(&list(&c, "0% d", None, None, 0, 50).unwrap()), vec![id]);
+        assert_eq!(ids(&list(&c, "%", None, None, 0, 50).unwrap()), vec![id]);
+    }
+
+    #[test]
+    fn text_clips_are_not_pending_and_images_are() {
+        let (c, d) = db();
+        upsert(&c, d.path(), text("hello"), None, 1).unwrap();
+        let img = upsert(&c, d.path(), image(1), None, 2).unwrap();
+        let fls = upsert(&c, d.path(), files(&["/a.png", "/b.png"]), None, 3).unwrap();
+        upsert(&c, d.path(), text("https://example.com"), None, 4).unwrap();
+        assert_eq!(next_ocr_pending(&c).unwrap(), Some((fls, ClipContent::Files(vec!["/a.png".into(), "/b.png".into()]))));
+        set_ocr_text(&c, fls, "").unwrap();
+        assert_eq!(next_ocr_pending(&c).unwrap(), Some((img, ClipContent::Image(image_path(&c, img)))));
+        set_ocr_text(&c, img, "x").unwrap();
+        assert_eq!(next_ocr_pending(&c).unwrap(), None);
+    }
+
+    #[test]
+    fn pending_ignores_text_clips_with_null_ocr() {
+        let (c, d) = db();
+        let id = upsert(&c, d.path(), text("from an older build"), None, 1).unwrap();
+        c.execute("UPDATE clips SET ocr_text = NULL WHERE id = ?1", [id]).unwrap();
+        assert_eq!(next_ocr_pending(&c).unwrap(), None);
+    }
+
+    #[test]
+    fn set_ocr_text_on_deleted_clip_is_ok() {
+        let (c, _d) = db();
+        set_ocr_text(&c, 9999, "x").unwrap();
+    }
+
+    #[test]
+    fn recopying_an_image_keeps_its_ocr_text() {
+        let (c, d) = db();
+        let id = upsert(&c, d.path(), image(1), None, 1).unwrap();
+        set_ocr_text(&c, id, "abc").unwrap();
+        assert_eq!(upsert(&c, d.path(), image(1), None, 2).unwrap(), id);
+        assert_eq!(next_ocr_pending(&c).unwrap(), None);
+        assert_eq!(ids(&list(&c, "abc", None, None, 0, 50).unwrap()), vec![id]);
     }
 }
