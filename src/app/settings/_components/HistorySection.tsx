@@ -6,6 +6,7 @@ import Button from '@/app/settings/_components/Button';
 import Row from '@/app/settings/_components/Row';
 import Segmented from '@/app/settings/_components/Segmented';
 import SettingSection from '@/app/settings/_components/SettingSection';
+import Switch from '@/app/settings/_components/Switch';
 import { clearHistory } from '@/domain/clip/apis/clip';
 import { STATS_QUERY_KEY, useStats } from '@/domain/clip/queries/clip';
 import type { Retention, SettingKey } from '@/domain/settings/apis/settings.dto';
@@ -197,6 +198,13 @@ export function HistorySection({ run, updateSetting }: Props) {
               onCancel={() => setPending(null)}
             />
           )}
+        </Row>
+        <Row label={s.ocr} hint={s.ocrHint}>
+          <Switch
+            ariaLabel={s.ocr}
+            checked={settings?.ocr === 'on'}
+            onChange={(checked) => updateSetting({ key: 'ocr', value: checked ? 'on' : 'off' })}
+          />
         </Row>
         <Row>
           <span className="text-muted text-[11px]">
