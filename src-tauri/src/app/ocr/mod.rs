@@ -72,7 +72,7 @@ fn image_paths(content: ClipContent) -> Vec<PathBuf> {
 
 /// OCRs the newest pending clip. The DB lock is released while `recognize` runs.
 fn worker_step(db: &Mutex<Connection>, recognize: impl Fn(&Path) -> Result<String, Unavailable>) -> AppResult<Step> {
-    let (id, content) = {
+    let (id, hash, content) = {
         let conn = db.lock().unwrap();
         if settings::get(&conn, "ocr") != "on" {
             return Ok(Step::Idle);
@@ -89,7 +89,7 @@ fn worker_step(db: &Mutex<Connection>, recognize: impl Fn(&Path) -> Result<Strin
             texts.push(text);
         }
     }
-    clip::set_ocr_text(&db.lock().unwrap(), id, &texts.join("\n"))?;
+    clip::set_ocr_text(&db.lock().unwrap(), id, &hash, &texts.join("\n"))?;
     Ok(Step::Done)
 }
 

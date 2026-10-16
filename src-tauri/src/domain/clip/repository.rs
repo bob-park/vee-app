@@ -208,30 +208,39 @@ pub fn content(conn: &Connection, id: i64) -> AppResult<Option<ClipContent>> {
     }))
 }
 
-/// The newest image or files clip still waiting for OCR (`ocr_text IS NULL`).
-pub fn next_ocr_pending(conn: &Connection) -> AppResult<Option<(i64, ClipContent)>> {
+/// The newest image or files clip still waiting for OCR (`ocr_text IS NULL`), as `(id, hash, content)`.
+pub fn next_ocr_pending(conn: &Connection) -> AppResult<Option<(i64, String, ClipContent)>> {
     let row = conn
         .query_row(
-            "SELECT id, kind, text, image_path FROM clips
+            "SELECT id, hash, kind, text, image_path FROM clips
              WHERE ocr_text IS NULL AND kind IN ('image','files')
              ORDER BY last_used_at DESC, id DESC LIMIT 1",
             [],
-            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?, r.get::<_, Option<String>>(3)?)),
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                ))
+            },
         )
         .optional()?;
-    Ok(row.map(|(id, kind, text, image_path)| {
+    Ok(row.map(|(id, hash, kind, text, image_path)| {
         let content = if kind == "image" {
             ClipContent::Image(PathBuf::from(image_path.unwrap_or_default()))
         } else {
             ClipContent::Files(text.unwrap_or_default().lines().map(String::from).collect())
         };
-        (id, content)
+        (id, hash, content)
     }))
 }
 
-/// Stores a clip's OCR result. A clip deleted in the meantime is a silent no-op.
-pub fn set_ocr_text(conn: &Connection, id: i64, text: &str) -> AppResult<()> {
-    conn.execute("UPDATE clips SET ocr_text = ?1 WHERE id = ?2", params![text, id])?;
+/// Stores a clip's OCR result. A clip deleted in the meantime is a silent no-op; `hash` keeps
+/// the result off a new clip that reused the id (no AUTOINCREMENT).
+pub fn set_ocr_text(conn: &Connection, id: i64, hash: &str, text: &str) -> AppResult<()> {
+    conn.execute("UPDATE clips SET ocr_text = ?1 WHERE id = ?2 AND hash = ?3", params![text, id, hash])?;
     Ok(())
 }
 
@@ -353,6 +362,10 @@ mod tests {
 
     fn image(byte: u8) -> NewClip {
         NewClip::Image { png: vec![byte; 8], thumb_png: vec![9], width: 10, height: 20 }
+    }
+
+    fn hash_of(c: &Connection, id: i64) -> String {
+        c.query_row("SELECT hash FROM clips WHERE id = ?1", [id], |r| r.get(0)).unwrap()
     }
 
     fn image_path(c: &Connection, id: i64) -> PathBuf {
@@ -705,7 +718,7 @@ mod tests {
         let (c, d) = db();
         upsert(&c, d.path(), text("unrelated"), None, 1).unwrap();
         let id = upsert(&c, d.path(), image(1), None, 2).unwrap();
-        set_ocr_text(&c, id, "회의록 Deploy 실패").unwrap();
+        set_ocr_text(&c, id, &hash_of(&c, id), "회의록 Deploy 실패").unwrap();
         assert_eq!(ids(&list(&c, "회의록", None, None, 0, 50).unwrap()), vec![id]);
         assert_eq!(ids(&list(&c, "deploy", None, None, 0, 50).unwrap()), vec![id]);
         assert_eq!(ids(&list(&c, "실패", None, None, 0, 50).unwrap()), vec![id]);
@@ -717,7 +730,7 @@ mod tests {
         let (c, d) = db();
         upsert(&c, d.path(), text("plain"), None, 1).unwrap();
         let id = upsert(&c, d.path(), image(1), None, 2).unwrap();
-        set_ocr_text(&c, id, "100% done").unwrap();
+        set_ocr_text(&c, id, &hash_of(&c, id), "100% done").unwrap();
         assert_eq!(ids(&list(&c, "0% d", None, None, 0, 50).unwrap()), vec![id]);
         assert_eq!(ids(&list(&c, "%", None, None, 0, 50).unwrap()), vec![id]);
     }
@@ -729,10 +742,10 @@ mod tests {
         let img = upsert(&c, d.path(), image(1), None, 2).unwrap();
         let fls = upsert(&c, d.path(), files(&["/a.png", "/b.png"]), None, 3).unwrap();
         upsert(&c, d.path(), text("https://example.com"), None, 4).unwrap();
-        assert_eq!(next_ocr_pending(&c).unwrap(), Some((fls, ClipContent::Files(vec!["/a.png".into(), "/b.png".into()]))));
-        set_ocr_text(&c, fls, "").unwrap();
-        assert_eq!(next_ocr_pending(&c).unwrap(), Some((img, ClipContent::Image(image_path(&c, img)))));
-        set_ocr_text(&c, img, "x").unwrap();
+        assert_eq!(next_ocr_pending(&c).unwrap(), Some((fls, hash_of(&c, fls), ClipContent::Files(vec!["/a.png".into(), "/b.png".into()]))));
+        set_ocr_text(&c, fls, &hash_of(&c, fls), "").unwrap();
+        assert_eq!(next_ocr_pending(&c).unwrap(), Some((img, hash_of(&c, img), ClipContent::Image(image_path(&c, img)))));
+        set_ocr_text(&c, img, &hash_of(&c, img), "x").unwrap();
         assert_eq!(next_ocr_pending(&c).unwrap(), None);
     }
 
@@ -747,14 +760,27 @@ mod tests {
     #[test]
     fn set_ocr_text_on_deleted_clip_is_ok() {
         let (c, _d) = db();
-        set_ocr_text(&c, 9999, "x").unwrap();
+        set_ocr_text(&c, 9999, "gone", "x").unwrap();
+    }
+
+    #[test]
+    fn stale_ocr_result_does_not_land_on_a_clip_that_reused_the_id() {
+        let (c, d) = db();
+        let id = upsert(&c, d.path(), image(1), None, 1).unwrap();
+        let (pending, hash, _) = next_ocr_pending(&c).unwrap().unwrap();
+        delete(&c, id).unwrap();
+        let reused = upsert(&c, d.path(), image(2), None, 2).unwrap();
+        assert_eq!(reused, pending);
+        set_ocr_text(&c, pending, &hash, "stale").unwrap();
+        let ocr: Option<String> = c.query_row("SELECT ocr_text FROM clips WHERE id = ?1", [reused], |r| r.get(0)).unwrap();
+        assert_eq!(ocr, None);
     }
 
     #[test]
     fn recopying_an_image_keeps_its_ocr_text() {
         let (c, d) = db();
         let id = upsert(&c, d.path(), image(1), None, 1).unwrap();
-        set_ocr_text(&c, id, "abc").unwrap();
+        set_ocr_text(&c, id, &hash_of(&c, id), "abc").unwrap();
         assert_eq!(upsert(&c, d.path(), image(1), None, 2).unwrap(), id);
         assert_eq!(next_ocr_pending(&c).unwrap(), None);
         assert_eq!(ids(&list(&c, "abc", None, None, 0, 50).unwrap()), vec![id]);
