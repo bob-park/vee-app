@@ -24,8 +24,8 @@ pub const SETTINGS: &str = "settings";
 pub const WHATS_NEW: &str = "whats-new";
 
 const PANEL_RATIO: f64 = 0.30;
-const PANEL_MIN: f64 = 300.0;
-const PANEL_MAX: f64 = 360.0;
+/// The least of the work area a resized panel may take.
+const PANEL_MIN_SHARE: f64 = 0.15;
 /// The most of the work area a resized panel may take.
 const PANEL_MAX_SHARE: f64 = 0.5;
 const PANEL_MARGIN: f64 = 8.0;
@@ -119,19 +119,24 @@ fn pick(point: (f64, f64), rects: &[Rect]) -> Option<usize> {
     rects.iter().position(|r| r.contains(point))
 }
 
-/// Panel height in design points: a share of the work area, clamped.
+/// Default panel height in design points: a share of the work area.
 fn panel_height(work_h_points: f64) -> f64 {
-    (work_h_points * PANEL_RATIO).round().clamp(PANEL_MIN, PANEL_MAX)
+    (work_h_points * PANEL_RATIO).round()
 }
 
-/// Tallest a resized panel may be: half the work area, but never below the default.
+/// Shortest a resized panel may be.
+fn panel_min(work_h: f64) -> f64 {
+    (work_h * PANEL_MIN_SHARE).ceil()
+}
+
+/// Tallest a resized panel may be.
 fn panel_max(work_h: f64) -> f64 {
-    (work_h * PANEL_MAX_SHARE).floor().max(panel_height(work_h))
+    (work_h * PANEL_MAX_SHARE).floor()
 }
 
-/// A resized height, rounded and kept between the default and `panel_max`.
+/// A resized height, rounded and kept between `panel_min` and `panel_max`.
 fn clamp_panel_height(work_h: f64, h: f64) -> f64 {
-    h.round().clamp(panel_height(work_h), panel_max(work_h))
+    h.round().clamp(panel_min(work_h), panel_max(work_h))
 }
 
 /// Panel height for this work area from the saved ratio, or the default without one.
@@ -748,12 +753,10 @@ mod tests {
     }
 
     #[test]
-    fn panel_height_is_thirty_percent_of_the_work_area_clamped() {
-        assert_eq!(panel_height(956.0), 300.0); // MacBook Air 13" → 287, floored to 300
+    fn panel_height_is_thirty_percent_of_the_work_area() {
+        assert_eq!(panel_height(956.0), 287.0); // MacBook Air 13"
         assert_eq!(panel_height(1117.0), 335.0); // MacBook Pro 16"
-        assert_eq!(panel_height(1200.0), 360.0); // exactly at the cap
-        assert_eq!(panel_height(1440.0), 360.0); // 27" QHD → 432, capped
-        assert_eq!(panel_height(1692.0), 360.0); // 32" 4K scaled → 508, capped
+        assert_eq!(panel_height(1440.0), 432.0); // 27" QHD
     }
 
     #[test]
@@ -771,8 +774,8 @@ mod tests {
         assert_eq!(panel_max(1117.0), 558.0);
         assert_eq!(clamp_panel_height(1117.0, 447.2), 447.0);
         assert_eq!(clamp_panel_height(1117.0, 900.0), 558.0);
-        assert_eq!(clamp_panel_height(1117.0, 100.0), 335.0); // never below the default
-        assert_eq!(panel_max(560.0), 300.0); // tiny screen: the default wins over 50%
+        assert_eq!(clamp_panel_height(1117.0, 100.0), 168.0); // never below 15%
+        assert_eq!(clamp_panel_height(1117.0, 200.0), 200.0); // below the default is fine
     }
 
     #[test]
@@ -780,7 +783,7 @@ mod tests {
         assert_eq!(panel_height_for(1117.0, None), 335.0);
         assert_eq!(panel_height_for(1117.0, Some(0.4)), 447.0);
         assert_eq!(panel_height_for(956.0, Some(0.6)), 478.0); // over 50% on a smaller screen
-        assert_eq!(panel_height_for(1440.0, Some(0.1)), 360.0);
+        assert_eq!(panel_height_for(1440.0, Some(0.1)), 216.0); // under 15%
     }
 
     #[test]
