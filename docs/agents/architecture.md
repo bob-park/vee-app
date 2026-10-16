@@ -61,7 +61,7 @@ Dependencies point one way: `commands → domain core → shared`. The app shell
 3. Open + migrate `vee.db` in the app data dir and create `images/`. On failure: show a native error dialog and exit. **Never wipe the history automatically.** Then `manage(AppState)`.
 4. Build the four windows. They are `create: false` in `tauri.conf.json`, so no webview can call a command before state exists.
 5. `window::follow_active_space`, `whats_new::commands::show_if_due`, `disk_access::prompt_once` (macOS).
-6. Tray, retention pruner thread (hourly), clipboard watcher threads, the stored global shortcut, then the periodic updater thread.
+6. Tray, retention pruner thread (hourly), clipboard watcher threads, the OCR worker thread (fills `ocr_text` for image and files clips, newest first), the stored global shortcut, then the periodic updater thread.
 
 ## Windows
 
@@ -78,7 +78,7 @@ Dependencies point one way: `commands → domain core → shared`. The app shell
 
 ## Clipboard watcher
 
-`app/watcher.rs` polls the clipboard (200 ms) and records a change only after 0.5 s of quiet, so a burst of changes stores the last one. It skips excluded source apps and Vee's own writes (`AppState::suppress_watcher`), stores the clip via `clip::upsert`, and emits `clips://added`.
+`app/watcher.rs` polls the clipboard (200 ms) and records a change only after 0.5 s of quiet, so a burst of changes stores the last one. It skips excluded source apps and Vee's own writes (`AppState::suppress_watcher`), stores the clip via `clip::upsert`, emits `clips://added`, and calls `ocr::wake()` so the OCR worker picks up a new image or files clip.
 
 ## Updater
 
