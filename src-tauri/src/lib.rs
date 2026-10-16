@@ -2,7 +2,7 @@ mod app;
 mod domain;
 mod shared;
 
-use app::{autostart, disk_access, retention, shortcut, state::AppState, tray, updater, watcher, window};
+use app::{autostart, disk_access, ocr, retention, shortcut, state::AppState, tray, updater, watcher, window};
 use domain::{clip, settings, source_app, whats_new};
 use std::sync::atomic::Ordering;
 use tauri::{Manager, WindowEvent};
@@ -50,6 +50,7 @@ pub fn run() {
             tray::create(app.handle())?;
             retention::spawn_pruner(app.handle().clone());
             watcher::spawn(app.handle().clone());
+            ocr::spawn(app.handle().clone());
             shortcut::register_stored_shortcut(app.handle());
             updater::spawn_periodic(app.handle().clone());
             Ok(())

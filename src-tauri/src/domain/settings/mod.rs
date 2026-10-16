@@ -19,7 +19,7 @@ pub fn get(conn: &Connection, key: &str) -> String {
         "shortcut" => DEFAULT_SHORTCUT,
         "panelPinShortcut" => DEFAULT_PANEL_PIN_SHORTCUT,
         "resetSearchShortcut" => DEFAULT_RESET_SEARCH_SHORTCUT,
-        "sound" => "on",
+        "sound" | "ocr" => "on",
         "soundName" => "pop",
         "confirmDelete" => "off",
         "retention" | "panelResize" => "off",
@@ -74,7 +74,7 @@ fn validate(key: &str, value: &str) -> AppResult<()> {
         "soundName" => value == SILENT || SOUND_NAMES.contains(&value),
         "confirmDelete" => matches!(value, "on" | "off"),
         "retention" => matches!(value, "off" | "7" | "30" | "90"),
-        "panelResize" => matches!(value, "on" | "off"),
+        "panelResize" | "ocr" => matches!(value, "on" | "off"),
         // Modifiers and a key code joined by `+`, as built by the settings recorder.
         "panelPinShortcut" | "resetSearchShortcut" => {
             value.contains('+') && value.split('+').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric()))
@@ -200,5 +200,14 @@ mod tests {
         assert_eq!(get(&conn, "panelHeightRatio"), "");
         set_raw(&conn, "theme", "dark").unwrap();
         assert_eq!(get(&conn, "theme"), "dark");
+    }
+
+    #[test]
+    fn ocr_defaults_on_and_accepts_on_off() {
+        let conn = db::open_in_memory().unwrap();
+        assert_eq!(get(&conn, "ocr"), "on");
+        assert!(set(&conn, "ocr", "maybe").is_err());
+        set(&conn, "ocr", "off").unwrap();
+        assert_eq!(get(&conn, "ocr"), "off");
     }
 }

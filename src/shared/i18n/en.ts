@@ -89,6 +89,8 @@ export const en = {
     excludeConfirm: (name: string, n: number) =>
       `${n.toLocaleString('en')} ${n === 1 ? 'item' : 'items'} from "${name}" will also be deleted. Pinned cards stay.`,
     deleteAndExclude: 'Delete and exclude',
+    ocr: 'Search text in images',
+    ocrHint: 'Reads text in screenshots and image files on this device so search can find it',
     stats: (count: number, size: string) => `${count.toLocaleString('en')} items · images ${size}`,
     clearHistory: 'Delete all',
     clearConfirm: "Delete all clipboard history? This can't be undone.",

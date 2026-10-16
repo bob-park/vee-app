@@ -13,7 +13,8 @@ export type SettingKey =
   | 'retention'
   | 'panelResize'
   | 'panelPinShortcut'
-  | 'resetSearchShortcut';
+  | 'resetSearchShortcut'
+  | 'ocr';
 
 export interface Settings {
   theme: 'system' | 'light' | 'dark';
@@ -29,6 +30,8 @@ export interface Settings {
   /** Saved panel height as a share of the screen; "" means the default height. */
   panelHeightRatio: string;
   retention: Retention;
+  /** Reads text in image clips with the OS OCR so search can find it. */
+  ocr: 'on' | 'off';
   autostart: boolean;
   version: string;
 }

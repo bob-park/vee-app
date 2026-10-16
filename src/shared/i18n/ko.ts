@@ -91,6 +91,8 @@ export const ko: Dict = {
     excludeConfirm: (name: string, n: number) =>
       `'${name}'의 기록 ${n.toLocaleString('ko')}개도 삭제돼요. 고정한 카드는 남아요.`,
     deleteAndExclude: '삭제하고 제외',
+    ocr: '이미지 속 글자 검색',
+    ocrHint: '스크린샷과 이미지 파일의 글자를 이 기기에서 읽어 검색에 사용합니다',
     stats: (count: number, size: string) => `저장된 항목 ${count.toLocaleString('ko')}개 · 이미지 ${size}`,
     clearHistory: '전체 삭제',
     clearConfirm: '클립보드 히스토리를 모두 삭제할까요? 되돌릴 수 없어요.',

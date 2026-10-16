@@ -4,6 +4,7 @@ pub mod autostart;
 pub mod disk_access;
 pub mod front_app;
 pub mod i18n;
+pub mod ocr;
 pub mod retention;
 pub mod shortcut;
 pub mod sound;

@@ -24,7 +24,7 @@ const CONCEALED_FORMATS: [&str; 3] = [
     "org.nspasteboard.TransientType",
     "ExcludeClipboardContentFromMonitorProcessing",
 ];
-const MAX_IMAGE_BYTES: usize = 50 * 1024 * 1024;
+pub(crate) const MAX_IMAGE_BYTES: usize = 50 * 1024 * 1024;
 const MAX_FORMATS_BYTES: usize = 50 * 1024 * 1024;
 const THUMB_SIZE: u32 = 320;
 
@@ -162,6 +162,7 @@ fn capture(app: &AppHandle, ctx: &ClipboardContext) -> Result<(), Box<dyn std::e
         app.run_on_main_thread(move || crate::app::sound::play(&name))?;
     }
     app.emit("clips://added", ())?;
+    crate::app::ocr::wake();
     Ok(())
 }
 

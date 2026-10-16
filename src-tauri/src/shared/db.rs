@@ -11,6 +11,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0003_clip_formats.sql"),
     include_str!("migrations/0004_pins_and_exclusions.sql"),
     include_str!("migrations/0005_pin_order.sql"),
+    include_str!("migrations/0006_clip_ocr.sql"),
 ];
 
 pub fn open(path: &Path) -> AppResult<Connection> {
@@ -167,23 +168,26 @@ mod tests {
     }
 
     #[test]
-    fn fresh_database_reaches_version_5() {
+    fn fresh_database_reaches_version_6() {
         let conn = open_in_memory().unwrap();
-        assert_eq!(user_version(&conn), 5);
+        assert_eq!(user_version(&conn), 6);
         for table in ["apps", "clips", "settings", "clip_thumbs", "clip_formats"] {
             assert!(!columns(&conn, table).is_empty(), "missing table {table}");
         }
         let clips = columns(&conn, "clips");
         assert!(clips.contains(&"pinned".into()) && clips.contains(&"pinned_at".into()), "{clips:?}");
+        assert!(clips.contains(&"ocr_text".into()), "{clips:?}");
         assert!(columns(&conn, "apps").contains(&"excluded".into()));
     }
 
     #[test]
     fn migrations_match_the_shipped_schema() {
-        let legacy = Connection::open_in_memory().unwrap();
+        let mut legacy = Connection::open_in_memory().unwrap();
         for sql in [legacy_schema::V1, legacy_schema::V2, legacy_schema::V3, legacy_schema::V4, legacy_schema::V5] {
             legacy.execute_batch(sql).unwrap();
         }
+        // Migrations after the shipped v5 apply on top of it.
+        migrate(&mut legacy).unwrap();
         let conn = open_in_memory().unwrap();
         assert_eq!(schema(&conn), schema(&legacy));
         assert_eq!(user_version(&conn), user_version(&legacy));
@@ -201,8 +205,9 @@ mod tests {
             }
             drop(conn);
             let conn = open(&path).unwrap();
-            assert_eq!(user_version(&conn), 5, "from v{k}");
-            assert!(columns(&conn, "clips").contains(&"pinned_at".into()), "from v{k}");
+            assert_eq!(user_version(&conn), 6, "from v{k}");
+            let clips = columns(&conn, "clips");
+            assert!(clips.contains(&"pinned_at".into()) && clips.contains(&"ocr_text".into()), "from v{k}");
         }
     }
 
@@ -246,7 +251,7 @@ mod tests {
         let clip = &clip::list(&conn, "", "all", None, 0, 50).unwrap()[0];
         assert!(clip.stack.is_empty());
         assert!(!clip.pinned);
-        assert_eq!(user_version(&conn), 5);
+        assert_eq!(user_version(&conn), 6);
     }
 
     #[test]
@@ -299,5 +304,29 @@ mod tests {
         assert_eq!(excluded.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(), vec!["1Password"]);
         assert!(source_app::is_excluded(&conn, "com.agilebits.onepassword").unwrap());
         assert_eq!(settings::get(&conn, "theme"), "dark");
+    }
+
+    #[test]
+    fn v5_database_migrates_to_v6() {
+        use crate::domain::clip;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vee.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            for sql in [legacy_schema::V1, legacy_schema::V2, legacy_schema::V3, legacy_schema::V4, legacy_schema::V5] {
+                conn.execute_batch(sql).unwrap();
+            }
+            conn.execute_batch(
+                "INSERT INTO clips (id, kind, hash, text, created_at, last_used_at) VALUES (1, 'text', 'h1', 'meeting notes', 1, 1);
+                 INSERT INTO clips (id, kind, hash, image_path, created_at, last_used_at) VALUES (2, 'image', 'h2', '/x.png', 2, 2);",
+            )
+            .unwrap();
+        }
+        let conn = open(&path).unwrap();
+        assert_eq!(user_version(&conn), 6);
+        let ocr = |id: i64| conn.query_row("SELECT ocr_text FROM clips WHERE id = ?1", [id], |r| r.get::<_, Option<String>>(0)).unwrap();
+        assert_eq!(ocr(1), Some(String::new()));
+        assert_eq!(ocr(2), None);
+        assert_eq!(texts(clip::list(&conn, "meeting", "all", None, 0, 50).unwrap()), vec!["meeting notes"]);
     }
 }
