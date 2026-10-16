@@ -97,4 +97,4 @@
 
 ## 라이선스
 
-[Apache License 2.0](LICENSE)을 따릅니다. Copyright 2026 Bob Park
+[MIT License](LICENSE)를 따릅니다. Copyright 2026 Bob Park

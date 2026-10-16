@@ -2,7 +2,7 @@
 name = "vee-app"
 version = "0.8.3"
 edition = "2024"
-license = "Apache-2.0"
+license = "MIT"
 
 [lib]
 name = "vee_app_lib"
