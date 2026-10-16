@@ -35,6 +35,7 @@ related:
 ## Constraints
 
 - `node --test` runs TS by stripping types. It cannot resolve `@/`, so a tested file may use `@/…` only in `import type` lines ([module-aliases](./conventions/module-aliases.md)).
+- **OCR benchmark:** `app::ocr::tests::bench` is `#[ignore]`d. Point `VEE_OCR_BENCH_DIR` at a folder of screenshots plus `expected.tsv` (`<file name>\t<word>,<word>,…`) and run `VEE_OCR_BENCH_DIR=… cargo test --manifest-path src-tauri/Cargo.toml --lib app::ocr::tests::bench -- --ignored --nocapture`. It prints time and missed words per file, then the Korean and other word hit rates and mean/max ms.
 - **Tauri-dependent code** (`commands.rs`, the Tauri-facing parts of `app/*`) has no unit tests. Keep it thin and verify it in `yarn tauri dev`.
 - A smoke test that needs a desktop session (`front_app::reads_frontmost_app_and_icon`) is `#[ignore]`d. Run it by hand: `cargo test --manifest-path src-tauri/Cargo.toml -- --ignored reads_frontmost_app_and_icon`.
 - **UI changes:** check them in the running app in light/dark and ko/en ([design](./design.md)).
