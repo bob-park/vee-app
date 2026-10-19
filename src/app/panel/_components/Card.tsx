@@ -229,9 +229,10 @@ export function Card({
       <div className="relative z-1 min-h-0 flex-1 overflow-hidden px-2">
         <Body clip={clip} />
       </div>
+      {/* Fixed leading: the copy hint's fallback glyphs would otherwise grow the footer and nudge the body. */}
       <div
         className={cx(
-          'border-divider relative z-1 flex justify-between gap-1.5 border-t px-2 py-1.5 text-[11px] *:truncate',
+          'border-divider relative z-1 flex justify-between gap-1.5 border-t px-2 py-1.5 text-[11px] leading-3 *:truncate',
           clip.missing ? 'text-error' : 'text-muted',
         )}
       >

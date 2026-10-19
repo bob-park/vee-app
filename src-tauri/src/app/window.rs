@@ -139,9 +139,20 @@ fn clamp_panel_height(work_h: f64, h: f64) -> f64 {
     h.round().clamp(panel_min(work_h), panel_max(work_h))
 }
 
-/// Panel height for this work area from the saved ratio, or the default without one.
-fn panel_height_for(work_h: f64, ratio: Option<f64>) -> f64 {
-    ratio.map_or_else(|| panel_height(work_h), |r| clamp_panel_height(work_h, r * work_h))
+/// Panel height from the saved ratio of `base_h`, the primary display's work area, or the default without one.
+/// Capped at half of `work_h`, the work area the panel opens on.
+fn panel_height_for(base_h: f64, work_h: f64, ratio: Option<f64>) -> f64 {
+    let h = ratio.map_or_else(|| panel_height(base_h), |r| clamp_panel_height(base_h, r * base_h));
+    h.min(panel_max(work_h))
+}
+
+/// Work-area height in design points that panel sizes are measured against: the primary display's,
+/// so the panel is the same size on every monitor. `fallback` when there is no primary display.
+fn base_height(app: &AppHandle, fallback: f64) -> f64 {
+    app.primary_monitor().ok().flatten().map_or(fallback, |m| {
+        let (work, unit) = work_area(&m);
+        work.h / unit
+    })
 }
 
 /// The saved `panelHeightRatio`; `None` when unset or unreadable.
@@ -244,7 +255,8 @@ fn place_and_show(app: &AppHandle, panel: &WebviewWindow) -> tauri::Result<()> {
     let _ = end_drag(app);
     if let Some(monitor) = cursor_monitor(app) {
         let (work, unit) = work_area(&monitor);
-        place(panel, panel_rect(work, unit, panel_height_for(work.h / unit, stored_ratio(app))))?;
+        let work_h = work.h / unit;
+        place(panel, panel_rect(work, unit, panel_height_for(base_height(app, work_h), work_h, stored_ratio(app))))?;
     }
     set_panel_alpha(panel, 0.0);
     panel.show()?;
@@ -322,7 +334,7 @@ pub fn hide_panel(app: &AppHandle, restore_focus: bool) {
 }
 
 /// Resizes the panel on its own monitor, keeping its bottom edge put. `height` is in design points.
-/// Drags call this on every move with `save` off; `save` stores the height as a share of the work area.
+/// Drags call this on every move with `save` off; `save` stores the height as a share of the primary display's work area.
 pub fn resize_panel(app: &AppHandle, height: f64, save: bool) -> AppResult<()> {
     if settings::get(&app.state::<AppState>().db.lock().unwrap(), "panelResize") == "off" {
         return Err(AppError::ResizeOff);
@@ -334,10 +346,11 @@ pub fn resize_panel(app: &AppHandle, height: f64, save: bool) -> AppResult<()> {
         .ok_or_else(|| AppError::Other("panel has no monitor".into()))?;
     let (work, unit) = work_area(&monitor);
     let work_h = work.h / unit;
-    let h = clamp_panel_height(work_h, height);
+    let base_h = base_height(app, work_h);
+    let h = clamp_panel_height(base_h, height).min(panel_max(work_h));
     place(&panel, panel_rect(work, unit, h)).map_err(|e| AppError::Other(e.to_string()))?;
     if save {
-        let ratio = format!("{:.4}", h / work_h);
+        let ratio = format!("{:.4}", h / base_h);
         settings::set_raw(&app.state::<AppState>().db.lock().unwrap(), "panelHeightRatio", &ratio)?;
         settings::commands::changed(app);
     }
@@ -351,7 +364,9 @@ pub fn reset_panel_height(app: &AppHandle) -> AppResult<()> {
         && let Some(monitor) = panel.current_monitor().ok().flatten()
     {
         let (work, unit) = work_area(&monitor);
-        place(&panel, panel_rect(work, unit, panel_height(work.h / unit))).map_err(|e| AppError::Other(e.to_string()))?;
+        let work_h = work.h / unit;
+        let h = panel_height_for(base_height(app, work_h), work_h, None);
+        place(&panel, panel_rect(work, unit, h)).map_err(|e| AppError::Other(e.to_string()))?;
     }
     settings::commands::changed(app);
     Ok(())
@@ -779,11 +794,20 @@ mod tests {
     }
 
     #[test]
-    fn stored_ratio_is_clamped_per_monitor() {
-        assert_eq!(panel_height_for(1117.0, None), 335.0);
-        assert_eq!(panel_height_for(1117.0, Some(0.4)), 447.0);
-        assert_eq!(panel_height_for(956.0, Some(0.6)), 478.0); // over 50% on a smaller screen
-        assert_eq!(panel_height_for(1440.0, Some(0.1)), 216.0); // under 15%
+    fn stored_ratio_is_clamped_to_the_primary_display() {
+        assert_eq!(panel_height_for(1117.0, 1117.0, None), 335.0);
+        assert_eq!(panel_height_for(1117.0, 1117.0, Some(0.4)), 447.0);
+        assert_eq!(panel_height_for(956.0, 956.0, Some(0.6)), 478.0); // over 50%
+        assert_eq!(panel_height_for(1440.0, 1440.0, Some(0.1)), 216.0); // under 15%
+    }
+
+    #[test]
+    fn panel_keeps_the_primary_display_height_on_other_monitors() {
+        // MacBook Pro 16" primary, 27" QHD external: same height as on the MacBook.
+        assert_eq!(panel_height_for(1117.0, 1410.0, None), 335.0);
+        assert_eq!(panel_height_for(1117.0, 1410.0, Some(0.4)), 447.0);
+        // A smaller external display still caps the panel at half its own work area.
+        assert_eq!(panel_height_for(1117.0, 800.0, Some(0.5)), 400.0);
     }
 
     #[test]
