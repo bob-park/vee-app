@@ -174,8 +174,6 @@ function FfmpegSection({ settings, run, updateSetting }: Props) {
                 <dd>{f.mb(Math.round(ffmpeg.size / MB))}</dd>
                 <dt>{f.meta.installedAt}</dt>
                 <dd>{new Date(ffmpeg.installedAt).toLocaleDateString(locale)}</dd>
-                <dt>{f.meta.path}</dt>
-                <dd className="font-mono break-all">{ffmpeg.path}</dd>
               </dl>
               {error}
             </Row>

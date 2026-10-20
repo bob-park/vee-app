@@ -142,7 +142,7 @@ export const ko: Dict = {
         update: '업데이트',
         remove: '삭제',
         removeConfirm: 'FFmpeg를 삭제할까요? 다시 내려받기 전까지 영상 변환을 할 수 없어요.',
-        meta: { version: '버전', size: '크기', installedAt: '설치일', path: '위치' },
+        meta: { version: '버전', size: '크기', installedAt: '설치일' },
         quality: '영상 기본 화질',
         qualityHint: '모든 영상 변환에 쓰여요',
         qualities: { small: '작게', normal: '보통', original: '원본' },

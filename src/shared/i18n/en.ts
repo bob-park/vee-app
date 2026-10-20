@@ -145,7 +145,7 @@ export const en = {
         update: 'Update',
         remove: 'Remove',
         removeConfirm: 'Remove FFmpeg? Video conversion stops until you download it again.',
-        meta: { version: 'Version', size: 'Size', installedAt: 'Installed', path: 'Location' },
+        meta: { version: 'Version', size: 'Size', installedAt: 'Installed' },
         quality: 'Video quality',
         qualityHint: 'Used for every video conversion',
         qualities: { small: 'Small', normal: 'Normal', original: 'Best' },
