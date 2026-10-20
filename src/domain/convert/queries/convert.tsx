@@ -6,7 +6,6 @@ import { getFinderAccess, listConvertJobs } from '@/domain/convert/apis/convert'
 import type { ConvertJob, FinderAccess } from '@/domain/convert/apis/convert.dto';
 
 import { listen } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 
 const JOBS_QUERY_KEY = ['convert', 'jobs'];
 const FINDER_ACCESS_QUERY_KEY = ['convert', 'finderAccess'];
@@ -43,8 +42,8 @@ export function useConvertJobs() {
 }
 
 /**
- * Finder access (macOS); null on Windows or while unknown. Rechecked on focus (back from
- * System Settings) and on `settings://changed` (the prompt was answered).
+ * Finder access (macOS); null on Windows or while unknown. Rechecked when the Convert tab mounts
+ * and on `settings://changed` (the prompt was answered), not on window focus.
  */
 export function useFinderAccess() {
   const queryClient = useQueryClient();
@@ -57,11 +56,9 @@ export function useFinderAccess() {
 
   useEffect(() => {
     const refresh = () => void queryClient.invalidateQueries({ queryKey: FINDER_ACCESS_QUERY_KEY });
-    const offFocus = getCurrentWindow().onFocusChanged((e) => e.payload && refresh());
     const offSettings = listen('settings://changed', refresh);
 
     return () => {
-      void offFocus.then((fn) => fn());
       void offSettings.then((fn) => fn());
     };
   }, [queryClient]);
