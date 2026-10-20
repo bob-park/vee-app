@@ -1,0 +1,392 @@
+//! Drag-to-convert: the convert-key watch during a card drag, the `convert` overlay window, and the job worker.
+
+use crate::{
+    app::{
+        drop_target::{self, DropFolder},
+        state::{AppState, now_ms},
+        window::{self, PANEL, Rect, ToastPayload, USES_POINTS},
+    },
+    domain::{
+        clip::Kind,
+        convert::{self, Format, Job, JobError, JobState, JobView, TARGETS},
+        settings,
+    },
+    shared::error::{AppError, AppResult},
+};
+use serde::Serialize;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Sender};
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager};
+
+pub const CONVERT: &str = "convert";
+/// Overlay window side in design points.
+const SIZE: f64 = 260.0;
+const KEY_POLL_MS: u64 = 30;
+const TICK_MS: u64 = 500;
+
+/// What a toast says about converting, alongside `ToastPayload`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ConvertNote {
+    Saved { format: Format, count: usize, folder: String },
+    Failed { name: String },
+    NotFolder { finder_blocked: bool },
+    Unsupported,
+}
+
+/// The card being dragged. Survives `finish_drag` so the overlay's drop (which arrives later) can take it.
+struct Session {
+    clip_id: i64,
+    files: Vec<PathBuf>,
+    formats: Vec<Format>,
+    /// The folder under the last key-down; set when the overlay opens.
+    dir: Option<PathBuf>,
+    /// A "not a folder" / "unsupported" toast was already shown this drag.
+    noted: bool,
+}
+
+#[derive(Default)]
+struct Jobs {
+    list: Vec<Job>,
+    next_id: u64,
+    /// A thread re-publishes the list every `TICK_MS`.
+    ticking: bool,
+}
+
+pub struct Convert {
+    session: Mutex<Option<Session>>,
+    /// Bumped by every drag, so an older key watch stops.
+    drag: AtomicU64,
+    jobs: Mutex<Jobs>,
+    queue: Sender<u64>,
+}
+
+/// Manages the convert state and starts the worker. Call once in setup.
+pub fn spawn(app: &AppHandle) {
+    let (queue, rx) = mpsc::channel();
+    app.manage(Convert { session: Mutex::new(None), drag: AtomicU64::new(0), jobs: Mutex::default(), queue });
+    let app = app.clone();
+    // ponytail: one worker for all images; a second worker if batches feel slow.
+    std::thread::spawn(move || {
+        for id in rx {
+            work(&app, id);
+        }
+    });
+}
+
+/// Arms the convert key for a drag of `files` (an image clip's staged PNG, or a files clip's paths).
+/// Call after `dragging` is set and before `drag::start_drag`, which blocks on Windows.
+pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
+    let c = app.state::<Convert>();
+    let generation = c.drag.fetch_add(1, Ordering::SeqCst) + 1;
+    let state = app.state::<AppState>();
+    let key = {
+        let conn = state.db.lock().unwrap();
+        (settings::get(&conn, "dragConvert") != "off").then(|| settings::get(&conn, "convertKey"))
+    };
+    let Some(key) = key else {
+        *c.session.lock().unwrap() = None;
+        return;
+    };
+    let formats = convert::formats_for(&files, cfg!(target_os = "macos"));
+    *c.session.lock().unwrap() = Some(Session { clip_id, files, formats, dir: None, noted: false });
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let (c, state) = (app.state::<Convert>(), app.state::<AppState>());
+        let mut held = false;
+        while state.dragging.load(Ordering::SeqCst) && c.drag.load(Ordering::SeqCst) == generation {
+            let down = drop_target::key_down(&key);
+            if down != held {
+                held = down;
+                if down { open_at(&app) } else { close(&app) }
+            }
+            std::thread::sleep(Duration::from_millis(KEY_POLL_MS));
+        }
+    });
+}
+
+/// Looks up the folder under the cursor and opens the overlay there, or says why not (once per drag).
+fn open_at(app: &AppHandle) {
+    let Some(point) = window::cursor_at(app) else { return };
+    let c = app.state::<Convert>();
+    let unsupported = c.session.lock().unwrap().as_ref().is_none_or(|s| s.formats.is_empty());
+    let note = if unsupported {
+        ConvertNote::Unsupported
+    } else {
+        match drop_target::folder_at(point) {
+            DropFolder::Folder(dir) => {
+                let open = c.session.lock().unwrap().as_mut().map(|s| {
+                    s.dir = Some(dir);
+                    Open { formats: s.formats.clone(), name: file_name(&s.files[0]) }
+                });
+                if let Some(open) = open {
+                    show(app, point, open);
+                }
+                return;
+            }
+            DropFolder::NotFolder => ConvertNote::NotFolder { finder_blocked: false },
+            DropFolder::FinderBlocked => ConvertNote::NotFolder { finder_blocked: true },
+        }
+    };
+    let (first, files) = match c.session.lock().unwrap().as_mut() {
+        Some(s) => (!std::mem::replace(&mut s.noted, true), s.files.len()),
+        None => (false, 0),
+    };
+    if first {
+        window::show_toast(app, ToastPayload::convert(note, kind_for(files)));
+    }
+}
+
+#[derive(Clone, Serialize)]
+struct Open {
+    formats: Vec<Format>,
+    /// File name for the donut's centre (the first file of a files clip).
+    name: String,
+}
+
+fn show(app: &AppHandle, (x, y): (f64, f64), open: Open) {
+    let Some(overlay) = app.get_webview_window(CONVERT) else { return };
+    // A key press that lands after the drop must not leave the overlay up.
+    if !app.state::<AppState>().dragging.load(Ordering::SeqCst) {
+        return;
+    }
+    // Positioning units per design point: 1 on macOS, the monitor scale on Windows (as for the toast).
+    let unit = window::cursor_monitor(app).map_or(1.0, |m| window::work_area(&m).1);
+    let side = SIZE * unit;
+    let _ = window::place(&overlay, Rect { x: x - side / 2.0, y: y - side / 2.0, w: side, h: side });
+    let _ = app.emit_to(CONVERT, "convert://open", open);
+    let _ = overlay.show();
+}
+
+fn close(app: &AppHandle) {
+    let _ = app.emit_to(CONVERT, "convert://close", ());
+    if let Some(overlay) = app.get_webview_window(CONVERT) {
+        let _ = overlay.hide();
+    }
+}
+
+/// Whether the drag just ended over the open overlay, by the live cursor. Always hides the overlay.
+pub fn dropped_on_overlay(app: &AppHandle) -> bool {
+    let hit = (|| {
+        let overlay = app.get_webview_window(CONVERT)?;
+        if !overlay.is_visible().ok()? {
+            return None;
+        }
+        let (p, s, k) = (overlay.outer_position().ok()?, overlay.outer_size().ok()?, overlay.scale_factor().ok()?);
+        Some(window::rect_from((p.x, p.y), (s.width, s.height), k, USES_POINTS).contains(window::cursor_at(app)?))
+    })()
+    .unwrap_or(false);
+    close(app);
+    hit
+}
+
+/// Queues the dragged card for `format` into the folder the overlay opened over.
+fn drop_on(app: &AppHandle, format: &str) -> AppResult<()> {
+    let c = app.state::<Convert>();
+    let session = c.session.lock().unwrap().take();
+    let format = TARGETS.into_iter().find(|f| f.ext() == format);
+    let (Some(s), Some(format)) = (session, format) else {
+        return Err(AppError::InvalidInput("no convert drop pending".into()));
+    };
+    let Some(dir) = s.dir.filter(|_| s.formats.contains(&format)) else {
+        return Err(AppError::InvalidInput(format!("can't convert to {}", format.ext())));
+    };
+    let id = {
+        let mut jobs = c.jobs.lock().unwrap();
+        jobs.next_id += 1;
+        let id = jobs.next_id;
+        jobs.list.push(Job {
+            id,
+            clip_id: s.clip_id,
+            format,
+            files: s.files,
+            dir,
+            done: 0,
+            state: JobState::Queued,
+            since: now_ms(),
+            ended: None,
+            shown: false,
+        });
+        id
+    };
+    let _ = c.queue.send(id);
+    publish(app);
+    Ok(())
+}
+
+/// Runs one queued job file by file, then ends it with a toast.
+fn work(app: &AppHandle, id: u64) {
+    let c = app.state::<Convert>();
+    let picked = c.jobs.lock().unwrap().list.iter_mut().find(|j| j.id == id && j.state == JobState::Queued).map(|j| {
+        j.state = JobState::Running;
+        (j.files.clone(), j.format, j.dir.clone())
+    });
+    // Dismissed while queued.
+    let Some((files, format, dir)) = picked else { return };
+    publish(app);
+    let tmp = std::env::temp_dir().join("vee-convert");
+    let mut failed: Option<(JobError, &Path)> = None;
+    for (i, src) in files.iter().enumerate() {
+        let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Vee".into());
+        let result = std::fs::create_dir_all(&tmp)
+            .map_err(|_| JobError::Write)
+            .and_then(|()| convert::run(src, &stem, format, &dir, &tmp));
+        if let Err(e) = result {
+            log::warn!("convert job {id} failed on file {}: {e:?}", i + 1);
+            failed = Some((e, src));
+            break;
+        }
+        with_job(&c, id, |j| j.done = i + 1);
+        publish(app);
+    }
+    let mut done = 0;
+    with_job(&c, id, |j| {
+        j.state = failed.map_or(JobState::Done, |(e, _)| JobState::Failed(e));
+        j.ended = Some(now_ms());
+        done = j.done;
+    });
+    publish(app);
+    let note = match failed {
+        Some((_, src)) => ConvertNote::Failed { name: file_name(src) },
+        None => ConvertNote::Saved { format, count: done, folder: file_name(&dir) },
+    };
+    window::show_toast(app, ToastPayload::convert(note, kind_for(files.len())));
+}
+
+fn with_job(c: &Convert, id: u64, f: impl FnOnce(&mut Job)) {
+    if let Some(j) = c.jobs.lock().unwrap().list.iter_mut().find(|j| j.id == id) {
+        f(j);
+    }
+}
+
+/// The panel's view of the jobs; also forgets done jobs it no longer shows. Second: whether the
+/// view can still change by itself (a job may cross the show mark or a done one expire).
+fn snapshot(jobs: &mut Jobs) -> (Vec<JobView>, bool) {
+    let now = now_ms();
+    let views = convert::visible_jobs(&mut jobs.list, now);
+    convert::prune(&mut jobs.list, now);
+    // Failed jobs never change by themselves, so they need no ticks.
+    let live = jobs.list.iter().any(|j| !matches!(j.state, JobState::Failed(_)));
+    (views, live)
+}
+
+/// Sends the jobs to the panel, and keeps doing so every `TICK_MS` while they can change.
+fn publish(app: &AppHandle) {
+    let c = app.state::<Convert>();
+    let (views, start_tick) = {
+        let mut jobs = c.jobs.lock().unwrap();
+        let (views, live) = snapshot(&mut jobs);
+        let start = live && !jobs.ticking;
+        jobs.ticking |= start;
+        (views, start)
+    };
+    let _ = app.emit_to(PANEL, "convert://jobs", views);
+    if !start_tick {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let c = app.state::<Convert>();
+        loop {
+            std::thread::sleep(Duration::from_millis(TICK_MS));
+            let (views, live) = {
+                let mut jobs = c.jobs.lock().unwrap();
+                let (views, live) = snapshot(&mut jobs);
+                // Decided under the lock, so a job added right now restarts the tick through `publish`.
+                jobs.ticking = live;
+                (views, live)
+            };
+            let _ = app.emit_to(PANEL, "convert://jobs", views);
+            if !live {
+                break;
+            }
+        }
+    });
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// The toast icon: one file reads as an image, several as files.
+fn kind_for(files: usize) -> Kind {
+    if files > 1 { Kind::Files } else { Kind::Image }
+}
+
+/// Convert commands. A submodule so they can share names with the functions above.
+pub mod commands {
+    use super::{Convert, publish, snapshot};
+    use crate::domain::convert::{JobState, JobView};
+    use crate::shared::error::{AppError, AppResult};
+    use crate::app::state::now_ms;
+    use tauri::{AppHandle, Manager, State};
+
+    /// The overlay's drop on a slice.
+    #[tauri::command]
+    pub fn convert_drop(app: AppHandle, format: String) -> AppResult<()> {
+        super::drop_on(&app, &format)
+    }
+
+    #[tauri::command]
+    pub fn list_convert_jobs(state: State<Convert>) -> Vec<JobView> {
+        snapshot(&mut state.jobs.lock().unwrap()).0
+    }
+
+    /// Queues a failed job again, same folder and format.
+    #[tauri::command]
+    pub fn retry_convert(app: AppHandle, id: u64) -> AppResult<()> {
+        let c = app.state::<Convert>();
+        let found = c.jobs.lock().unwrap().list.iter_mut().find(|j| j.id == id && matches!(j.state, JobState::Failed(_))).map(|j| {
+            j.state = JobState::Queued;
+            j.done = 0;
+            j.since = now_ms();
+            j.ended = None;
+        });
+        found.ok_or_else(|| AppError::InvalidInput(format!("no failed convert job {id}")))?;
+        let _ = c.queue.send(id);
+        publish(&app);
+        Ok(())
+    }
+
+    /// Removes a queued or failed job.
+    #[tauri::command]
+    pub fn dismiss_convert(app: AppHandle, id: u64) -> AppResult<()> {
+        let c = app.state::<Convert>();
+        let removed = {
+            let mut jobs = c.jobs.lock().unwrap();
+            let before = jobs.list.len();
+            jobs.list.retain(|j| j.id != id || !matches!(j.state, JobState::Queued | JobState::Failed(_)));
+            jobs.list.len() != before
+        };
+        if !removed {
+            return Err(AppError::InvalidInput(format!("no queued or failed convert job {id}")));
+        }
+        publish(&app);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn job(id: u64, state: JobState) -> Job {
+        let now = now_ms();
+        Job { id, clip_id: 1, format: Format::Png, files: vec![], dir: PathBuf::new(), done: 0, state, since: now, ended: Some(now), shown: true }
+    }
+
+    #[test]
+    fn ticks_only_while_a_job_can_still_change() {
+        let mut jobs = Jobs { list: vec![job(1, JobState::Failed(JobError::Write))], ..Default::default() };
+        assert!(!snapshot(&mut jobs).1);
+        jobs.list.push(job(2, JobState::Done));
+        let (views, live) = snapshot(&mut jobs);
+        assert!(live && views.len() == 2);
+        jobs.list[1].ended = Some(now_ms() - 5000);
+        assert!(!snapshot(&mut jobs).1);
+        assert_eq!(jobs.list.len(), 1);
+    }
+}

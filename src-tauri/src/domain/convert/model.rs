@@ -78,8 +78,8 @@ pub struct Job {
     pub id: u64,
     pub clip_id: i64,
     pub format: Format,
+    /// Each output is named after its source file's stem.
     pub files: Vec<PathBuf>,
-    pub stem: String,
     pub dir: PathBuf,
     pub done: usize,
     pub state: JobState,
@@ -92,7 +92,7 @@ pub struct Job {
 }
 
 /// What the panel draws for one job.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JobView {
     pub id: u64,

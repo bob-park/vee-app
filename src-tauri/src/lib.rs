@@ -2,7 +2,7 @@ mod app;
 mod domain;
 mod shared;
 
-use app::{autostart, disk_access, ocr, retention, shortcut, state::AppState, tray, updater, watcher, window};
+use app::{autostart, convert, disk_access, ocr, retention, shortcut, state::AppState, tray, updater, watcher, window};
 use domain::{clip, settings, source_app, whats_new};
 use std::sync::atomic::Ordering;
 use tauri::{Manager, WindowEvent};
@@ -40,6 +40,7 @@ pub fn run() {
                 }
             };
             app.manage(AppState::new(conn, images_dir));
+            convert::spawn(app.handle());
             // Windows are `create: false` so no webview can call a command before AppState exists.
             for config in app.config().app.windows.clone() {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
@@ -95,6 +96,10 @@ pub fn run() {
             window::commands::reveal_panel,
             settings::commands::preview_sound,
             window::commands::open_settings,
+            convert::commands::convert_drop,
+            convert::commands::list_convert_jobs,
+            convert::commands::retry_convert,
+            convert::commands::dismiss_convert,
             settings::commands::get_settings,
             settings::commands::set_setting,
             autostart::set_autostart,

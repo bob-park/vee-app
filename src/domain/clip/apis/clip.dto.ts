@@ -1,3 +1,5 @@
+import type { ConvertNote } from '@/domain/convert/apis/convert.dto';
+
 export type Kind = 'text' | 'link' | 'image' | 'files';
 export type Filter = Kind | 'all';
 
@@ -32,4 +34,6 @@ export interface ToastPayload {
   files: number;
   /** Copied as plain text, without formatting. */
   plain: boolean;
+  /** Set when the toast reports a conversion. */
+  convert: ConvertNote | null;
 }

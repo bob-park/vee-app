@@ -1,6 +1,7 @@
 //! App shell: windows, tray, updater, clipboard watcher, OS integration, shared state. Not a domain.
 
 pub mod autostart;
+pub mod convert;
 pub mod disk_access;
 pub mod drop_target;
 pub mod front_app;

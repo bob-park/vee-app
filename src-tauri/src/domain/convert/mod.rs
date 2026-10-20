@@ -187,7 +187,6 @@ mod tests {
             clip_id: 1,
             format: Format::Png,
             files: vec![PathBuf::from("/tmp/out/a.jpg")],
-            stem: "a".into(),
             dir: PathBuf::from("/tmp/out"),
             done: 0,
             state,

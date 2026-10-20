@@ -2,6 +2,7 @@
 
 use crate::{
     app::{
+        convert::{self, ConvertNote},
         front_app,
         state::{AppState, now_ms},
     },
@@ -58,21 +59,30 @@ pub struct ToastPayload {
     pub files: usize,
     /// Copied as plain text, without the source app's formatting.
     pub plain: bool,
+    pub convert: Option<ConvertNote>,
 }
 
 impl ToastPayload {
     fn copied(content: &ClipContent, plain: bool) -> Self {
         match content {
             ClipContent::Text(t) => {
-                Self { ok: true, kind: classify_text(t), text: Some(toast_preview(t)), files: 0, plain }
+                Self { ok: true, kind: classify_text(t), text: Some(toast_preview(t)), files: 0, plain, convert: None }
             }
-            ClipContent::Image(_) => Self { ok: true, kind: Kind::Image, text: None, files: 0, plain: false },
-            ClipContent::Files(f) => Self { ok: true, kind: Kind::Files, text: None, files: f.len(), plain: false },
+            ClipContent::Image(_) => Self { ok: true, kind: Kind::Image, text: None, files: 0, plain: false, convert: None },
+            ClipContent::Files(f) => {
+                Self { ok: true, kind: Kind::Files, text: None, files: f.len(), plain: false, convert: None }
+            }
         }
     }
 
     fn failed() -> Self {
-        Self { ok: false, kind: Kind::Text, text: None, files: 0, plain: false }
+        Self { ok: false, kind: Kind::Text, text: None, files: 0, plain: false, convert: None }
+    }
+
+    /// A convert note; `ok` only for a saved file.
+    pub(crate) fn convert(note: ConvertNote, kind: Kind) -> Self {
+        let ok = matches!(note, ConvertNote::Saved { .. });
+        Self { ok, kind, text: None, files: 0, plain: false, convert: Some(note) }
     }
 }
 
@@ -86,32 +96,32 @@ fn toast_preview(text: &str) -> String {
 
 /// macOS positions windows in points in one global space across displays;
 /// Windows positions them in physical pixels of the virtual desktop.
-const USES_POINTS: bool = cfg!(target_os = "macos");
+pub(crate) const USES_POINTS: bool = cfg!(target_os = "macos");
 
 /// A rectangle in the space windows are positioned in (see `USES_POINTS`).
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Rect {
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
+pub(crate) struct Rect {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
 }
 
 impl Rect {
-    fn contains(&self, (x, y): (f64, f64)) -> bool {
+    pub(crate) fn contains(&self, (x, y): (f64, f64)) -> bool {
         x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
     }
 }
 
 /// tao reports macOS monitor geometry as points × that monitor's own scale.
-fn rect_from((x, y): (i32, i32), (w, h): (u32, u32), scale: f64, points: bool) -> Rect {
+pub(crate) fn rect_from((x, y): (i32, i32), (w, h): (u32, u32), scale: f64, points: bool) -> Rect {
     let k = if points { scale } else { 1.0 };
     Rect { x: x as f64 / k, y: y as f64 / k, w: w as f64 / k, h: h as f64 / k }
 }
 
 /// tao's macOS cursor is points × the *primary* display's scale, whichever display it is on,
 /// so `monitor_from_point` misses displays with a different scale.
-fn cursor_point((x, y): (f64, f64), primary_scale: f64, points: bool) -> (f64, f64) {
+pub(crate) fn cursor_point((x, y): (f64, f64), primary_scale: f64, points: bool) -> (f64, f64) {
     if points { (x / primary_scale, y / primary_scale) } else { (x, y) }
 }
 
@@ -173,30 +183,35 @@ fn toast_rect(work: Rect, unit: f64, lift: f64) -> Rect {
     Rect { x: work.x + (work.w - w) / 2.0, y: work.y + work.h - h - (TOAST_BOTTOM + lift) * unit, w, h }
 }
 
-fn cursor_monitor(app: &AppHandle) -> Option<Monitor> {
+/// The live cursor in positioning space.
+pub(crate) fn cursor_at(app: &AppHandle) -> Option<(f64, f64)> {
+    let cursor = app.cursor_position().ok()?;
+    let primary_scale = app.primary_monitor().ok().flatten().map_or(1.0, |m| m.scale_factor());
+    Some(cursor_point((cursor.x, cursor.y), primary_scale, USES_POINTS))
+}
+
+pub(crate) fn cursor_monitor(app: &AppHandle) -> Option<Monitor> {
     let primary = app.primary_monitor().ok().flatten();
     let found = (|| {
         let monitors = app.available_monitors().ok()?;
-        let cursor = app.cursor_position().ok()?;
-        let primary_scale = primary.as_ref().map_or(1.0, |m| m.scale_factor());
         let rects: Vec<Rect> = monitors
             .iter()
             .map(|m| rect_from((m.position().x, m.position().y), (m.size().width, m.size().height), m.scale_factor(), USES_POINTS))
             .collect();
-        let index = pick(cursor_point((cursor.x, cursor.y), primary_scale, USES_POINTS), &rects)?;
+        let index = pick(cursor_at(app)?, &rects)?;
         monitors.into_iter().nth(index)
     })();
     found.or(primary)
 }
 
 /// Work area of `monitor` in positioning space, plus the size of one design point in it.
-fn work_area(monitor: &Monitor) -> (Rect, f64) {
+pub(crate) fn work_area(monitor: &Monitor) -> (Rect, f64) {
     let a = monitor.work_area();
     let rect = rect_from((a.position.x, a.position.y), (a.size.width, a.size.height), monitor.scale_factor(), USES_POINTS);
     (rect, if USES_POINTS { 1.0 } else { monitor.scale_factor() })
 }
 
-fn place(window: &WebviewWindow, r: Rect) -> tauri::Result<()> {
+pub(crate) fn place(window: &WebviewWindow, r: Rect) -> tauri::Result<()> {
     if USES_POINTS {
         window.set_position(LogicalPosition::new(r.x, r.y))?;
         window.set_size(LogicalSize::new(r.w, r.h))?;
@@ -402,7 +417,7 @@ pub fn show_settings(app: &AppHandle) {
     }
 }
 
-fn show_toast(app: &AppHandle, payload: ToastPayload) {
+pub(crate) fn show_toast(app: &AppHandle, payload: ToastPayload) {
     let Some(toast) = app.get_webview_window(TOAST) else { return };
     // A pinned panel stays up, so the toast goes just above it instead of over its cards.
     let pinned_panel = app.get_webview_window(PANEL).filter(|_| pinned(app));
@@ -602,10 +617,19 @@ pub fn start_drag(app: &AppHandle, id: i64, name: &str, image: Option<&str>) -> 
         ]),
         ClipContent::Text(text) => DragItem::Text(text.clone()),
     };
+    // Image and files clips can be converted; their staged or original paths are the sources.
+    let sources = match &item {
+        DragItem::Files(files) => Some(files.clone()),
+        _ => None,
+    };
     let panel = app.get_webview_window(PANEL).ok_or_else(|| AppError::Other("panel window is missing".into()))?;
     state.dragging.store(true, Ordering::SeqCst);
     // Let drops land on whatever is behind the (slid-away) panel.
     let _ = panel.set_ignore_cursor_events(true);
+    // Before `drag::start_drag`, which blocks until the drop on Windows.
+    if let Some(files) = sources {
+        convert::begin(app, id, files);
+    }
     let handle = app.clone();
     let started = drag::start_drag(
         &panel,
@@ -630,6 +654,8 @@ fn end_drag(app: &AppHandle) -> Option<WebviewWindow> {
 
 fn finish_drag(app: &AppHandle, id: i64, content: &ClipContent, result: DragResult) {
     let panel = end_drag(app);
+    // Decided by geometry: the overlay's own drop event only arrives after this.
+    let on_overlay = convert::dropped_on_overlay(app);
     match result {
         DragResult::Dropped => {
             if pinned(app) {
@@ -638,7 +664,10 @@ fn finish_drag(app: &AppHandle, id: i64, content: &ClipContent, result: DragResu
             } else {
                 hide_panel(app, true);
             }
-            confirm_copy(app, id, content, false);
+            // A drop on the convert overlay is a convert, not a copy.
+            if !on_overlay {
+                confirm_copy(app, id, content, false);
+            }
         }
         DragResult::Cancel => {
             if let Some(panel) = panel {

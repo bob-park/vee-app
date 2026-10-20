@@ -45,6 +45,24 @@
         "height": 132
       },
       {
+        "label": "convert",
+        "create": false,
+        "title": "Vee",
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "focus": false,
+        "focusable": false,
+        "visibleOnAllWorkspaces": true,
+        "dragDropEnabled": true,
+        "width": 260,
+        "height": 260
+      },
+      {
         "label": "settings",
         "create": false,
         "title": "Vee",
