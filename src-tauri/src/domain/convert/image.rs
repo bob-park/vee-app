@@ -1,7 +1,12 @@
 //! Image conversion engines: `sips` on macOS, the `image` crate on Windows.
 
 use super::{Format, JobError};
+use ::image::metadata::Orientation;
 use std::path::Path;
+
+/// `sips` is killed after this long; a hung one would stall the single worker.
+#[cfg(target_os = "macos")]
+const SIPS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Converts `src` to `to`, writing `out`. Any intermediate file is removed before returning.
 #[cfg(target_os = "macos")]
@@ -10,7 +15,7 @@ pub fn convert_image(src: &Path, to: Format, out: &Path) -> Result<(), JobError>
         Format::Webp => {
             let png = out.with_extension("vee-tmp.png");
             let result = sips(src, "png", &[], &png).and_then(|()| {
-                let img = ::image::open(&png).map_err(|e| engine_error("decode", e))?;
+                let img = open_upright(&png)?;
                 write_webp(img, out)
             });
             let _ = std::fs::remove_file(&png);
@@ -36,18 +41,35 @@ pub fn convert_image(src: &Path, to: Format, out: &Path) -> Result<(), JobError>
 
 #[cfg(target_os = "macos")]
 fn sips(src: &Path, format: &str, extra: &[&str], out: &Path) -> Result<(), JobError> {
-    let output = std::process::Command::new("sips")
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("sips")
         .args(["-s", "format", format])
         .args(extra)
         .arg(src)
         .arg("--out")
         .arg(out)
-        .output()
+        .stdout(Stdio::null())
+        // ponytail: stderr read after exit; output past the pipe buffer would block sips until the timeout.
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| engine_error("sips", e))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(engine_error("sips", String::from_utf8_lossy(&output.stderr)))
+    let deadline = std::time::Instant::now() + SIPS_TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(status)) => {
+                let mut err = String::new();
+                let _ = child.stderr.take().map(|mut e| std::io::Read::read_to_string(&mut e, &mut err));
+                return Err(engine_error("sips", format!("{status}: {}", err.trim())));
+            }
+            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(50)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(engine_error("sips", "timed out"));
+            }
+            Err(e) => return Err(engine_error("sips", e)),
+        }
     }
 }
 
@@ -55,7 +77,7 @@ fn sips(src: &Path, format: &str, extra: &[&str], out: &Path) -> Result<(), JobE
 #[cfg(windows)]
 pub fn convert_image(src: &Path, to: Format, out: &Path) -> Result<(), JobError> {
     use ::image::ImageFormat;
-    let img = ::image::open(src).map_err(|e| engine_error("decode", e))?;
+    let img = open_upright(src)?;
     let format = match to {
         Format::Webp => return write_webp(img, out),
         Format::Jpg => return std::fs::write(out, encode_jpeg(&img)?).map_err(|e| engine_error("write", e)),
@@ -80,6 +102,20 @@ fn encode_jpeg(img: &::image::DynamicImage) -> Result<Vec<u8>, JobError> {
     Ok(buf)
 }
 
+/// Decodes `src` and applies its Exif orientation, so the output is upright without the tag.
+fn open_upright(src: &Path) -> Result<::image::DynamicImage, JobError> {
+    use ::image::{DynamicImage, ImageDecoder, ImageReader};
+    let mut decoder = ImageReader::open(src)
+        .and_then(|r| r.with_guessed_format())
+        .map_err(|e| engine_error("open", e))?
+        .into_decoder()
+        .map_err(|e| engine_error("decode", e))?;
+    let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
+    let mut img = DynamicImage::from_decoder(decoder).map_err(|e| engine_error("decode", e))?;
+    img.apply_orientation(orientation);
+    Ok(img)
+}
+
 // ponytail: lossless-only WebP (the `image` crate has no lossy encoder); revisit if files are too large.
 fn write_webp(img: ::image::DynamicImage, out: &Path) -> Result<(), JobError> {
     let file = std::fs::File::create(out).map_err(|e| engine_error("create", e))?;
@@ -100,14 +136,16 @@ fn engine_error(step: &str, e: impl std::fmt::Display) -> JobError {
 
 /// A one-page PDF showing `jpeg` at its pixel size in points, embedded as-is (`DCTDecode`).
 /// `None` when no SOF0/SOF1/SOF2 header is found or the colour layout is not gray/RGB.
+/// The page turns the image upright by its Exif orientation (sips keeps the tag rather than rotating).
 pub fn jpeg_to_pdf(jpeg: &[u8]) -> Option<Vec<u8>> {
-    let (w, h, components) = jpeg_size(jpeg)?;
+    let (w, h, components, orientation) = jpeg_info(jpeg)?;
     let color = match components {
         1 => "/DeviceGray",
         3 => "/DeviceRGB",
         _ => return None,
     };
-    let content = format!("q {w} 0 0 {h} 0 0 cm /Im0 Do Q");
+    let ((pw, ph), [a, b, c, d, e, f]) = placement(orientation, i32::from(w), i32::from(h));
+    let content = format!("q {a} {b} {c} {d} {e} {f} cm /Im0 Do Q");
     let mut pdf = b"%PDF-1.4\n".to_vec();
     let mut offsets = Vec::new();
     let mut object = |pdf: &mut Vec<u8>, body: &[u8]| {
@@ -120,7 +158,7 @@ pub fn jpeg_to_pdf(jpeg: &[u8]) -> Option<Vec<u8>> {
     object(&mut pdf, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
     object(
         &mut pdf,
-        format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>")
+        format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {pw} {ph}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>")
             .as_bytes(),
     );
     let image_head = format!(
@@ -140,12 +178,29 @@ pub fn jpeg_to_pdf(jpeg: &[u8]) -> Option<Vec<u8>> {
     Some(pdf)
 }
 
-/// (width, height, components) from the first SOF0/SOF1/SOF2 segment, walking markers from SOI to SOS.
-fn jpeg_size(jpeg: &[u8]) -> Option<(u16, u16, u8)> {
+/// Page size and the `cm` matrix that draw a `w`×`h` image upright for `o`. The image's first
+/// row is the top of the unit square; each arm maps the stored pixel grid onto the displayed one.
+fn placement(o: Orientation, w: i32, h: i32) -> ((i32, i32), [i32; 6]) {
+    match o {
+        Orientation::NoTransforms => ((w, h), [w, 0, 0, h, 0, 0]),
+        Orientation::FlipHorizontal => ((w, h), [-w, 0, 0, h, w, 0]),
+        Orientation::Rotate180 => ((w, h), [-w, 0, 0, -h, w, h]),
+        Orientation::FlipVertical => ((w, h), [w, 0, 0, -h, 0, h]),
+        Orientation::Rotate90FlipH => ((h, w), [0, -w, -h, 0, h, w]),
+        Orientation::Rotate90 => ((h, w), [0, -w, h, 0, 0, w]),
+        Orientation::Rotate270FlipH => ((h, w), [0, w, h, 0, 0, 0]),
+        Orientation::Rotate270 => ((h, w), [0, w, -h, 0, h, 0]),
+    }
+}
+
+/// (width, height, components) from the first SOF0/SOF1/SOF2 segment, plus the orientation of an
+/// Exif APP1 segment before it, walking markers from SOI to SOS.
+fn jpeg_info(jpeg: &[u8]) -> Option<(u16, u16, u8, Orientation)> {
     if !jpeg.starts_with(&[0xFF, 0xD8]) {
         return None;
     }
     let mut i = 2;
+    let mut orientation = Orientation::NoTransforms;
     loop {
         // Skip fill bytes before the marker code.
         while *jpeg.get(i)? == 0xFF && *jpeg.get(i + 1)? == 0xFF {
@@ -159,7 +214,14 @@ fn jpeg_size(jpeg: &[u8]) -> Option<(u16, u16, u8)> {
         match marker {
             0xC0..=0xC2 => {
                 let s = jpeg.get(i + 4..i + 10)?;
-                return Some((u16::from_be_bytes([s[3], s[4]]), u16::from_be_bytes([s[1], s[2]]), s[5]));
+                return Some((u16::from_be_bytes([s[3], s[4]]), u16::from_be_bytes([s[1], s[2]]), s[5], orientation));
+            }
+            0xE1 => {
+                let exif = jpeg.get(i + 4..i + 2 + len).and_then(|seg| seg.strip_prefix(b"Exif\0\0"));
+                if let Some(o) = exif.and_then(Orientation::from_exif_chunk) {
+                    orientation = o;
+                }
+                i += 2 + len;
             }
             0xDA | 0xD9 => return None,
             _ => i += 2 + len,
@@ -194,6 +256,54 @@ pub(super) mod tests {
         assert!(text.contains("/MediaBox [0 0 2 1]"));
         assert!(text.contains("/Filter /DCTDecode"));
         assert!(text.trim_end().ends_with("%%EOF"));
+    }
+
+    /// A big-endian TIFF header with one IFD entry: Orientation (0x0112) = `value`.
+    fn exif(value: u8) -> Vec<u8> {
+        [b"MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0".as_slice(), &[value, 0, 0, 0, 0, 0, 0]].concat()
+    }
+
+    #[test]
+    fn pdf_turns_the_page_for_exif_orientation() {
+        let jpeg = tiny_jpeg();
+        let app1 = [b"Exif\0\0".as_slice(), &exif(6)].concat();
+        let len = (app1.len() + 2) as u16;
+        let rotated = [&jpeg[..2], &[0xFF, 0xE1], &len.to_be_bytes(), &app1, &jpeg[2..]].concat();
+        let text = String::from_utf8_lossy(&jpeg_to_pdf(&rotated).unwrap()).into_owned();
+        // 2×1 stored, rotated 90° clockwise: a 1×2 page.
+        assert!(text.contains("/MediaBox [0 0 1 2]"), "{text}");
+        assert!(text.contains("q 0 -2 1 0 0 2 cm"));
+    }
+
+    #[test]
+    fn placement_maps_the_image_onto_the_page() {
+        // Where the stored image's top-left (u 0, v 1) and top-right (u 1, v 1) corners land on the page.
+        let corners = |o| {
+            let ((pw, ph), [a, b, c, d, e, f]) = placement(o, 4, 2);
+            ((pw, ph), (c + e, d + f), (a + c + e, b + d + f))
+        };
+        assert_eq!(corners(Orientation::NoTransforms), ((4, 2), (0, 2), (4, 2)));
+        assert_eq!(corners(Orientation::FlipHorizontal), ((4, 2), (4, 2), (0, 2)));
+        assert_eq!(corners(Orientation::Rotate180), ((4, 2), (4, 0), (0, 0)));
+        assert_eq!(corners(Orientation::FlipVertical), ((4, 2), (0, 0), (4, 0)));
+        assert_eq!(corners(Orientation::Rotate90), ((2, 4), (2, 4), (2, 0)));
+        assert_eq!(corners(Orientation::Rotate270), ((2, 4), (0, 0), (0, 4)));
+        assert_eq!(corners(Orientation::Rotate90FlipH), ((2, 4), (0, 4), (0, 0)));
+        assert_eq!(corners(Orientation::Rotate270FlipH), ((2, 4), (2, 0), (2, 4)));
+    }
+
+    #[test]
+    fn decoding_applies_exif_orientation() {
+        use ::image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("r.png");
+        let mut png = Vec::new();
+        let mut encoder = PngEncoder::new(&mut png);
+        encoder.set_exif_metadata(exif(6)).unwrap();
+        encoder.write_image(&[0; 2 * 4], 2, 1, ExtendedColorType::Rgba8).unwrap();
+        std::fs::write(&src, png).unwrap();
+        let img = open_upright(&src).unwrap();
+        assert_eq!((img.width(), img.height()), (1, 2));
     }
 
     #[test]
