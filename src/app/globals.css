@@ -108,8 +108,8 @@
   --vee-toast-fg: #101114;
   --vee-toast-border: #dedee5;
   /* Donut slices on the card-coloured disc; the disc floats, so it has the one shadow. */
-  --vee-donut: #f0f0f4;
-  --vee-donut-shadow: drop-shadow(0 6px 12px rgba(16, 24, 40, 0.16)) drop-shadow(0 1px 3px rgba(16, 24, 40, 0.08));
+  --vee-donut: #e8e8ef;
+  --vee-donut-shadow: drop-shadow(0 6px 12px rgba(16, 24, 40, 0.22)) drop-shadow(0 1px 3px rgba(16, 24, 40, 0.12));
   /* Three short layers instead of one long blur, so it all fades out inside the toast window's margin. */
   --vee-toast-shadow:
     0 1px 2px rgba(16, 24, 40, 0.06), 0 4px 10px rgba(16, 24, 40, 0.08), 0 10px 24px rgba(16, 24, 40, 0.12);

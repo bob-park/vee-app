@@ -81,7 +81,8 @@ export default function ConvertApp() {
       )}
     >
       <svg width={DONUT.size} height={DONUT.size} viewBox={`${-half} ${-half} ${DONUT.size} ${DONUT.size}`} aria-hidden>
-        <circle r={DONUT.disc} className="fill-card shadow-donut" />
+        {/* The border keeps the white disc readable over a light desktop, as the toast's does. */}
+        <circle r={DONUT.disc} className="fill-card stroke-base-300 shadow-donut" strokeWidth={1} />
         {open.slices.map(({ format, needs }, i) => {
           const l = labelAt(i, n);
           const active = i === hot && !needs;
