@@ -30,7 +30,8 @@ pub(super) struct Killed(pub(super) Child);
 
 impl Drop for Killed {
     fn drop(&mut self) {
-        // Windows: `soffice.exe` is a launcher for `soffice.bin`, so a running one is killed with its tree.
+        // Windows: every converter still running is killed with its process tree; `soffice.exe` is the one
+        // that needs it (a launcher for `soffice.bin`), the others have no children.
         #[cfg(windows)]
         {
             if let Ok(None) = self.0.try_wait() {
@@ -82,8 +83,14 @@ pub fn output(cmd: &mut Command, timeout: Duration) -> Option<String> {
         let mut s = String::new();
         let _ = tx.send(std::io::Read::read_to_string(&mut stdout, &mut s).ok().map(|_| s));
     });
-    // Dropping `child` kills a process still running at the deadline, which closes the pipe and ends the reader.
-    rx.recv_timeout(timeout).ok().flatten()
+    let out = rx.recv_timeout(timeout).ok().flatten();
+    // Stdout closes just before the exit: give it a moment so the guard doesn't tree-kill an exiting process.
+    let exit_by = std::time::Instant::now() + Duration::from_secs(1);
+    while out.is_some() && matches!(child.0.try_wait(), Ok(None)) && std::time::Instant::now() < exit_by {
+        std::thread::sleep(POLL);
+    }
+    // Dropping `child` kills a process still running, which closes the pipe and ends the reader.
+    out
 }
 
 /// The error for a failed exit `code`.

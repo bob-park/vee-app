@@ -12,7 +12,8 @@ const VERSION_TIMEOUT: Duration = Duration::from_secs(10);
 /// A LibreOffice that was found; mirrors TS `LibreOffice`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LibreOffice {
-    pub version: String,
+    /// `None` when `soffice --version` fails, hangs or prints something unexpected.
+    pub version: Option<String>,
 }
 
 /// Where LibreOffice's `soffice` is installed, if it is.
@@ -53,7 +54,10 @@ pub fn libreoffice_version(soffice: &Path) -> Option<String> {
 /// `LibreOffice 26.8.1.1 bf6ef…` (first line) → `26.8.1.1`.
 fn parse_version(out: &str) -> Option<String> {
     let mut words = out.lines().next()?.split_whitespace();
-    let version = (words.next()? == "LibreOffice").then(|| words.next()).flatten()?;
+    if words.next()? != "LibreOffice" {
+        return None;
+    }
+    let version = words.next()?;
     let valid = version.starts_with(|c: char| c.is_ascii_digit()) && version.chars().all(|c| c.is_ascii_digit() || c == '.');
     valid.then(|| version.to_owned())
 }
@@ -61,11 +65,11 @@ fn parse_version(out: &str) -> Option<String> {
 pub mod commands {
     use super::{LibreOffice, libreoffice_version, soffice};
 
-    /// The installed LibreOffice and its version; `None` when it isn't found or won't say its version.
+    /// The installed LibreOffice and its version (if it says); `None` when it isn't found.
     /// Async so the up-to-10 s `soffice --version` never blocks the main thread.
     #[tauri::command(async)]
     pub fn get_libreoffice() -> Option<LibreOffice> {
-        libreoffice_version(&soffice()?).map(|version| LibreOffice { version })
+        soffice().map(|p| LibreOffice { version: libreoffice_version(&p) })
     }
 }
 
@@ -97,10 +101,16 @@ mod tests {
     }
 
     #[test]
+    fn an_unknown_version_is_still_reported_as_found() {
+        assert_eq!(serde_json::to_value(LibreOffice { version: None }).unwrap(), serde_json::json!({ "version": null }));
+        assert_eq!(serde_json::to_value(LibreOffice { version: Some("26.8.1.1".into()) }).unwrap(), serde_json::json!({ "version": "26.8.1.1" }));
+    }
+
+    #[test]
     #[ignore = "needs LibreOffice at its default path"]
     fn finds_the_installed_libreoffice() {
         let found = commands::get_libreoffice();
         println!("LibreOffice: {found:?}");
-        assert!(found.is_some_and(|lo| lo.version.split('.').count() >= 2));
+        assert!(found.is_some_and(|lo| lo.version.is_some_and(|v| v.split('.').count() >= 2)));
     }
 }
