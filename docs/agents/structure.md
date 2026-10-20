@@ -52,12 +52,12 @@ src-tauri/
     ├── app/                  # shell: state, window (+ window::commands), tray, updater, watcher, shortcut,
     │                         # sound, front_app, disk_access, i18n, autostart, retention,
     │                         # convert (+ convert::commands; overlay, key watch, job worker),
-    │                         # engines (+ engines::commands; FFmpeg download/install), drop_target (folder under cursor, modifier key)
+    │                         # engines (+ engines::commands; FFmpeg/rhwp download/install), office (find the user's LibreOffice + commands), drop_target (folder under cursor, modifier key)
     ├── domain/
     │   ├── clip/             # mod.rs · model.rs · repository.rs · commands.rs
     │   ├── source_app/       # mod.rs · model.rs · repository.rs · commands.rs
     │   ├── settings/         # mod.rs · model.rs · repository.rs · commands.rs
-    │   ├── convert/          # mod.rs · model.rs · image.rs · video.rs (formats, output naming, jobs, image/FFmpeg conversion; no table, no commands.rs)
+    │   ├── convert/          # mod.rs · model.rs · image.rs · video.rs · hwp.rs · office.rs · process.rs (formats, output naming, jobs; image/FFmpeg/rhwp/LibreOffice/textutil runners; no table, no commands.rs)
     │   └── whats_new/        # mod.rs · commands.rs (stores two keys through the settings API; no table of its own)
     └── shared/               # db.rs, error.rs, png.rs, migrations/000N_*.sql
 ```

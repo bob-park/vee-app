@@ -127,7 +127,7 @@ vee-app/
 │  ├─ vendor/drag/               # 수정한 drag 크레이트
 │  └─ src/
 │     ├─ lib.rs                  # 플러그인, 셋업, 창 이벤트, command 등록
-│     ├─ app/                    # 창·트레이·업데이터·클립보드 감시·단축키·효과음·최전면 앱·디스크 접근·자동 실행·보관 기간 정리·드래그 변환(convert)·FFmpeg 다운로드(engines)·커서 밑 폴더 찾기(drop_target)
+│     ├─ app/                    # 창·트레이·업데이터·클립보드 감시·단축키·효과음·최전면 앱·디스크 접근·자동 실행·보관 기간 정리·드래그 변환(convert)·FFmpeg·rhwp 다운로드(engines)·LibreOffice 찾기(office)·커서 밑 폴더 찾기(drop_target)
 │     ├─ domain/                 # clip, source_app, settings, whats_new (mod·model·repository·commands), convert(포맷·작업·이미지/영상 엔진)
 │     └─ shared/                 # db.rs, error.rs(AppError), png.rs, migrations/000N_*.sql
 ├─ scripts/                      # 로컬 릴리스 스크립트, latest.json 생성, 효과음 생성

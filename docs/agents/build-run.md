@@ -44,4 +44,4 @@ Always use Yarn 4.18.1 (mise). A global Yarn 1 rewrites `yarn.lock`; if `yarn --
 - **The updater** only runs in release builds.
 - **After adding a JS dependency:** the first dev load may show a transient "Invalid hook call" while Vite re-optimizes deps. It is gone after the automatic reload.
 - **React Query devtools** render only in the dev `settings` window (bottom-right button).
-- **Dev data** lives in `~/Library/Application Support/<identifier>/` (macOS) or `%APPDATA%\<identifier>\` (Windows): `vee.db` + `images/` + `engines/ffmpeg/` (once FFmpeg is downloaded). Delete it to start fresh.
+- **Dev data** lives in `~/Library/Application Support/<identifier>/` (macOS) or `%APPDATA%\<identifier>\` (Windows): `vee.db` + `images/` + `engines/{ffmpeg,rhwp}/` (once downloaded) + `lo-profile/` (after a LibreOffice conversion). Delete it to start fresh.
