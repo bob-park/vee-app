@@ -136,7 +136,7 @@ export const ko: Dict = {
         missingHint: (size: string) => `영상·소리 변환에 필요해요. 약 ${size}`,
         mb: (n: number) => `${n}MB`,
         download: '다운로드',
-        progress: (r: string, t: string, s: string) => `내려받는 중 · ${r} MB / ${t} MB · ${s} MB/s`,
+        progress: (p: number, r: string, t: string, s: string) => `내려받는 중 · ${p}% · ${r} MB / ${t} MB · ${s} MB/s`,
         verifying: '내려받은 파일 확인 중…',
         installed: '설치됨',
         update: '업데이트',

@@ -128,6 +128,7 @@ function FfmpegSection({ settings, run, updateSetting }: Props) {
                 ffmpeg.stage === 'verify'
                   ? f.verifying
                   : f.progress(
+                      ffmpeg.total > 0 ? Math.min(100, Math.floor((ffmpeg.received / ffmpeg.total) * 100)) : 0,
                       (ffmpeg.received / MB).toFixed(1),
                       (ffmpeg.total / MB).toFixed(1),
                       (ffmpeg.speed / MB).toFixed(1),

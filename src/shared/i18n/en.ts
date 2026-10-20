@@ -139,7 +139,7 @@ export const en = {
         missingHint: (size: string) => `Needed to convert video and audio. About ${size}`,
         mb: (n: number) => `${n} MB`,
         download: 'Download',
-        progress: (r: string, t: string, s: string) => `Downloading · ${r} MB / ${t} MB · ${s} MB/s`,
+        progress: (p: number, r: string, t: string, s: string) => `Downloading · ${p}% · ${r} MB / ${t} MB · ${s} MB/s`,
         verifying: 'Checking the download…',
         installed: 'Installed',
         update: 'Update',
