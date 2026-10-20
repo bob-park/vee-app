@@ -32,6 +32,11 @@ related:
 - `src-tauri/Info.plist` is merged into the bundle's `Info.plist` by Tauri. It holds `NSAppleEventsUsageDescription`, the text macOS shows when Vee first asks to control Finder (drag-to-convert).
 - `src-tauri/Entitlements.plist` is referenced from `bundle.macOS.entitlements`. Without the Apple Events entitlement a notarized build can't send Apple Events even after the user allows it.
 
+## Network and temp paths
+
+- The only network use besides the updater is the FFmpeg download the user starts (`app/engines.rs`, pinned URLs + SHA-256). It runs the system `curl`, so no HTTP crate or capability is needed.
+- Temp dirs: `<temp>/vee-ffmpeg-download-<identifier>` (download) and `<temp>/vee-convert` (conversion output before the move). Run a dev build with its own identifier so it doesn't share the FFmpeg temp dir or `<app data>/engines/ffmpeg/` with the installed app ([build-run](./build-run.md)).
+
 ## Capabilities
 
 - `capabilities/default.json` lists the windows (`panel`, `toast`, `convert`, `settings`, `whats-new`) and `core:default`, `dialog:default`.

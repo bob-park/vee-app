@@ -51,12 +51,13 @@ src-tauri/
     ├── main.rs  lib.rs       # lib.rs assembles: plugins, setup, window events, generate_handler!
     ├── app/                  # shell: state, window (+ window::commands), tray, updater, watcher, shortcut,
     │                         # sound, front_app, disk_access, i18n, autostart, retention,
-    │                         # convert (+ convert::commands; overlay, key watch, job worker), drop_target (folder under cursor, modifier key)
+    │                         # convert (+ convert::commands; overlay, key watch, job worker),
+    │                         # engines (+ engines::commands; FFmpeg download/install), drop_target (folder under cursor, modifier key)
     ├── domain/
     │   ├── clip/             # mod.rs · model.rs · repository.rs · commands.rs
     │   ├── source_app/       # mod.rs · model.rs · repository.rs · commands.rs
     │   ├── settings/         # mod.rs · model.rs · repository.rs · commands.rs
-    │   ├── convert/          # mod.rs · model.rs · image.rs (formats, output naming, jobs, conversion; no table, no commands.rs)
+    │   ├── convert/          # mod.rs · model.rs · image.rs · video.rs (formats, output naming, jobs, image/FFmpeg conversion; no table, no commands.rs)
     │   └── whats_new/        # mod.rs · commands.rs (stores two keys through the settings API; no table of its own)
     └── shared/               # db.rs, error.rs, png.rs, migrations/000N_*.sql
 ```
