@@ -156,6 +156,9 @@
   --color-confirm-veil: color-mix(in srgb, var(--vee-card) 94%, transparent);
   --color-tip: #101114;
   --color-ext-tag: rgba(16, 17, 20, 0.65);
+  /* Over a card body during a conversion: dark in both themes, like the thumbnails under it. */
+  --color-job-veil: rgba(16, 17, 20, 0.72);
+  --color-job-failed: color-mix(in srgb, var(--color-error) 78%, transparent);
   --color-keycap-border: rgba(255, 255, 255, 0.2);
   --color-keycap-bg: rgba(255, 255, 255, 0.1);
   /* WebKit's placeholder colour for an input with its native look turned off. */
@@ -210,6 +213,18 @@
   --animate-toast-out: toast-out 180ms ease-in forwards;
   /* The check badge pops a beat after the card. */
   --animate-toast-check-in: toast-check-in 300ms 80ms both;
+
+  /* A 35% bar sliding across its track, for a conversion with no count. */
+  --animate-job-indeterminate: job-indeterminate 1.2s ease-in-out infinite;
+
+  @keyframes job-indeterminate {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(300%);
+    }
+  }
 
   @keyframes toast-in {
     from {

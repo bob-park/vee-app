@@ -4,7 +4,7 @@ import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
 import cx from 'classnames';
 
-export type SettingsTab = 'general' | 'panel' | 'shortcuts' | 'history';
+export type SettingsTab = 'general' | 'panel' | 'shortcuts' | 'convert' | 'history';
 
 const svg = (children: ReactNode) => (
   <svg
@@ -44,6 +44,10 @@ const TABS: { value: SettingsTab; icon: ReactNode }[] = [
   {
     value: 'shortcuts',
     icon: svg(<path d="M9 9V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V9Z" />),
+  },
+  {
+    value: 'convert',
+    icon: svg(<path d="M4 7h13l-3-3M20 17H7l3 3" />),
   },
   {
     value: 'history',

@@ -1,6 +1,8 @@
 import { useRef } from 'react';
 
 import type { Clip } from '@/domain/clip/apis/clip.dto';
+import { dismissConvert, retryConvert } from '@/domain/convert/apis/convert';
+import type { ConvertJob } from '@/domain/convert/apis/convert.dto';
 import { relativeTime } from '@/shared/i18n';
 import type { Dict } from '@/shared/i18n/en';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
@@ -13,6 +15,8 @@ import { DocIcon, FolderIcon } from './FileIcon';
 
 interface Props {
   clip: Clip;
+  /** The clip's latest conversion, drawn over the body. */
+  job?: ConvertJob;
   selected: boolean;
   onSelect: () => void;
   /** Every mousemove over the card; the panel decides whether the pointer really moved. */
@@ -111,6 +115,87 @@ function FilesBody({ clip }: { clip: Clip }) {
   );
 }
 
+/** Keeps a press on an overlay button from selecting, copying or dragging the card. */
+const STOP = {
+  onMouseDown: (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  },
+  onDoubleClick: (e: React.MouseEvent) => e.stopPropagation(),
+};
+
+function JobButton({ label, onClick, children }: { label?: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      {...STOP}
+      className="bg-backdrop flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] leading-none"
+      aria-label={label}
+      tabIndex={-1}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Progress of a conversion, over the card body (done shows only a chip). */
+function JobOverlay({ job }: { job: ConvertJob }) {
+  // hooks
+  const { t } = useI18n();
+
+  const fmt = job.format.toUpperCase();
+  if (job.state === 'done') {
+    return (
+      <span className="bg-primary absolute top-1.5 left-3.5 rounded-md px-1.5 py-0.5 text-[10px] font-bold text-white">
+        {t.convert.saved(fmt)}
+      </span>
+    );
+  }
+  const dismiss = (
+    <span className="absolute top-1.5 right-1.5">
+      <JobButton label={t.convert.dismiss} onClick={() => void dismissConvert(job.id)}>
+        ✕
+      </JobButton>
+    </span>
+  );
+  if (job.state === 'failed') {
+    return (
+      <div className="bg-job-failed absolute inset-x-2 inset-y-0 flex flex-col justify-end gap-1 rounded-md p-2 text-white">
+        {dismiss}
+        <div className="flex items-center justify-between gap-1.5 text-[11px] font-semibold">
+          <span className="truncate">{t.convert.failed}</span>
+          <JobButton onClick={() => void retryConvert(job.id)}>{t.convert.retry} ↻</JobButton>
+        </div>
+        {job.error && <span className="text-[10px] opacity-85">{t.convert.errors[job.error]}</span>}
+      </div>
+    );
+  }
+  const counted = job.total > 1;
+  return (
+    <div className="from-job-veil to-job-veil/5 absolute inset-x-2 inset-y-0 flex flex-col justify-end rounded-md bg-linear-to-t to-70% p-2 text-white">
+      {job.state === 'queued' && dismiss}
+      <div className="mb-1.5 flex justify-between gap-1.5 text-[11px] font-semibold *:truncate">
+        <span>{job.state === 'queued' ? t.convert.queued(job.position) : t.convert.converting(fmt)}</span>
+        {job.state === 'running' && counted && <span>{`${job.done}/${job.total}`}</span>}
+      </div>
+      {job.state === 'running' && (
+        <div className="h-1 overflow-hidden rounded-xs bg-white/30">
+          <i
+            className={cx(
+              'block h-full rounded-xs bg-white',
+              !counted && 'animate-job-indeterminate w-[35%] motion-reduce:animate-none',
+            )}
+            style={counted ? { width: `${(job.done / job.total) * 100}%` } : undefined}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Body({ clip }: { clip: Clip }) {
   if (clip.kind === 'image') return clip.thumb ? <img className={THUMB} src={clip.thumb} alt="" /> : null;
   if (clip.kind === 'files') return <FilesBody clip={clip} />;
@@ -129,6 +214,7 @@ function Body({ clip }: { clip: Clip }) {
 
 export function Card({
   clip,
+  job,
   selected,
   onSelect,
   onHover,
@@ -153,9 +239,13 @@ export function Card({
         'data-slot:border-accent-subtle data-slot:border-2 data-slot:border-dashed data-slot:bg-transparent data-slot:shadow-none data-slot:*:invisible',
         confirming
           ? 'border-error shadow-card-confirm border-2'
-          : selected
-            ? 'border-primary shadow-card-selected border'
-            : cx('shadow-card border', clip.pinned ? 'border-pinned-border' : 'border-base-300'),
+          : job?.state === 'failed'
+            ? 'border-error shadow-card border-2'
+            : job?.state === 'done'
+              ? 'border-success shadow-card border'
+              : selected
+                ? 'border-primary shadow-card-selected border'
+                : cx('shadow-card border', clip.pinned ? 'border-pinned-border' : 'border-base-300'),
       )}
       data-id={clip.id}
       role="option"
@@ -228,6 +318,7 @@ export function Card({
       </div>
       <div className="relative z-1 min-h-0 flex-1 overflow-hidden px-2">
         <Body clip={clip} />
+        {job && <JobOverlay job={job} />}
       </div>
       {/* Fixed leading: the copy hint's fallback glyphs would otherwise grow the footer and nudge the body. */}
       <div
@@ -236,7 +327,7 @@ export function Card({
           clip.missing ? 'text-error' : 'text-muted',
         )}
       >
-        <span>{footLabel(clip, t)}</span>
+        <span>{job?.state === 'done' ? job.folder : footLabel(clip, t)}</span>
         {selected && <span>{t.copyHint}</span>}
       </div>
       {confirming && (

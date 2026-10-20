@@ -33,10 +33,29 @@ export const en = {
   restart: 'Restart',
   updateFailed: "Couldn't update",
   whatsNew: { title: "What's new in Vee", ok: 'OK' },
-  convert: { dropHint: 'Drop on a format' },
+  convert: {
+    dropHint: 'Drop on a format',
+    converting: (f: string) => `To ${f}…`,
+    queued: (n: number) => `Waiting · #${n}`,
+    saved: (f: string) => `✓ ${f} saved`,
+    failed: "Couldn't convert",
+    retry: 'Retry',
+    dismiss: 'Dismiss',
+    errors: {
+      missing: 'The original is gone',
+      engine: "This file can't be converted",
+      write: "Couldn't save in this folder",
+    },
+    savedOne: (f: string) => `Saved as ${f}`,
+    savedMany: (n: number, f: string) => `Saved ${n} files as ${f}`,
+    failedTitle: "Couldn't convert",
+    notFolder: 'Convert only over a folder',
+    finderBlockedHint: 'Allow Finder access in Settings → Convert',
+    unsupported: "These files can't be converted",
+  },
   settings: {
     title: 'Settings',
-    tabs: { general: 'General', panel: 'Panel', shortcuts: 'Shortcuts', history: 'History' },
+    tabs: { general: 'General', panel: 'Panel', shortcuts: 'Shortcuts', convert: 'Convert', history: 'History' },
     theme: 'Theme',
     language: 'Language',
     system: 'System',
@@ -97,6 +116,21 @@ export const en = {
     clearConfirm: "Delete all clipboard history? This can't be undone.",
     clearConfirmKeepPinned: (n: number) =>
       `Delete everything except ${n} pinned ${n === 1 ? 'card' : 'cards'}? This can't be undone.`,
+    convert: {
+      dragConvert: 'Convert while dragging',
+      dragConvertHint: 'Hold the key while dragging a card to pick a format',
+      key: 'Convert key',
+      keyHint: 'The key you hold while dragging',
+      keys: {
+        mac: { alt: '⌥ Option', ctrl: '⌃ Control', shift: '⇧ Shift' },
+        win: { ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' },
+      },
+      finderAccess: 'Finder window access',
+      finderAccessHint: 'Needed to convert into an open Finder window',
+      allowed: 'Allowed',
+      allow: 'Allow',
+      openSystemSettings: 'Open System Settings',
+    },
   },
 };
 

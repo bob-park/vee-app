@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 
 import type { Kind, ToastPayload } from '@/domain/clip/apis/clip.dto';
+import type { ConvertNote } from '@/domain/convert/apis/convert.dto';
+import type { Dict } from '@/shared/i18n/en';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
 import { listen } from '@tauri-apps/api/event';
@@ -31,6 +33,21 @@ function Icon({ path }: { path: string }) {
   );
 }
 
+function convertLines(note: ConvertNote, t: Dict): [string, string | null] {
+  switch (note.type) {
+    case 'saved': {
+      const fmt = note.format.toUpperCase();
+      return [note.count > 1 ? t.convert.savedMany(note.count, fmt) : t.convert.savedOne(fmt), note.folder];
+    }
+    case 'failed':
+      return [t.convert.failedTitle, note.name];
+    case 'notFolder':
+      return [t.convert.notFolder, note.finderBlocked ? t.convert.finderBlockedHint : null];
+    case 'unsupported':
+      return [t.convert.unsupported, null];
+  }
+}
+
 export function ToastApp() {
   // state
   const [toast, setToast] = useState<{ payload: ToastPayload; key: number; out: boolean } | null>(null);
@@ -52,13 +69,19 @@ export function ToastApp() {
 
   if (!toast) return null;
   const p = toast.payload;
-  const summary = !p.ok
-    ? t.copyFailedDetail
-    : p.kind === 'image'
-      ? t.kinds.image
-      : p.kind === 'files'
-        ? t.filesCount(p.files)
-        : p.text;
+  // The tile follows `ok` and `kind` for a conversion too (Rust sets them to match).
+  const [title, summary] = p.convert
+    ? convertLines(p.convert, t)
+    : [
+        p.ok ? (p.plain ? t.copiedPlain : t.copied) : t.copyFailed,
+        !p.ok
+          ? t.copyFailedDetail
+          : p.kind === 'image'
+            ? t.kinds.image
+            : p.kind === 'files'
+              ? t.filesCount(p.files)
+              : p.text,
+      ];
   return (
     // The window is larger than the card; the margin is room for the card's shadow.
     <div
@@ -84,7 +107,7 @@ export function ToastApp() {
         )}
       </span>
       <span className="flex min-w-0 flex-col gap-0.5">
-        <b className="text-[16px]">{p.ok ? (p.plain ? t.copiedPlain : t.copied) : t.copyFailed}</b>
+        <b className="text-[16px]">{title}</b>
         {summary && <span className="truncate text-[13px] opacity-70">{summary}</span>}
       </span>
     </div>

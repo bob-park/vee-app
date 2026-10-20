@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import Button from '@/app/settings/_components/Button';
 import { ConfirmModal } from '@/app/settings/_components/ConfirmModal';
+import ConvertSection from '@/app/settings/_components/ConvertSection';
 import { Dropdown } from '@/app/settings/_components/Dropdown';
 import { HistorySection } from '@/app/settings/_components/HistorySection';
 import Row from '@/app/settings/_components/Row';
@@ -247,6 +248,7 @@ export function SettingsApp() {
             </Row>
           </SettingSection>
         )}
+        {tab === 'convert' && <ConvertSection settings={settings} run={run} updateSetting={updateSetting} />}
         {tab === 'history' && (
           <>
             <DiskAccessRow />

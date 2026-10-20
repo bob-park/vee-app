@@ -20,3 +20,6 @@ export interface ConvertJob {
   folder: string;
   error: 'missing' | 'engine' | 'write' | null;
 }
+
+/** Apple Events permission for Finder; mirrors `get_finder_access`. */
+export type FinderAccess = 'granted' | 'denied' | 'unknown';

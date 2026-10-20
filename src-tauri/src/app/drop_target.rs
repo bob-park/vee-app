@@ -336,6 +336,42 @@ fn explorer_folder(root: ::windows::Win32::Foundation::HWND) -> Option<PathBuf> 
     }
 }
 
+/// `"granted" | "denied" | "unknown"`; `None` where the permission doesn't exist (Windows).
+#[tauri::command]
+pub fn get_finder_access() -> Option<String> {
+    finder_access(false).map(|a| {
+        match a {
+            FinderAccess::Granted => "granted",
+            FinderAccess::Denied => "denied",
+            FinderAccess::Unknown => "unknown",
+        }
+        .to_string()
+    })
+}
+
+/// Shows the system prompt off the main thread (it blocks), then tells the settings to recheck.
+#[tauri::command]
+pub fn request_finder_access(app: tauri::AppHandle) {
+    use tauri::Emitter;
+    std::thread::spawn(move || {
+        finder_access(true);
+        let _ = app.emit("settings://changed", ());
+    });
+}
+
+#[tauri::command]
+pub fn open_automation_settings() -> crate::shared::error::AppResult<()> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")
+            .spawn()?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    Err(crate::shared::error::AppError::Other("Automation settings are macOS only".into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
