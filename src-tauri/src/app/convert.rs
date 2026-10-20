@@ -94,12 +94,22 @@ pub struct Convert {
     drag: AtomicU64,
     jobs: Mutex<Jobs>,
     queue: Sender<u64>,
+    /// `<temp>/vee-convert-<identifier>`, so a dev build and the installed app don't share it.
+    tmp: PathBuf,
 }
 
+/// How long app exit waits for a cancelled video job to stop FFmpeg (one poll plus the kill).
+const EXIT_WAIT: Duration = Duration::from_secs(2);
+
 /// Manages the convert state and starts the worker. Call once in setup.
+/// Clears temp output a previous run left behind.
 pub fn spawn(app: &AppHandle) {
     let (queue, rx) = mpsc::channel();
-    app.manage(Convert { session: Mutex::new(None), drag: AtomicU64::new(0), jobs: Mutex::default(), queue });
+    let tmp = std::env::temp_dir().join(format!("vee-convert-{}", app.config().identifier));
+    if tmp.exists() {
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+    app.manage(Convert { session: Mutex::new(None), drag: AtomicU64::new(0), jobs: Mutex::default(), queue, tmp });
     let app = app.clone();
     // ponytail: one worker for all images; a second worker if batches feel slow.
     std::thread::spawn(move || {
@@ -260,7 +270,7 @@ fn work(app: &AppHandle, id: u64) {
     // Dismissed while queued.
     let Some((files, format, dir, start, cancel)) = picked else { return };
     publish(app);
-    let tmp = std::env::temp_dir().join("vee-convert");
+    let tmp = &c.tmp;
     let quality = Quality::parse(&settings::get(&app.state::<AppState>().db.lock().unwrap(), "videoQuality"));
     let engine = engines::ffmpeg(app);
     // Stored only; the running tick publishes it, so FFmpeg's chatty output costs no emits.
@@ -271,9 +281,9 @@ fn work(app: &AppHandle, id: u64) {
     // A retried job resumes at the file that failed; the ones before it are already saved.
     for (i, src) in files.iter().enumerate().skip(start) {
         let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Vee".into());
-        let result = std::fs::create_dir_all(&tmp)
+        let result = std::fs::create_dir_all(tmp)
             .map_err(|_| JobError::Write)
-            .and_then(|()| convert::run(src, &stem, format, &dir, &tmp, &mut ctx));
+            .and_then(|()| convert::run(src, &stem, format, &dir, tmp, &mut ctx));
         if result == Err(JobError::Cancelled) {
             // Cancelled by the user: drop the job without a toast.
             c.jobs.lock().unwrap().list.retain(|j| j.id != id);
@@ -312,6 +322,27 @@ fn cancel(jobs: &Jobs, id: u64) -> AppResult<()> {
     let job = job.ok_or_else(|| AppError::InvalidInput(format!("no running video convert job {id}")))?;
     job.cancel.store(true, Ordering::SeqCst);
     Ok(())
+}
+
+/// Drops queued jobs and cancels running ones; true while one is still running.
+fn stop_all(jobs: &mut Jobs) -> bool {
+    jobs.list.retain(|j| j.state != JobState::Queued);
+    let running = jobs.list.iter().filter(|j| j.state == JobState::Running);
+    running.inspect(|j| j.cancel.store(true, Ordering::SeqCst)).count() > 0
+}
+
+/// Stops the running job's FFmpeg and removes the temp output. Call on app exit.
+/// An image job can't stop mid-file, so the wait is capped.
+pub fn shutdown(app: &AppHandle) {
+    let Some(c) = app.try_state::<Convert>() else { return };
+    let until = std::time::Instant::now() + EXIT_WAIT;
+    // The worker drops a cancelled job once FFmpeg is killed and reaped.
+    while stop_all(&mut c.jobs.lock().unwrap()) && std::time::Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    if c.tmp.exists() {
+        let _ = std::fs::remove_dir_all(&c.tmp);
+    }
 }
 
 fn with_job(c: &Convert, id: u64, f: impl FnOnce(&mut Job)) {
@@ -455,6 +486,16 @@ mod tests {
         assert!(matches!(cancel(&jobs, 2), Err(AppError::InvalidInput(_))));
         assert!(matches!(cancel(&jobs, 3), Err(AppError::InvalidInput(_))));
         assert!(!jobs.list[1].cancel.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn exit_drops_queued_jobs_and_cancels_running_ones() {
+        let mut jobs = Jobs { list: vec![job(1, JobState::Running), job(2, JobState::Queued), job(3, JobState::Done)], ..Default::default() };
+        assert!(stop_all(&mut jobs));
+        assert_eq!(jobs.list.iter().map(|j| j.id).collect::<Vec<_>>(), [1, 3]);
+        assert!(jobs.list[0].cancel.load(Ordering::SeqCst) && !jobs.list[1].cancel.load(Ordering::SeqCst));
+        jobs.list.remove(0);
+        assert!(!stop_all(&mut jobs));
     }
 
     #[test]

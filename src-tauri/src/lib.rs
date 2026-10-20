@@ -131,6 +131,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if let RunEvent::Exit = event {
+                convert::shutdown(app);
                 engines::shutdown(app);
             }
         });

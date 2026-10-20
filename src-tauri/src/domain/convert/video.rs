@@ -56,10 +56,9 @@ pub fn ffmpeg_args(src: &Path, to: Format, q: Quality, out: &Path) -> Vec<OsStri
         }
         // Mp4, Mov, Mp4720; image targets never reach FFmpeg.
         _ => {
-            let mut v: Vec<String> = Vec::new();
-            if to == Format::Mp4720 {
-                v.extend(["-vf".into(), "scale=-2:'min(720,ih)'".into()]);
-            }
+            // libx264 with yuv420p needs even sides; `-2` alone evens only the width.
+            let scale = if to == Format::Mp4720 { "scale=-2:'trunc(min(720,ih)/2)*2'" } else { "scale=trunc(iw/2)*2:trunc(ih/2)*2" };
+            let mut v: Vec<String> = vec!["-vf".into(), scale.into()];
             v.extend([
                 "-c:v".into(),
                 "libx264".into(),
@@ -101,16 +100,20 @@ pub fn progress_of(line: &str, duration_s: f64) -> Option<f64> {
 pub fn convert(src: &Path, to: Format, out: &Path, ffmpeg: &Path, ffprobe: &Path, ctx: &mut Run) -> Result<(), JobError> {
     let duration = probe_duration(ffprobe, src);
     (ctx.progress)(duration.map(|_| 0.0));
-    let mut child = command(ffmpeg)
+    // ponytail: ffprobe isn't cancellable; a cancel (or quit) during it lands here.
+    if ctx.cancel.load(Ordering::SeqCst) {
+        return Err(JobError::Cancelled);
+    }
+    let mut child = Killed(command(ffmpeg)
         .args(ffmpeg_args(src, to, ctx.quality, out))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         // ponytail: FFmpeg's log is dropped; pipe and tail it if failures need a reason.
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| engine_error("ffmpeg spawn", e))?;
+        .map_err(|e| engine_error("ffmpeg spawn", e))?);
     let (tx, lines) = mpsc::channel();
-    if let Some(stdout) = child.stdout.take() {
+    if let Some(stdout) = child.0.stdout.take() {
         // Not joined: it ends when the pipe closes.
         std::thread::spawn(move || {
             for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
@@ -121,30 +124,28 @@ pub fn convert(src: &Path, to: Format, out: &Path, ffmpeg: &Path, ffprobe: &Path
         });
     }
     loop {
-        if ctx.cancel.load(Ordering::SeqCst) {
-            stop(&mut child);
-            return Err(JobError::Cancelled);
-        }
         let closed = match lines.recv_timeout(POLL) {
             Ok(line) => {
                 if let Some(p) = duration.and_then(|d| progress_of(&line, d)) {
                     (ctx.progress)(Some(p.min(0.99)));
                 }
-                continue;
+                false
             }
             Err(mpsc::RecvTimeoutError::Timeout) => false,
             Err(mpsc::RecvTimeoutError::Disconnected) => true,
         };
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => return Ok(()),
-            Ok(Some(status)) => return Err(engine_error("ffmpeg", status)),
+        let status = child.0.try_wait().map_err(|e| engine_error("ffmpeg wait", e))?;
+        // Checked after the wait, so a cancel that lands as FFmpeg finishes still wins.
+        // Every return drops `child`, which kills and reaps FFmpeg unless it already exited.
+        if ctx.cancel.load(Ordering::SeqCst) {
+            return Err(JobError::Cancelled);
+        }
+        match status {
+            Some(status) if status.success() => return Ok(()),
+            Some(status) => return Err(engine_error("ffmpeg", status)),
             // Pipe closed but the process still runs: wait without spinning.
-            Ok(None) if closed => std::thread::sleep(POLL),
-            Ok(None) => {}
-            Err(e) => {
-                stop(&mut child);
-                return Err(engine_error("ffmpeg wait", e));
-            }
+            None if closed => std::thread::sleep(POLL),
+            None => {}
         }
     }
 }
@@ -174,9 +175,15 @@ pub fn command(program: &Path) -> Command {
     c
 }
 
-fn stop(child: &mut Child) {
-    let _ = child.kill();
-    let _ = child.wait();
+/// A running FFmpeg, killed and reaped when dropped: on cancel, on error, and on a panic mid-run.
+/// After `try_wait` has reaped it, `kill` is a no-op (std keeps the status), so no stray PID is signalled.
+struct Killed(Child);
+
+impl Drop for Killed {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 fn engine_error(step: &str, e: impl std::fmt::Display) -> JobError {
@@ -204,9 +211,13 @@ mod tests {
     #[test]
     fn p720_scales_down_only_and_mov_has_no_faststart() {
         let a = ffmpeg_args(Path::new("i"), Format::Mp4720, Quality::Small, Path::new("o"));
-        assert!(a.iter().any(|s| s == "scale=-2:'min(720,ih)'"));
+        assert!(a.windows(2).any(|p| p[0] == "-vf" && p[1] == "scale=-2:'trunc(min(720,ih)/2)*2'"));
         let m = ffmpeg_args(Path::new("i"), Format::Mov, Quality::Original, Path::new("o"));
         assert!(!m.iter().any(|s| s == "-movflags") && m.iter().any(|s| s == "18"));
+        for to in [Format::Mp4, Format::Mov] {
+            let a = ffmpeg_args(Path::new("i"), to, Quality::Normal, Path::new("o"));
+            assert!(a.windows(2).any(|p| p[0] == "-vf" && p[1] == "scale=trunc(iw/2)*2:trunc(ih/2)*2"), "{to:?}");
+        }
     }
 
     #[test]
@@ -298,6 +309,59 @@ mod tests {
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_cancel_as_ffmpeg_exits_0_saves_nothing() {
+        let (bin, dir, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let src = dir.path().join("a.mov");
+        std::fs::write(&src, b"v").unwrap();
+        // The last progress line, then a clean exit; the cancel lands on that line.
+        let (ffmpeg, ffprobe) = fake(bin.path(), "echo out_time_us=2000000\nexit 0");
+        let cancel = AtomicBool::new(false);
+        let mut progress = |p: Option<f64>| {
+            if p.is_some_and(|p| p > 0.0) {
+                cancel.store(true, Ordering::SeqCst);
+            }
+        };
+        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, cancel: &cancel, progress: &mut progress };
+        assert_eq!(run(&src, "a", Format::Mp4, dir.path(), tmp.path(), &mut ctx), Err(JobError::Cancelled));
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cancel_before_spawn_never_starts_ffmpeg() {
+        let (bin, dir, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let src = dir.path().join("a.mov");
+        std::fs::write(&src, b"v").unwrap();
+        let marker = bin.path().join("ran");
+        let (ffmpeg, ffprobe) = fake(bin.path(), &format!("touch '{}'", marker.display()));
+        let cancel = AtomicBool::new(true);
+        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, cancel: &cancel, progress: &mut |_| {} };
+        assert_eq!(run(&src, "a", Format::Mp4, dir.path(), tmp.path(), &mut ctx), Err(JobError::Cancelled));
+        assert!(!marker.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_panic_mid_run_kills_ffmpeg() {
+        let (bin, dir, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let src = dir.path().join("a.mov");
+        std::fs::write(&src, b"v").unwrap();
+        let (ffmpeg, ffprobe) = fake(bin.path(), "echo out_time_us=500000\nexec sleep 10");
+        let cancel = AtomicBool::new(false);
+        let started = std::time::Instant::now();
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut progress = |p: Option<f64>| assert!(p.is_none_or(|p| p == 0.0), "boom");
+            let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, cancel: &cancel, progress: &mut progress };
+            let _ = run(&src, "a", Format::Mp4, dir.path(), tmp.path(), &mut ctx);
+        }));
+        assert!(panicked.is_err());
+        // Unwinding reaped it: without the kill the guard would wait out the 10 s sleep.
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
     #[test]
     fn a_video_without_ffmpeg_is_an_engine_error() {
         let d = tempfile::tempdir().unwrap();
@@ -308,6 +372,7 @@ mod tests {
         assert_eq!(run(&src, "a", Format::Gif, d.path(), d.path(), &mut ctx), Err(JobError::Engine));
     }
 
+    /// Every target at every quality, plus an odd-sized source for the libx264 targets:
     /// `VEE_FFMPEG_DIR=/opt/homebrew/bin cargo test --lib converts_a_generated_clip -- --ignored --nocapture`
     #[test]
     #[ignore]
@@ -316,35 +381,54 @@ mod tests {
         let exe = std::env::consts::EXE_SUFFIX;
         let (ffmpeg, ffprobe) = (Path::new(&bin).join(format!("ffmpeg{exe}")), Path::new(&bin).join(format!("ffprobe{exe}")));
         let (dir, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        let src = dir.path().join("clip.mkv");
-        let made = Command::new(&ffmpeg)
-            .args(["-y", "-v", "error", "-f", "lavfi", "-i", "testsrc=duration=1:size=320x240:rate=10"])
-            .args(["-f", "lavfi", "-i", "sine=duration=1"])
-            .arg(&src)
-            .status()
-            .unwrap();
-        assert!(made.success());
+        let clip = |name: &str, size: &str| {
+            let src = dir.path().join(name);
+            let made = Command::new(&ffmpeg)
+                .args(["-y", "-v", "error", "-f", "lavfi", "-i", &format!("testsrc=duration=1:size={size}:rate=10")])
+                .args(["-f", "lavfi", "-i", "sine=duration=1"])
+                .arg(&src)
+                .status()
+                .unwrap();
+            assert!(made.success());
+            src
+        };
+        let (even, odd) = (clip("clip.mkv", "320x240"), clip("odd.mkv", "321x241"));
+        let size_of = |out: &Path| {
+            let o = Command::new(&ffprobe)
+                .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0"])
+                .arg(out)
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&o.stdout).trim().to_string()
+        };
         let cancel = AtomicBool::new(false);
         let mut failed = Vec::new();
-        for to in VIDEO_TARGETS {
+        let mut cases: Vec<(&Path, Format, Quality)> = Vec::new();
+        for q in [Quality::Small, Quality::Normal, Quality::Original] {
+            cases.extend(VIDEO_TARGETS.map(|to| (even.as_path(), to, q)));
+        }
+        cases.extend([Format::Mp4, Format::Mov, Format::Mp4720].map(|to| (odd.as_path(), to, Quality::Normal)));
+        for (src, to, q) in cases {
             let mut last = None;
             let mut progress = |p: Option<f64>| last = p;
-            let mut ctx =
-                Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, cancel: &cancel, progress: &mut progress };
-            let result = run(&src, "clip", to, dir.path(), tmp.path(), &mut ctx);
+            let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: q, cancel: &cancel, progress: &mut progress };
+            let stem = src.file_stem().unwrap().to_string_lossy().into_owned();
+            let result = run(src, &stem, to, dir.path(), tmp.path(), &mut ctx);
             let ok = result.as_ref().is_ok_and(|out| std::fs::metadata(out).is_ok_and(|m| m.len() > 0));
-            println!("{}: {result:?} last progress {last:?}", to.id());
-            if !ok {
-                failed.push(to.id());
+            let size = result.as_ref().map(|out| size_of(out)).unwrap_or_default();
+            println!("{stem} {} {q:?}: ok={ok} size={size} last progress {last:?}", to.id());
+            let odd_side = size.split(',').any(|n| n.parse::<u32>().is_ok_and(|n| n % 2 == 1));
+            if !ok || (to != Format::Gif && odd_side) {
+                failed.push(format!("{stem} {} {q:?}", to.id()));
             }
         }
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
         let before = std::fs::read_dir(dir.path()).unwrap().count();
         let cancelled = AtomicBool::new(true);
         let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, cancel: &cancelled, progress: &mut |_| {} };
-        assert_eq!(run(&src, "clip", Format::Webm, dir.path(), tmp.path(), &mut ctx), Err(JobError::Cancelled));
+        assert_eq!(run(&even, "clip", Format::Webm, dir.path(), tmp.path(), &mut ctx), Err(JobError::Cancelled));
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), before);
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
-        assert!(failed.is_empty(), "failed targets: {failed:?}");
+        assert!(failed.is_empty(), "failed: {failed:?}");
     }
 }
