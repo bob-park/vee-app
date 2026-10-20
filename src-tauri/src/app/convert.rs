@@ -184,23 +184,23 @@ fn live(app: &AppHandle, generation: u64) -> bool {
     app.state::<AppState>().dragging.load(Ordering::SeqCst) && app.state::<Convert>().drag.load(Ordering::SeqCst) == generation
 }
 
+/// Places and shows the overlay on the main thread, where `finish_drag` also runs, so the
+/// liveness check and the show can't interleave with its hide. The folder lookup stays off it.
 fn show(app: &AppHandle, generation: u64, (x, y): (f64, f64), open: Open) {
-    let Some(overlay) = app.get_webview_window(CONVERT) else { return };
-    // A key press that lands after the drop must not leave the overlay up.
-    if !live(app, generation) {
-        return;
-    }
-    // Positioning units per design point: 1 on macOS, the monitor scale on Windows (as for the toast).
-    let unit = window::cursor_monitor(app).map_or(1.0, |m| window::work_area(&m).1);
-    let side = SIZE * unit;
-    let _ = window::place(&overlay, Rect { x: x - side / 2.0, y: y - side / 2.0, w: side, h: side });
-    let _ = app.emit_to(CONVERT, "convert://open", open);
-    let _ = overlay.show();
-    // The drag may have ended while showing; `finish_drag`'s hide would then come before this show.
-    // Both go through the main loop in order, so a hide sent now lands after it.
-    if !live(app, generation) {
-        close(app);
-    }
+    let main = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        // A key press that lands after the drop must not bring the overlay back.
+        if !live(&main, generation) {
+            return;
+        }
+        let Some(overlay) = main.get_webview_window(CONVERT) else { return };
+        // Positioning units per design point: 1 on macOS, the monitor scale on Windows (as for the toast).
+        let unit = window::cursor_monitor(&main).map_or(1.0, |m| window::work_area(&m).1);
+        let side = SIZE * unit;
+        let _ = window::place(&overlay, Rect { x: x - side / 2.0, y: y - side / 2.0, w: side, h: side });
+        let _ = main.emit_to(CONVERT, "convert://open", open);
+        let _ = overlay.show();
+    });
 }
 
 fn close(app: &AppHandle) {
