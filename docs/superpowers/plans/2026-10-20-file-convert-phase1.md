@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Branch `feature/file-convert`. Commit messages `<prefix>(<scope>): <subject>` ([commit-messages](../../agents/workflow/commit-messages.md)).
-- **Dependencies need the user's OK before Task 2 starts** (CLAUDE.md). Requested set, nothing else:
+- **Dependencies (approved by the user 2026-10-20).** This set only, nothing else:
   - macOS: `image` add feature `png`; add `objc2-core-graphics = "0.3.2"` and `objc2-core-foundation = "0.3.2"` (both already in `Cargo.lock` through tao), only the features used.
   - Windows: `windows` 0.62.2 add features `Win32_UI_Input_KeyboardAndMouse`, `Win32_UI_Shell`, `Win32_UI_Shell_Common`, `Win32_System_Com`, `Win32_System_Ole`, `Win32_System_Variant` as needed.
 - Only image and files cards. Text and link cards never arm the key watch.
