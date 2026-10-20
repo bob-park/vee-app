@@ -19,7 +19,7 @@
   - Windows x64: `https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip` sha256 `60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba` size `114768076` (contains `…/bin/ffmpeg.exe`, `…/bin/ffprobe.exe`).
 - Install dir: `<app data dir>/engines/ffmpeg/` holding `ffmpeg`/`ffprobe` (`.exe` on Windows) and `meta.json` `{ "version": "9.0.2", "installedAt": <ms>, "size": <bytes on disk> }`. A dir without both binaries is "missing". Never touch anything outside it; never keep a partial download there (download to `<temp>/vee-ffmpeg-download/`, move in only after verify + unpack).
 - Network only when the user presses Download / Update (docs/agents/overview.md must say so).
-- Video sources (case-insensitive): `mp4 m4v mov mkv webm avi wmv flv mpg mpeg ts 3gp`. Video targets in donut order: `mp4, webm, mov, gif, mp3, 720p`. A source's own container is left out (`mp4`/`m4v` → no `mp4`; `mov` → no `mov`; `webm` → no `webm`); `720p` always stays. Images and videos mixed in one card → unsupported toast (as phase 1).
+- Video sources (case-insensitive): `mp4 m4v mov mkv webm avi wmv flv mpg mpeg mts m2ts 3gp` (`ts` left out: usually TypeScript). Video targets in donut order: `mp4, webm, mov, gif, mp3, 720p`. A source's own container is left out (`mp4`/`m4v` → no `mp4`; `mov` → no `mov`; `webm` → no `webm`); `720p` always stays. Images and videos mixed in one card → unsupported toast (as phase 1).
 - FFmpeg missing → video slices still shown, dimmed, with reason `t.convert.needsFfmpeg`; a drop on them does nothing (Rust rejects too).
 - Setting `videoQuality`: `small` | `normal` | `original`, default `normal`.
 - Encoding (exact args, `-y -nostats -progress pipe:1 -i <src>` first, `<out>` last):
