@@ -1,10 +1,13 @@
 import { useRef } from 'react';
 
 import type { Clip } from '@/domain/clip/apis/clip.dto';
+import { cancelConvert, dismissConvert, retryConvert } from '@/domain/convert/apis/convert';
+import type { ConvertJob } from '@/domain/convert/apis/convert.dto';
 import { relativeTime } from '@/shared/i18n';
 import type { Dict } from '@/shared/i18n/en';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { imageTag } from '@/utils/fileThumb';
+import { formatLabel } from '@/utils/formatLabel';
 
 import cx from 'classnames';
 
@@ -13,6 +16,8 @@ import { DocIcon, FolderIcon } from './FileIcon';
 
 interface Props {
   clip: Clip;
+  /** The clip's latest conversion, drawn over the body. */
+  job?: ConvertJob;
   selected: boolean;
   onSelect: () => void;
   /** Every mousemove over the card; the panel decides whether the pointer really moved. */
@@ -111,6 +116,130 @@ function FilesBody({ clip }: { clip: Clip }) {
   );
 }
 
+/** Keeps a press on an overlay button from selecting, copying or dragging the card. */
+const STOP = {
+  onMouseDown: (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  },
+  onDoubleClick: (e: React.MouseEvent) => e.stopPropagation(),
+};
+
+function JobButton({ label, onClick, children }: { label?: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      {...STOP}
+      className="bg-backdrop flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] leading-none"
+      aria-label={label}
+      tabIndex={-1}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Progress of a conversion, over the card body (done shows only a chip). */
+function JobOverlay({ job }: { job: ConvertJob }) {
+  // hooks
+  const { t } = useI18n();
+
+  const fmt = formatLabel(job.format);
+  if (job.state === 'done') {
+    return (
+      <span className="bg-primary absolute top-1.5 left-3.5 rounded-md px-1.5 py-0.5 text-[10px] font-bold text-white">
+        {t.convert.saved(fmt)}
+      </span>
+    );
+  }
+  const dismiss = (
+    <span className="absolute top-1.5 right-1.5">
+      <JobButton label={t.convert.dismiss} onClick={() => void dismissConvert(job.id)}>
+        ✕
+      </JobButton>
+    </span>
+  );
+  if (job.state === 'failed') {
+    return (
+      <div className="bg-job-failed absolute inset-x-2 inset-y-0 flex flex-col justify-end gap-1 rounded-md p-2 text-white">
+        {dismiss}
+        <div className="flex items-center justify-between gap-1.5 text-[11px] font-semibold">
+          <span className="truncate">{t.convert.failed}</span>
+          <JobButton onClick={() => void retryConvert(job.id)}>{t.convert.retry} ↻</JobButton>
+        </div>
+        {job.error && <span className="text-[10px] opacity-85">{t.convert.errors[job.error]}</span>}
+      </div>
+    );
+  }
+  const running = job.state === 'running';
+  const counted = job.total > 1;
+  // Video jobs report a percent; image batches fall back to finished files; otherwise it spins.
+  const percent = job.percent ?? (running && counted ? Math.round((job.done / job.total) * 100) : null);
+  const detail = [
+    running && counted && `${job.done}/${job.total}`,
+    running && job.eta !== null && t.convert.remaining(job.eta),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <div className="bg-job-veil absolute inset-x-2 inset-y-0 flex flex-col items-center justify-center gap-1.5 rounded-md px-2 text-center text-white">
+      {job.state === 'queued' && dismiss}
+      {running && job.cancellable && (
+        <span className="absolute top-1.5 right-1.5">
+          <JobButton label={t.convert.cancel} onClick={() => void cancelConvert(job.id)}>
+            ✕
+          </JobButton>
+        </span>
+      )}
+      <ProgressRing percent={job.state === 'queued' ? 0 : percent} spin={running && percent === null} />
+      <span className="w-full truncate text-[11px] font-semibold">
+        {job.state === 'queued' ? t.convert.queued(job.position) : t.convert.converting(fmt)}
+      </span>
+      {/* Always rendered so the ring doesn't jump up when the remaining time first appears. */}
+      <span className="w-full truncate text-[10px] opacity-75">{detail || '\u00a0'}</span>
+    </div>
+  );
+}
+
+const RING_R = 36;
+const RING_C = 2 * Math.PI * RING_R;
+
+/** A ring filled to `percent` with the number in the middle; `spin` turns a partial arc when there is no number. */
+function ProgressRing({ percent, spin }: { percent: number | null; spin: boolean }) {
+  const offset = percent === null ? RING_C * 0.72 : RING_C * (1 - percent / 100);
+  return (
+    // Drawn in one viewBox so the number scales with the ring, which shrinks with a short panel (78px at most).
+    <svg viewBox="0 0 80 80" className="aspect-square h-[45%] max-h-[78px] min-h-8" aria-hidden>
+      <g className={cx('origin-center', spin && 'animate-spin motion-reduce:animate-none')}>
+        <g transform="rotate(-90 40 40)">
+          <circle cx="40" cy="40" r={RING_R} fill="none" strokeWidth="6" className="stroke-white/20" />
+          <circle
+            cx="40"
+            cy="40"
+            r={RING_R}
+            fill="none"
+            strokeWidth="6"
+            strokeLinecap="round"
+            strokeDasharray={RING_C}
+            strokeDashoffset={offset}
+            className="stroke-white [transition:stroke-dashoffset_400ms] motion-reduce:transition-none"
+          />
+        </g>
+      </g>
+      {percent !== null && !spin && (
+        // Alphabetic baseline so the smaller % sits on the number's baseline; y=48 centres the digits.
+        <text x="40" y="48" textAnchor="middle" className="fill-white text-[22px] font-bold">
+          {percent}
+          <tspan className="text-[13px] font-semibold opacity-80">%</tspan>
+        </text>
+      )}
+    </svg>
+  );
+}
+
 function Body({ clip }: { clip: Clip }) {
   if (clip.kind === 'image') return clip.thumb ? <img className={THUMB} src={clip.thumb} alt="" /> : null;
   if (clip.kind === 'files') return <FilesBody clip={clip} />;
@@ -129,6 +258,7 @@ function Body({ clip }: { clip: Clip }) {
 
 export function Card({
   clip,
+  job,
   selected,
   onSelect,
   onHover,
@@ -153,9 +283,13 @@ export function Card({
         'data-slot:border-accent-subtle data-slot:border-2 data-slot:border-dashed data-slot:bg-transparent data-slot:shadow-none data-slot:*:invisible',
         confirming
           ? 'border-error shadow-card-confirm border-2'
-          : selected
-            ? 'border-primary shadow-card-selected border'
-            : cx('shadow-card border', clip.pinned ? 'border-pinned-border' : 'border-base-300'),
+          : job?.state === 'failed'
+            ? 'border-error shadow-card border-2'
+            : job?.state === 'done'
+              ? 'border-success shadow-card border'
+              : selected
+                ? 'border-primary shadow-card-selected border'
+                : cx('shadow-card border', clip.pinned ? 'border-pinned-border' : 'border-base-300'),
       )}
       data-id={clip.id}
       role="option"
@@ -228,6 +362,7 @@ export function Card({
       </div>
       <div className="relative z-1 min-h-0 flex-1 overflow-hidden px-2">
         <Body clip={clip} />
+        {job && <JobOverlay job={job} />}
       </div>
       {/* Fixed leading: the copy hint's fallback glyphs would otherwise grow the footer and nudge the body. */}
       <div
@@ -236,7 +371,7 @@ export function Card({
           clip.missing ? 'text-error' : 'text-muted',
         )}
       >
-        <span>{footLabel(clip, t)}</span>
+        <span>{job?.state === 'done' ? job.folder : footLabel(clip, t)}</span>
         {selected && <span>{t.copyHint}</span>}
       </div>
       {confirming && (

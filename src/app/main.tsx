@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 
+import ConvertApp from '@/app/convert/ConvertApp';
 import { PanelApp } from '@/app/panel/PanelApp';
 import { SettingsApp } from '@/app/settings/SettingsApp';
 import { ToastApp } from '@/app/toast/ToastApp';
@@ -21,7 +22,15 @@ import './globals.css';
 const label = getCurrentWindow().label;
 document.documentElement.dataset.window = label;
 const View =
-  label === 'panel' ? PanelApp : label === 'toast' ? ToastApp : label === 'whats-new' ? WhatsNewApp : SettingsApp;
+  label === 'panel'
+    ? PanelApp
+    : label === 'toast'
+      ? ToastApp
+      : label === 'convert'
+        ? ConvertApp
+        : label === 'whats-new'
+          ? WhatsNewApp
+          : SettingsApp;
 
 // Seed settings before the first paint so there is no flash of the wrong theme or language.
 // On failure the query fetches (and retries) on mount instead.

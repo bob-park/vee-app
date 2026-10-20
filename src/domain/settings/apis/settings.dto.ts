@@ -14,7 +14,11 @@ export type SettingKey =
   | 'panelResize'
   | 'panelPinShortcut'
   | 'resetSearchShortcut'
-  | 'ocr';
+  | 'ocr'
+  | 'dragConvert'
+  | 'convertKey'
+  | 'videoQuality'
+  | 'videoHwAccel';
 
 export interface Settings {
   theme: 'system' | 'light' | 'dark';
@@ -32,6 +36,13 @@ export interface Settings {
   retention: Retention;
   /** Reads text in image clips with the OS OCR so search can find it. */
   ocr: 'on' | 'off';
+  /** Holding `convertKey` while dragging a card out converts it into the folder under the cursor. */
+  dragConvert: 'on' | 'off';
+  convertKey: 'alt' | 'ctrl' | 'shift';
+  /** FFmpeg encoding quality for video conversions. */
+  videoQuality: 'small' | 'normal' | 'original';
+  /** Encodes MP4 / MOV / 720p with the GPU's H.264 encoder, falling back to software. */
+  videoHwAccel: 'on' | 'off';
   autostart: boolean;
   version: string;
 }

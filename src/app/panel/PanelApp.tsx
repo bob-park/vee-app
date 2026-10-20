@@ -15,6 +15,7 @@ import { FILTERS, Toolbar } from '@/app/panel/_components/Toolbar';
 import { cancelFloat, cardLefts, floatCard, playFlip, reducedMotion } from '@/app/panel/_components/motion';
 import { copyClip, deleteClip, listClips, listPinned, setPinned, startDrag } from '@/domain/clip/apis/clip';
 import type { Clip } from '@/domain/clip/apis/clip.dto';
+import { useConvertJobs } from '@/domain/convert/queries/convert';
 import { hidePanel, openSettings, revealPanel, setPanelPinned as setPanelPinnedApi } from '@/domain/panel/apis/panel';
 import { useSettings } from '@/domain/settings/queries/settings';
 import type { App } from '@/domain/source_app/apis/sourceApp.dto';
@@ -111,6 +112,7 @@ export function PanelApp() {
   const { settings } = useSettings();
   const { suggestions } = useAppSuggestions(query.slice(1), suggesting);
   const { status: updateStatus } = useUpdateStatus();
+  const { jobs } = useConvertJobs();
 
   const updateVersion = updateStatus.status === 'ready' ? updateStatus.version : null;
 
@@ -394,6 +396,7 @@ export function PanelApp() {
     <Card
       key={clip.id}
       clip={clip}
+      job={jobs.get(clip.id)}
       selected={i === selected}
       onSelect={() => {
         setSelected(i);

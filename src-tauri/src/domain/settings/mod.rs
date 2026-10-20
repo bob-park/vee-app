@@ -23,6 +23,10 @@ pub fn get(conn: &Connection, key: &str) -> String {
         "soundName" => "pop",
         "confirmDelete" => "off",
         "retention" | "panelResize" => "off",
+        "dragConvert" => "on",
+        "videoQuality" => "normal",
+        "videoHwAccel" => "on",
+        "convertKey" => if cfg!(target_os = "macos") { "alt" } else { "ctrl" },
         _ => "",
     };
     repository::get(conn, key).ok().flatten().unwrap_or_else(|| default.to_string())
@@ -74,7 +78,9 @@ fn validate(key: &str, value: &str) -> AppResult<()> {
         "soundName" => value == SILENT || SOUND_NAMES.contains(&value),
         "confirmDelete" => matches!(value, "on" | "off"),
         "retention" => matches!(value, "off" | "7" | "30" | "90"),
-        "panelResize" | "ocr" => matches!(value, "on" | "off"),
+        "panelResize" | "ocr" | "dragConvert" | "videoHwAccel" => matches!(value, "on" | "off"),
+        "convertKey" => matches!(value, "alt" | "ctrl" | "shift"),
+        "videoQuality" => matches!(value, "small" | "normal" | "original"),
         // Modifiers and a key code joined by `+`, as built by the settings recorder.
         "panelPinShortcut" | "resetSearchShortcut" => {
             value.contains('+') && value.split('+').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric()))
@@ -200,6 +206,27 @@ mod tests {
         assert_eq!(get(&conn, "panelHeightRatio"), "");
         set_raw(&conn, "theme", "dark").unwrap();
         assert_eq!(get(&conn, "theme"), "dark");
+    }
+
+    #[test]
+    fn convert_settings_default_and_validate() {
+        let conn = db::open_in_memory().unwrap();
+        assert_eq!(get(&conn, "dragConvert"), "on");
+        assert_eq!(get(&conn, "convertKey"), if cfg!(target_os = "macos") { "alt" } else { "ctrl" });
+        for v in ["alt", "ctrl", "shift"] {
+            assert!(validate("convertKey", v).is_ok());
+        }
+        assert!(validate("convertKey", "cmd").is_err());
+        assert!(validate("dragConvert", "off").is_ok());
+        assert!(validate("dragConvert", "yes").is_err());
+        assert_eq!(get(&conn, "videoQuality"), "normal");
+        for v in ["small", "normal", "original"] {
+            assert!(validate("videoQuality", v).is_ok());
+        }
+        assert!(validate("videoQuality", "best").is_err());
+        assert_eq!(get(&conn, "videoHwAccel"), "on");
+        assert!(validate("videoHwAccel", "off").is_ok());
+        assert!(validate("videoHwAccel", "auto").is_err());
     }
 
     #[test]

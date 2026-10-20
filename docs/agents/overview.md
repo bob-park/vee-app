@@ -10,18 +10,19 @@ related:
 
 # Project Overview
 
-> Vee is a clipboard-history app (Tauri 2, Rust + React). It records every copy (text, links, images, files) in SQLite and shows it as a card panel at the bottom of the screen on a global shortcut. It lives in the tray; there is no main window. Four windows: `panel`, `settings`, `toast`, `whats-new`.
+> Vee is a clipboard-history app (Tauri 2, Rust + React). It records every copy (text, links, images, files) in SQLite and shows it as a card panel at the bottom of the screen on a global shortcut. It lives in the tray; there is no main window. Five windows: `panel`, `settings`, `toast`, `convert`, `whats-new`.
 
 ## What it is
 
 - A **tray-only app** (macOS: `ActivationPolicy::Accessory`, no Dock icon). Closing a window never quits; "Quit" is in the tray menu.
 - **Windows:**
   - `panel`: the card panel. Transparent, borderless, always on top, on the monitor under the cursor. Search, `@app` tag, filters, pins, drag-out.
-  - `settings`: four tabs (General, Panel, Shortcuts, History).
-  - `toast`: the "Copied" notice. Never takes focus.
+  - `settings`: five tabs (General, Panel, Shortcuts, Convert, History).
+  - `toast`: the "Copied" notice (also convert results). Never takes focus.
+  - `convert`: the format donut shown at the cursor while a card is dragged out with the convert key held (default Option on macOS, Ctrl on Windows). Dropping on a format converts the image(s) or video(s) into the folder under the cursor instead of copying. Never takes focus.
   - `whats-new`: release notes of the update just installed, shown once.
-- **Rust side:** clipboard watcher, global shortcuts, the frontmost app (source app name and icon), copy sounds, retention pruning, auto-update, launch at login, macOS Full Disk Access prompt.
-- All data stays on the machine. The network is used only for update checks.
+- **Rust side:** clipboard watcher, global shortcuts, the frontmost app (source app name and icon), copy sounds, retention pruning, drag-to-convert (folder under the cursor, image conversion via `sips` on macOS / the `image` crate, video conversion via a downloaded FFmpeg, HWP/HWPX via a downloaded rhwp, office documents via the user's own LibreOffice, and on macOS `textutil` for text formats), auto-update, launch at login, macOS Full Disk Access prompt.
+- All data stays on the machine. The network is used only for update checks and, when the user presses Download / Update in the Convert tab, to fetch the pinned FFmpeg (shaka-project's GPL static builds from GitHub) or rhwp (its GitHub release) into `<app data>/engines/<engine>/` (`app/engines.rs`). Neither is bundled, and LibreOffice is never downloaded.
 
 ## What it is not
 

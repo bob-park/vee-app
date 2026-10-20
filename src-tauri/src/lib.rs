@@ -2,10 +2,10 @@ mod app;
 mod domain;
 mod shared;
 
-use app::{autostart, disk_access, ocr, retention, shortcut, state::AppState, tray, updater, watcher, window};
+use app::{autostart, convert, disk_access, drop_target, engines, ocr, office, retention, shortcut, state::AppState, tray, updater, watcher, window};
 use domain::{clip, settings, source_app, whats_new};
 use std::sync::atomic::Ordering;
-use tauri::{Manager, WindowEvent};
+use tauri::{Manager, RunEvent, WindowEvent};
 
 pub fn run() {
     tauri::Builder::default()
@@ -18,6 +18,13 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updater::UpdateState::default())
         .setup(|app| {
+            // No "DLL not found" system dialog: a child missing the VC++ runtime exits with a code instead (inherited).
+            #[cfg(windows)]
+            unsafe {
+                use ::windows::Win32::System::Diagnostics::Debug::{SEM_FAILCRITICALERRORS, SEM_NOOPENFILEERRORBOX, SetErrorMode};
+                SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
+            }
+
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
@@ -40,9 +47,16 @@ pub fn run() {
                 }
             };
             app.manage(AppState::new(conn, images_dir));
+            engines::manage(app.handle(), &data_dir);
+            convert::spawn(app.handle());
             // Windows are `create: false` so no webview can call a command before AppState exists.
             for config in app.config().app.windows.clone() {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
+            }
+            // `convert` is built visible (off-screen): wry takes over drops only on the WebView2
+            // child windows that exist when the webview is built, and a hidden one creates them later.
+            if let Some(overlay) = app.get_webview_window(convert::CONVERT) {
+                let _ = overlay.hide();
             }
             window::follow_active_space(app.handle());
             whats_new::commands::show_if_due(app.handle());
@@ -95,6 +109,17 @@ pub fn run() {
             window::commands::reveal_panel,
             settings::commands::preview_sound,
             window::commands::open_settings,
+            convert::commands::convert_drop,
+            convert::commands::list_convert_jobs,
+            convert::commands::retry_convert,
+            convert::commands::dismiss_convert,
+            convert::commands::cancel_convert,
+            engines::commands::get_engine_status,
+            engines::commands::download_engine,
+            engines::commands::cancel_engine_download,
+            engines::commands::remove_engine,
+            office::commands::get_libreoffice,
+            office::commands::open_libreoffice_download,
             settings::commands::get_settings,
             settings::commands::set_setting,
             autostart::set_autostart,
@@ -102,13 +127,22 @@ pub fn run() {
             settings::commands::count_prunable,
             disk_access::get_disk_access,
             disk_access::open_disk_access_settings,
+            drop_target::get_finder_access,
+            drop_target::request_finder_access,
+            drop_target::open_automation_settings,
             updater::check_update,
             updater::get_update_status,
             updater::install_update_and_restart,
             whats_new::commands::get_whats_new,
             whats_new::commands::dismiss_whats_new
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let RunEvent::Exit = event {
+                convert::shutdown(app);
+                engines::shutdown(app);
+            }
+        });
 }
 

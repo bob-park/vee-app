@@ -45,6 +45,26 @@
         "height": 132
       },
       {
+        "label": "convert",
+        "create": false,
+        "title": "Vee",
+        "visible": true,
+        "x": -10000,
+        "y": -10000,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "focus": false,
+        "focusable": false,
+        "visibleOnAllWorkspaces": true,
+        "dragDropEnabled": true,
+        "width": 260,
+        "height": 260
+      },
+      {
         "label": "settings",
         "create": false,
         "title": "Vee",
@@ -83,7 +103,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "macOS": {
+      "entitlements": "Entitlements.plist"
+    }
   },
   "plugins": {
     "updater": {
