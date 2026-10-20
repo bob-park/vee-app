@@ -11,7 +11,7 @@ Find the matching entry in the Map or in "How to use", open that doc, and check 
 ## Map
 
 ### Foundations
-- [Project Overview](docs/agents/overview.md): what Vee is, its four windows, platforms
+- [Project Overview](docs/agents/overview.md): what Vee is, its five windows, platforms
 - [Tech Stack](docs/agents/tech-stack.md): libraries and tools, where versions are pinned
 
 ### Architecture & Structure

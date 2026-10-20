@@ -19,7 +19,7 @@ related:
   - `panel`: the card panel. Transparent, borderless, always on top, on the monitor under the cursor. Search, `@app` tag, filters, pins, drag-out.
   - `settings`: five tabs (General, Panel, Shortcuts, Convert, History).
   - `toast`: the "Copied" notice (also convert results). Never takes focus.
-  - `convert`: the format donut shown at the cursor while a card is dragged out with the convert key held (default Option/Alt). Dropping on a format converts the image(s) into the folder under the cursor instead of copying. Never takes focus.
+  - `convert`: the format donut shown at the cursor while a card is dragged out with the convert key held (default Option on macOS, Ctrl on Windows). Dropping on a format converts the image(s) into the folder under the cursor instead of copying. Never takes focus.
   - `whats-new`: release notes of the update just installed, shown once.
 - **Rust side:** clipboard watcher, global shortcuts, the frontmost app (source app name and icon), copy sounds, retention pruning, drag-to-convert (folder under the cursor, image conversion via `sips` on macOS / the `image` crate), auto-update, launch at login, macOS Full Disk Access prompt.
 - All data stays on the machine. The network is used only for update checks.

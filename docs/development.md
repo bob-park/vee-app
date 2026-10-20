@@ -99,7 +99,7 @@ yarn tauri build
 
 ## 프로젝트 구조
 
-창 라벨(`panel` / `settings` / `toast` / `whats-new`)마다 화면이 하나씩 있고, 프론트와 Rust가 같은 이름의 도메인(`clip`, `source_app`, `settings`, `whats_new`)으로 나뉩니다. 자세한 규칙은 [`AGENTS.md`](../AGENTS.md)와 [`docs/agents/structure.md`](agents/structure.md)에 있습니다.
+창 라벨(`panel` / `settings` / `toast` / `whats-new` / `convert`)마다 화면이 하나씩 있고, 프론트와 Rust가 같은 이름의 도메인(`clip`, `source_app`, `settings`, `whats_new`, `convert`)으로 나뉩니다. 자세한 규칙은 [`AGENTS.md`](../AGENTS.md)와 [`docs/agents/structure.md`](agents/structure.md)에 있습니다.
 
 ```
 vee-app/
@@ -110,8 +110,9 @@ vee-app/
 │  │  ├─ panel/                  # 하단 카드 패널 (PanelApp, _components/)
 │  │  ├─ settings/               # 설정 창 (SettingsApp, _components/)
 │  │  ├─ toast/                  # "복사됨" 알림
-│  │  └─ whats-new/              # 새 소식 창
-│  ├─ domain/<이름>/             # clip, source_app, settings, whats_new, updater, panel
+│  │  ├─ whats-new/              # 새 소식 창
+│  │  └─ convert/                # 드래그 변환 포맷 도넛
+│  ├─ domain/<이름>/             # clip, source_app, settings, whats_new, updater, panel, convert
 │  │  ├─ apis/                   # Rust command 호출 함수 + DTO 타입
 │  │  ├─ queries/                # React Query 훅
 │  │  ├─ components/             # 도메인 컴포넌트
@@ -119,13 +120,15 @@ vee-app/
 │  ├─ shared/                    # api(call), components, i18n(en.ts 기준, ko.ts), providers(테마·언어), queries, store
 │  └─ utils/                     # 순수 함수 + *.test.ts
 ├─ src-tauri/
-│  ├─ tauri.conf.json            # 창 4개, 번들, 업데이터 공개키
+│  ├─ tauri.conf.json            # 창 5개, 번들, 업데이터 공개키
+│  ├─ Info.plist                 # macOS: Finder 자동화 권한 문구 (NSAppleEventsUsageDescription)
+│  ├─ Entitlements.plist         # macOS: Apple Events 엔타이틀먼트
 │  ├─ capabilities/              # 웹뷰 권한 (core:default, dialog:default)
 │  ├─ vendor/drag/               # 수정한 drag 크레이트
 │  └─ src/
 │     ├─ lib.rs                  # 플러그인, 셋업, 창 이벤트, command 등록
-│     ├─ app/                    # 창·트레이·업데이터·클립보드 감시·단축키·효과음·최전면 앱·디스크 접근·자동 실행·보관 기간 정리
-│     ├─ domain/                 # clip, source_app, settings, whats_new (mod·model·repository·commands)
+│     ├─ app/                    # 창·트레이·업데이터·클립보드 감시·단축키·효과음·최전면 앱·디스크 접근·자동 실행·보관 기간 정리·드래그 변환(convert)·커서 밑 폴더 찾기(drop_target)
+│     ├─ domain/                 # clip, source_app, settings, whats_new (mod·model·repository·commands), convert(포맷·작업·이미지 엔진)
 │     └─ shared/                 # db.rs, error.rs(AppError), png.rs, migrations/000N_*.sql
 ├─ scripts/                      # 로컬 릴리스 스크립트, latest.json 생성, 효과음 생성
 ├─ bump-version-up.sh            # 버전 올리기 (GitHub Actions가 실행)
