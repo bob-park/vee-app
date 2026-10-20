@@ -166,7 +166,7 @@ fn open_at(app: &AppHandle, generation: u64) {
     let note = if unsupported {
         ConvertNote::Unsupported
     } else {
-        match drop_target::folder_at(point) {
+        match drop_target::folder_at(point, window::pinned(app)) {
             DropFolder::Folder(dir) => {
                 let open = of_drag(&mut c.session.lock().unwrap(), generation).map(|s| {
                     s.dir = Some(dir);

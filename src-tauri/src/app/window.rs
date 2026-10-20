@@ -222,7 +222,7 @@ pub(crate) fn place(window: &WebviewWindow, r: Rect) -> tauri::Result<()> {
     Ok(())
 }
 
-fn pinned(app: &AppHandle) -> bool {
+pub(crate) fn pinned(app: &AppHandle) -> bool {
     app.state::<AppState>().panel_pinned.load(Ordering::SeqCst)
 }
 

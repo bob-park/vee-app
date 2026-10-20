@@ -49,14 +49,16 @@ fn contains((x, y, w, h): (f64, f64, f64, f64), (px, py): (f64, f64)) -> bool {
 const DRAG_LAYER: i64 = 500;
 
 /// Whether `w` can be what a drop at `point` lands on: a normal-layer window, or one of Vee's own
-/// (always-on-top panel and toast sit above layer 0).
-fn counts(w: &WinInfo, point: (f64, f64), own_pid: i32) -> bool {
-    (w.layer == 0 || (w.pid == own_pid && w.layer < DRAG_LAYER)) && contains(w.bounds, point)
+/// always-on-top windows (panel, toast) when `panel_shown`. While unpinned, the panel slides away
+/// during a drag and lets drops through, so it must not hide the folder behind it.
+fn counts(w: &WinInfo, point: (f64, f64), own_pid: i32, panel_shown: bool) -> bool {
+    let own_top = w.pid == own_pid && w.layer > 0 && w.layer < DRAG_LAYER;
+    (w.layer == 0 || (own_top && panel_shown)) && contains(w.bounds, point)
 }
 
 /// The front window under `point` that a drop would land on; none means the desktop.
-pub fn pick_hit(windows: &[WinInfo], point: (f64, f64), own_pid: i32) -> Hit {
-    match windows.iter().find(|w| counts(w, point, own_pid)) {
+pub fn pick_hit(windows: &[WinInfo], point: (f64, f64), own_pid: i32, panel_shown: bool) -> Hit {
+    match windows.iter().find(|w| counts(w, point, own_pid, panel_shown)) {
         None => Hit::Desktop,
         Some(w) if w.pid != own_pid && w.finder => Hit::Finder(w.bounds),
         Some(_) => Hit::Other,
@@ -159,14 +161,14 @@ fn is_finder(pid: i32) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-pub fn folder_at(point: (f64, f64)) -> DropFolder {
+pub fn folder_at(point: (f64, f64), panel_shown: bool) -> DropFolder {
     let own_pid = std::process::id() as i32;
     let mut windows = on_screen_windows();
     // Only the window the drop lands on needs its bundle id.
-    if let Some(w) = windows.iter_mut().find(|w| counts(w, point, own_pid)) {
+    if let Some(w) = windows.iter_mut().find(|w| counts(w, point, own_pid, panel_shown)) {
         w.finder = w.pid != own_pid && is_finder(w.pid);
     }
-    match pick_hit(&windows, point, own_pid) {
+    match pick_hit(&windows, point, own_pid, panel_shown) {
         Hit::Desktop => match std::env::home_dir() {
             Some(home) => DropFolder::Folder(home.join("Desktop")),
             None => DropFolder::NotFolder,
@@ -250,7 +252,7 @@ pub fn finder_access(_ask: bool) -> Option<FinderAccess> {
 }
 
 #[cfg(windows)]
-pub fn folder_at(point: (f64, f64)) -> DropFolder {
+pub fn folder_at(point: (f64, f64), _panel_shown: bool) -> DropFolder {
     use ::windows::Win32::Foundation::POINT;
     use ::windows::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, GetClassNameW, GetWindowThreadProcessId, WindowFromPoint};
     // SAFETY: plain user32 queries on whatever window is under the point; a stale HWND only makes them fail.
@@ -394,31 +396,41 @@ mod tests {
 
     #[test]
     fn nothing_under_the_point_is_the_desktop() {
-        assert!(matches!(pick_hit(&[w(9, 0, (0., 0., 10., 10.), false)], (50., 50.), 1), Hit::Desktop));
+        assert!(matches!(pick_hit(&[w(9, 0, (0., 0., 10., 10.), false)], (50., 50.), 1, true), Hit::Desktop));
     }
 
     #[test]
     fn front_window_wins_and_other_layers_are_ignored() {
         let ws = [w(5, 25, (0., 0., 100., 100.), false), w(7, 0, (0., 0., 100., 100.), true), w(8, 0, (0., 0., 100., 100.), false)];
-        assert_eq!(pick_hit(&ws, (10., 10.), 1), Hit::Finder((0., 0., 100., 100.)));
+        assert_eq!(pick_hit(&ws, (10., 10.), 1, true), Hit::Finder((0., 0., 100., 100.)));
     }
 
     #[test]
     fn own_windows_are_not_folders() {
+        // A normal-layer Vee window (settings) blocks whether or not the panel is shown.
         let ws = [w(1, 0, (0., 0., 100., 100.), false), w(7, 0, (0., 0., 100., 100.), true)];
-        assert!(matches!(pick_hit(&ws, (10., 10.), 1), Hit::Other));
+        assert!(matches!(pick_hit(&ws, (10., 10.), 1, true), Hit::Other));
+        assert!(matches!(pick_hit(&ws, (10., 10.), 1, false), Hit::Other));
     }
 
     #[test]
-    fn own_always_on_top_window_is_not_a_folder() {
-        let ws = [w(1, 3, (0., 0., 100., 100.), false), w(7, 0, (0., 0., 100., 100.), true)];
-        assert!(matches!(pick_hit(&ws, (10., 10.), 1), Hit::Other));
+    fn a_pinned_panel_is_not_a_folder() {
+        let ws = [w(1, 5, (0., 0., 100., 100.), false), w(7, 0, (0., 0., 100., 100.), true)];
+        assert!(matches!(pick_hit(&ws, (10., 10.), 1, true), Hit::Other));
+    }
+
+    #[test]
+    fn an_unpinned_panel_lets_the_folder_behind_through() {
+        // The panel slides away during a drag but its window stays; the drop lands behind it.
+        let ws = [w(1, 5, (8., 799., 1784., 362.), false), w(7, 0, (445., 538., 920., 464.), true)];
+        assert!(matches!(pick_hit(&ws, (785., 845.), 1, false), Hit::Finder(_)));
+        assert!(matches!(pick_hit(&ws[..1], (785., 845.), 1, false), Hit::Desktop));
     }
 
     #[test]
     fn own_drag_image_is_skipped() {
         let ws = [w(1, 500, (0., 0., 100., 100.), false), w(7, 0, (0., 0., 100., 100.), true)];
-        assert!(matches!(pick_hit(&ws, (10., 10.), 1), Hit::Finder(_)));
+        assert!(matches!(pick_hit(&ws, (10., 10.), 1, true), Hit::Finder(_)));
     }
 
     #[test]
@@ -468,6 +480,6 @@ mod tests {
     fn folder_at_desktop_corner() {
         let point = cursor();
         println!("finder_access = {:?}", finder_access(false));
-        println!("folder_at({point:?}) = {:?}", folder_at(point));
+        println!("folder_at({point:?}) = {:?}", folder_at(point, false));
     }
 }
