@@ -23,7 +23,7 @@
 - FFmpeg missing → video slices still shown, dimmed, with reason `t.convert.needsFfmpeg`; a drop on them does nothing (Rust rejects too).
 - Setting `videoQuality`: `small` | `normal` | `original`, default `normal`.
 - Encoding (exact args, `-y -nostats -progress pipe:1 -i <src>` first, `<out>` last):
-  - `mp4` / `mov` / `720p`: `-c:v libx264 -crf {28|23|18} -preset {veryfast|medium|slow} -pix_fmt yuv420p -c:a aac -b:a {96k|128k|192k} -movflags +faststart` (`-movflags` for mp4/720p only); `720p` adds `-vf scale=-2:'min(720,ih)'`.
+  - `mp4` / `mov` / `720p`: `-c:v libx264 -crf {28|23|18} -preset {veryfast|medium|slow} -pix_fmt yuv420p -c:a aac -b:a {96k|128k|192k} -movflags +faststart` (`-movflags` for mp4/720p only); `mp4` / `mov` add `-vf scale=trunc(iw/2)*2:trunc(ih/2)*2` and `720p` adds `-vf scale=-2:'trunc(min(720,ih)/2)*2'`, so both sides are even for libx264 + yuv420p (ruling F1, replaces the earlier `scale=-2:'min(720,ih)'`).
   - `webm`: `-c:v libvpx-vp9 -crf {40|32|24} -b:v 0 -row-mt 1 -c:a libopus -b:a {64k|96k|160k}`.
   - `gif`: `-vf fps={10|12|15},scale={320|480|'min(800,iw)'}:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse -an`.
   - `mp3`: `-vn -c:a libmp3lame -q:a {5|2|0}`.
@@ -121,7 +121,7 @@ fn mp4_normal_args() {
 #[test]
 fn p720_scales_down_only_and_mov_has_no_faststart() {
     let a = ffmpeg_args(Path::new("i"), Format::Mp4720, Quality::Small, Path::new("o"));
-    assert!(a.iter().any(|s| s == "scale=-2:'min(720,ih)'"));
+    assert!(a.iter().any(|s| s == "scale=-2:'trunc(min(720,ih)/2)*2'"));
     let m = ffmpeg_args(Path::new("i"), Format::Mov, Quality::Original, Path::new("o"));
     assert!(!m.iter().any(|s| s == "-movflags") && m.iter().any(|s| s == "18"));
 }
@@ -149,7 +149,7 @@ fn durations_and_progress_lines() {
 
 **Interfaces:**
 - Produces:
-  - `#[derive(Serialize)] #[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")] pub enum FfmpegStatus { Missing, Downloading { received: u64, total: u64, speed: u64 /* bytes/s */, stage: Stage }, Installed { version: String, size: u64, installed_at: i64, path: String, update: bool, error: Option<InstallError> } }` with `Missing { error: Option<InstallError> }` (ruling: no separate Failed state, so a failed update keeps the install info` with `Stage { Download, Verify, Unpack }` and `InstallError { Network, Checksum, Unpack, Disk }` (camelCase).
+  - `#[derive(Serialize)] #[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")] pub enum FfmpegStatus { Missing { error: Option<InstallError>, download_size: u64 }, Downloading { received: u64, total: u64, speed: u64 /* bytes/s */, stage: Stage }, Installed { version: String, size: u64, installed_at: i64, path: String, update: bool, error: Option<InstallError> } }` (ruling: no separate Failed state, so a failed update keeps the install info; `download_size` is the sum of this platform's pinned asset sizes, ruling F2), with `Stage { Download, Verify, Unpack }` and `InstallError { Network, Checksum, Unpack, Disk }` (camelCase).
   - `pub fn ffmpeg(app: &AppHandle) -> Option<(PathBuf, PathBuf)>` — both binaries present.
   - Pure, tested: `pub fn assets() -> &'static [Asset]` (`Asset { url, sha256, size, binaries: &[&str] /* names to find after unpack */ }`, per-platform consts from Global Constraints); `pub fn sha256_file(path) -> io::Result<String>` (lowercase hex); `pub fn install_from(archives: &[(PathBuf, &Asset)], unpack: impl Fn(&Path, &Path) -> io::Result<()>, dest: &Path, version: &str, now: i64) -> Result<(), InstallError>` (verify every hash → unpack each into a temp dir → find the binaries by file name anywhere below → `chmod 755` (unix) → swap into `dest` via rename of a sibling dir → write `meta.json`); `pub fn read_installed(dest) -> Option<Meta>`.
   - Shell: `download(app)` spawns `curl -fL --retry 2 -o <tmp file> <url>` per asset, a 250 ms poller sets `Downloading { received: file size, … }`, then `install_from` with `unpack` = `ditto -x -k` / `tar -xf <zip> -C <dir>`; macOS also `xattr -dr com.apple.quarantine <dest>` (ignore failure). One download at a time.

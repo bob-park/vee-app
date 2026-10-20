@@ -35,7 +35,7 @@ related:
 ## Network and temp paths
 
 - The only network use besides the updater is the FFmpeg download the user starts (`app/engines.rs`, pinned URLs + SHA-256). It runs the system `curl`, so no HTTP crate or capability is needed.
-- Temp dirs: `<temp>/vee-ffmpeg-download-<identifier>` (download) and `<temp>/vee-convert` (conversion output before the move). Run a dev build with its own identifier so it doesn't share the FFmpeg temp dir or `<app data>/engines/ffmpeg/` with the installed app ([build-run](./build-run.md)).
+- Temp dirs: `<temp>/vee-ffmpeg-download-<identifier>` (download) and `<temp>/vee-convert-<identifier>` (conversion output before the move, cleared at startup and exit). Run a dev build with its own identifier so it doesn't share the FFmpeg temp dir or `<app data>/engines/ffmpeg/` with the installed app ([build-run](./build-run.md)).
 
 ## Capabilities
 

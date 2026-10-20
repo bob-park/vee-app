@@ -59,7 +59,7 @@ export async function setSetting(key: SettingKey, value: string) {
 | `panel://opened`, `panel://refocused`, `panel://closing`, `panel://closed`, `panel://drag-cancelled` | — | `app/window.rs` (to `panel` only) | `PanelApp` |
 | `toast://show` | `{ … }` toast payload | `app/window.rs` (to `toast` only) | `ToastApp` |
 | `toast://hide` | — | `app/window.rs` | `ToastApp` |
-| `convert://open` | `{ formats, name }` | `app/convert.rs` (to `convert` only) | `ConvertApp` |
+| `convert://open` | `{ slices, name }` | `app/convert.rs` (to `convert` only) | `ConvertApp` |
 | `convert://close` | — | `app/convert.rs` (to `convert` only) | `ConvertApp` |
 | `convert://jobs` | `ConvertJob[]` | `app/convert.rs` (to `panel` only) | `useConvertJobs` (`domain/convert/queries`) |
 | `engines://ffmpeg` | `FfmpegStatus` | `app/engines.rs` (every status change, download progress every 250 ms) | Settings Convert tab |
