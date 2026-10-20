@@ -26,6 +26,8 @@ export default function ConvertApp() {
   // state
   const [open, setOpen] = useState<OpenPayload | null>(null);
   const [hot, setHot] = useState<number | null>(null);
+  // Bumped per open so the entrance replays; set on the first frame the (shown) window paints.
+  const [play, setPlay] = useState(0);
 
   // hooks
   const { t } = useI18n();
@@ -36,6 +38,9 @@ export default function ConvertApp() {
       slicesRef.current = e.payload.slices;
       setOpen(e.payload);
       setHot(null);
+      setPlay(0);
+      // A hidden window paints no frames, so this waits until Rust has shown it.
+      requestAnimationFrame(() => setPlay(Date.now()));
     });
     // Rust hides the window and sends this before the drop event below arrives, so it must
     // leave the slices alone; only the next `convert://open` replaces them.
@@ -68,24 +73,44 @@ export default function ConvertApp() {
   };
   const half = DONUT.size / 2;
   return (
-    <div className="relative size-[260px]">
+    <div
+      key={play}
+      className={cx(
+        'relative size-[260px] motion-reduce:animate-none',
+        play ? 'animate-donut-in' : 'opacity-0 motion-reduce:opacity-100',
+      )}
+    >
       <svg width={DONUT.size} height={DONUT.size} viewBox={`${-half} ${-half} ${DONUT.size} ${DONUT.size}`} aria-hidden>
+        <circle r={DONUT.disc} className="fill-card shadow-donut" />
         {open.slices.map(({ format, needs }, i) => {
           const l = labelAt(i, n);
           const active = i === hot && !needs;
           return (
-            <g key={format} className={cx(needs && 'opacity-40')}>
-              <path d={slicePath(i, n)} className={cx('stroke-base-300', active ? 'fill-primary' : 'fill-donut')} />
+            <g
+              key={format}
+              className={cx(play && 'animate-slice-in motion-reduce:animate-none', needs && 'opacity-45')}
+              style={{ animationDelay: `${40 + i * 22}ms` }}
+            >
+              <path
+                d={slicePath(i, n)}
+                className={cx(
+                  '[transition:fill_180ms_ease,scale_180ms_cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                  active ? 'fill-primary scale-[1.045]' : 'fill-donut',
+                )}
+              />
               <text
                 x={l.x}
                 y={needs ? l.y : l.y + 4}
                 textAnchor="middle"
-                className={cx('text-[12px] font-bold', active ? 'fill-primary-content' : 'fill-base-content')}
+                className={cx(
+                  'text-[12px] font-bold tracking-[-0.01em] [transition:fill_180ms_ease]',
+                  active ? 'fill-primary-content' : 'fill-base-content',
+                )}
               >
                 {formatLabel(format)}
               </text>
               {needs && (
-                <text x={l.x} y={l.y + 11} textAnchor="middle" className="fill-base-content text-[9px]">
+                <text x={l.x} y={l.y + 11} textAnchor="middle" className="fill-muted text-[8.5px]">
                   {needsLabel[needs]}
                 </text>
               )}
@@ -93,9 +118,10 @@ export default function ConvertApp() {
           );
         })}
       </svg>
-      <div className="bg-card shadow-card absolute inset-[90px] flex flex-col items-center justify-center rounded-full px-2 text-center">
-        <b className="max-w-full truncate text-[12px]">{open.name}</b>
-        <small className="text-muted text-[10px] leading-tight">{t.convert.dropHint}</small>
+      {/* Inside the ring's hole (inner 52px); the disc behind it is the card colour already. */}
+      <div className="absolute inset-[82px] flex flex-col items-center justify-center text-center">
+        <b className="max-w-full truncate text-[11px]">{open.name}</b>
+        <small className="text-muted text-[9.5px] leading-tight">{t.convert.dropHint}</small>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 /** Geometry of the convert window's format donut; the window is `size` CSS px square. */
-export const DONUT = { size: 260, outer: 112, inner: 44 } as const;
+export const DONUT = { size: 260, disc: 106, outer: 100, inner: 52, corner: 6 } as const;
 
 const C = DONUT.size / 2;
 const TAU = 2 * Math.PI;
@@ -23,13 +23,27 @@ function at(r: number, a: number) {
   return `${+(r * Math.cos(a)).toFixed(2)} ${+(r * Math.sin(a)).toFixed(2)}`;
 }
 
-/** Slice `i` of `count` as an SVG path in a `-130..130` viewBox, trimmed by `gap` radians each side. */
-export function slicePath(i: number, count: number, gap = 0.03): string {
-  const { outer: R, inner: r } = DONUT;
+/**
+ * Slice `i` of `count` as an SVG path in a `-130..130` viewBox: a ring sector trimmed by `gap`
+ * radians each side, its four corners rounded by `DONUT.corner`.
+ */
+export function slicePath(i: number, count: number, gap = 0.028): string {
+  const { outer: R, inner: r, corner: k } = DONUT;
   const a0 = -Math.PI / 2 + (i * TAU) / count + gap;
-  const a1 = a0 + TAU / count - 2 * gap;
+  const a1 = -Math.PI / 2 + ((i + 1) * TAU) / count - gap;
   const large = a1 - a0 > Math.PI ? 1 : 0;
-  return `M${at(R, a0)}A${R} ${R} 0 ${large} 1 ${at(R, a1)}L${at(r, a1)}A${r} ${r} 0 ${large} 0 ${at(r, a0)}Z`;
+  // Each corner: a quadratic curve from the radial edge (k in from the ring) to the arc (k along it).
+  const [o, ii] = [k / R, k / r];
+  return [
+    `M${at(R - k, a0)}`,
+    `Q${at(R, a0)} ${at(R, a0 + o)}`,
+    `A${R} ${R} 0 ${large} 1 ${at(R, a1 - o)}`,
+    `Q${at(R, a1)} ${at(R - k, a1)}`,
+    `L${at(r + k, a1)}`,
+    `Q${at(r, a1)} ${at(r, a1 - ii)}`,
+    `A${r} ${r} 0 ${large} 0 ${at(r, a0 + ii)}`,
+    `Q${at(r, a0)} ${at(r + k, a0)}Z`,
+  ].join('');
 }
 
 /** Where slice `i`'s label sits: mid-angle, halfway through the ring. */

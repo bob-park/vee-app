@@ -19,9 +19,10 @@ void test('just left of 12 o’clock is the last slice', () => {
   assert.equal(sliceAt(129, 50, 6), 5);
 });
 
-void test('a slice path starts on the outer ring and closes', () => {
+void test('a slice path starts just inside the outer ring, rounds its corners and closes', () => {
   const d = slicePath(0, 4, 0);
-  assert.match(d, /^M0 -112A112 112 0 0 1 /);
+  assert.match(d, /^M0 -94Q0 -100 /); // outer 100 minus the 6px corner, at 12 o'clock
+  assert.equal(d.match(/Q/g)?.length, 4);
   assert.ok(d.endsWith('Z'));
 });
 
