@@ -19,7 +19,7 @@ related:
 | `version` | source of truth for the app version — changed only by `bump-version-up.sh` ([versioning](./workflow/versioning.md)) |
 | `productName`, `identifier` | `Vee` / `com.bobpark.vee`; release scripts depend on `productName` for file names, and the identifier names the user's data folder — never change it |
 | `app.macOSPrivateApi` | `true`, for the transparent panel/toast windows |
-| `app.windows` | `panel`, `toast`, `convert`, `settings`, `whats-new`, all `create: false` (built in `setup` after state exists), all `visible: false` |
+| `app.windows` | `panel`, `toast`, `convert`, `settings`, `whats-new`, all `create: false` (built in `setup` after state exists), all `visible: false` except `convert`: it is built visible at `-10000, -10000` and hidden right after, because wry only takes over drops on the WebView2 child windows that exist when the webview is built (Windows) |
 | `bundle.targets` | `app`, `dmg`, `nsis` |
 | `bundle.macOS.entitlements` | `Entitlements.plist` — `com.apple.security.automation.apple-events`, so the signed (hardened runtime) app may ask Finder for its folder |
 | `bundle.createUpdaterArtifacts` | `true` — full builds need the signing key |

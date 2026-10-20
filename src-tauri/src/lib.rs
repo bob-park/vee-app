@@ -45,6 +45,11 @@ pub fn run() {
             for config in app.config().app.windows.clone() {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
             }
+            // `convert` is built visible (off-screen): wry takes over drops only on the WebView2
+            // child windows that exist when the webview is built, and a hidden one creates them later.
+            if let Some(overlay) = app.get_webview_window(convert::CONVERT) {
+                let _ = overlay.hide();
+            }
             window::follow_active_space(app.handle());
             whats_new::commands::show_if_due(app.handle());
             disk_access::prompt_once(app.handle());
