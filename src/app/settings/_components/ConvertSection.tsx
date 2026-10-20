@@ -23,8 +23,6 @@ const KEYS: Settings['convertKey'][] = isMac ? ['alt', 'ctrl', 'shift'] : ['ctrl
 const QUALITIES: Settings['videoQuality'][] = ['small', 'normal', 'original'];
 
 const MB = 1024 * 1024;
-/** Total size of the pinned FFmpeg downloads (engines.rs `assets()`): ffmpeg + ffprobe zips on macOS, one zip on Windows. */
-const DOWNLOAD_MB = Math.round((isMac ? 28395699 + 28317701 : 114768076) / MB);
 
 const BADGE = 'bg-ok-bg text-ok-fg rounded-md px-2 py-0.5 text-[11px] font-semibold';
 
@@ -116,7 +114,7 @@ function FfmpegSection({ settings, run, updateSetting }: Props) {
       <SettingSection>
         {ffmpeg.state === 'missing' && (
           <Row col>
-            <Head title={f.title} hint={f.missingHint(DOWNLOAD_MB)}>
+            <Head title={f.title} hint={f.missingHint(f.mb(Math.round(ffmpeg.downloadSize / MB)))}>
               <Button onClick={() => run(downloadFfmpeg())}>{f.download}</Button>
             </Head>
             {error}
@@ -174,7 +172,7 @@ function FfmpegSection({ settings, run, updateSetting }: Props) {
                 <dt>{f.meta.version}</dt>
                 <dd>{ffmpeg.version}</dd>
                 <dt>{f.meta.size}</dt>
-                <dd>{`${Math.round(ffmpeg.size / MB)} MB`}</dd>
+                <dd>{f.mb(Math.round(ffmpeg.size / MB))}</dd>
                 <dt>{f.meta.installedAt}</dt>
                 <dd>{new Date(ffmpeg.installedAt).toLocaleDateString(locale)}</dd>
                 <dt>{f.meta.path}</dt>

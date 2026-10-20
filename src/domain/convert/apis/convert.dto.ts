@@ -45,7 +45,7 @@ export type InstallError = 'network' | 'checksum' | 'unpack' | 'disk';
 
 /** The downloaded FFmpeg; mirrors Rust `FfmpegStatus`. `error` is the last failed download, if any. */
 export type FfmpegStatus =
-  | { state: 'missing'; error: InstallError | null }
+  | { state: 'missing'; error: InstallError | null; downloadSize: number }
   | { state: 'downloading'; received: number; total: number; speed: number; stage: 'download' | 'verify' | 'unpack' }
   | {
       state: 'installed';

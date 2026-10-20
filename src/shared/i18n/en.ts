@@ -136,7 +136,8 @@ export const en = {
       ffmpeg: {
         caption: 'FFmpeg · Video conversion',
         title: 'FFmpeg',
-        missingHint: (mb: number) => `Needed to convert video and audio. About ${mb} MB`,
+        missingHint: (size: string) => `Needed to convert video and audio. About ${size}`,
+        mb: (n: number) => `${n} MB`,
         download: 'Download',
         progress: (r: string, t: string, s: string) => `Downloading · ${r} / ${t} MB · ${s} MB/s`,
         verifying: 'Checking the download…',
@@ -147,7 +148,7 @@ export const en = {
         removeConfirm: 'Remove FFmpeg? Video conversion stops until you download it again.',
         meta: { version: 'Version', size: 'Size', installedAt: 'Installed', path: 'Location' },
         quality: 'Video quality',
-        qualityHint: 'Used for MP4, WEBM, MOV and GIF',
+        qualityHint: 'Used for every video conversion',
         qualities: { small: 'Small', normal: 'Normal', original: 'Best' },
         errors: {
           network: "Couldn't download. Check the connection.",

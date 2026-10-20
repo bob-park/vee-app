@@ -59,6 +59,11 @@ pub fn assets() -> &'static [Asset] {
     ASSETS
 }
 
+/// Bytes a download of the pinned archives fetches.
+pub fn download_size() -> u64 {
+    assets().iter().map(|a| a.size).sum()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Stage {
@@ -79,8 +84,8 @@ pub enum InstallError {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum FfmpegStatus {
-    /// `error`: why the last download failed; cleared by the next one.
-    Missing { error: Option<InstallError> },
+    /// `error`: why the last download failed; cleared by the next one. `download_size`: bytes a download fetches.
+    Missing { error: Option<InstallError>, download_size: u64 },
     Downloading { received: u64, total: u64, speed: u64, stage: Stage },
     Installed { version: String, size: u64, installed_at: i64, path: String, update: bool, error: Option<InstallError> },
 }
@@ -168,6 +173,18 @@ pub fn recover(dest: &Path) {
     }
 }
 
+/// Removes the work dirs next to `dest`, keeping an old install that is the only usable one.
+fn tidy(dest: &Path) {
+    let Ok([work, staged, old]) = siblings(dest) else { return };
+    remove_dir(&work);
+    remove_dir(&staged);
+    if stranded(dest, &old) {
+        log::warn!("engines: keeping the previous FFmpeg install in {}", old.display());
+    } else {
+        remove_dir(&old);
+    }
+}
+
 /// Verifies every archive, unpacks them, and swaps the binaries into `dest` with a fresh `meta.json`.
 /// On any error `dest` is left as it was and the work dirs are removed, except an old install a
 /// failed rollback left in `.<name>-old` (restored by `recover`).
@@ -194,13 +211,7 @@ pub fn install_from(
         remove_dir(d);
     }
     let result = stage(archives, &unpack, &work, &staged, version, now).and_then(|()| swap(&staged, dest, &old));
-    remove_dir(&work);
-    remove_dir(&staged);
-    if stranded(dest, &old) {
-        log::warn!("engines: keeping the previous FFmpeg install in {}", old.display());
-    } else {
-        remove_dir(&old);
-    }
+    tidy(dest);
     result
 }
 
@@ -272,12 +283,14 @@ pub struct Engines {
 }
 
 /// Manages the engine state. Call once in setup, before any window is built.
-/// Clears a download left by a previous run and restores an install a failed swap left aside.
+/// Clears a download and the work dirs a previous run left (quit mid-install), and restores an
+/// install a failed swap left aside.
 pub fn manage(app: &AppHandle, data_dir: &Path) {
     let dir = data_dir.join("engines").join("ffmpeg");
     let tmp = std::env::temp_dir().join(format!("vee-ffmpeg-download-{}", app.config().identifier));
     remove_dir(&tmp);
     recover(&dir);
+    tidy(&dir);
     let status = Mutex::new(on_disk(&dir, None));
     app.manage(Engines { dir, tmp, status, cancel: Mutex::new(None), curl: Mutex::new(None) });
 }
@@ -313,7 +326,7 @@ pub fn on_disk(dir: &Path, error: Option<InstallError>) -> FfmpegStatus {
             path: dir.to_string_lossy().into_owned(),
             error,
         },
-        None => FfmpegStatus::Missing { error },
+        None => FfmpegStatus::Missing { error, download_size: download_size() },
     }
 }
 
@@ -345,7 +358,7 @@ fn download(app: &AppHandle) {
         *slot = Some(cancel.clone());
         cancel
     };
-    let total = assets().iter().map(|a| a.size).sum();
+    let total = download_size();
     set(app, FfmpegStatus::Downloading { received: 0, total, speed: 0, stage: Stage::Download });
     let app = app.clone();
     std::thread::spawn(move || {
@@ -617,10 +630,13 @@ mod tests {
     #[test]
     fn status_serializes_for_the_settings_tab() {
         let json = |s: FfmpegStatus| serde_json::to_value(s).unwrap();
-        assert_eq!(json(FfmpegStatus::Missing { error: None }), serde_json::json!({ "state": "missing", "error": null }));
         assert_eq!(
-            json(FfmpegStatus::Missing { error: Some(InstallError::Network) }),
-            serde_json::json!({ "state": "missing", "error": "network" })
+            json(FfmpegStatus::Missing { error: None, download_size: 9 }),
+            serde_json::json!({ "state": "missing", "error": null, "downloadSize": 9 })
+        );
+        assert_eq!(
+            json(FfmpegStatus::Missing { error: Some(InstallError::Network), download_size: 9 }),
+            serde_json::json!({ "state": "missing", "error": "network", "downloadSize": 9 })
         );
         assert_eq!(
             json(FfmpegStatus::Downloading { received: 1, total: 2, speed: 3, stage: Stage::Verify }),
@@ -662,7 +678,10 @@ mod tests {
             status,
             FfmpegStatus::Installed { ref version, update: true, error: Some(InstallError::Checksum), .. } if version == "9.0.1"
         ));
-        assert_eq!(on_disk(&root.path().join("none"), Some(InstallError::Network)), FfmpegStatus::Missing { error: Some(InstallError::Network) });
+        assert_eq!(
+            on_disk(&root.path().join("none"), Some(InstallError::Network)),
+            FfmpegStatus::Missing { error: Some(InstallError::Network), download_size: download_size() }
+        );
     }
 
     #[test]
@@ -680,6 +699,34 @@ mod tests {
         installed(&old, "9.0.0");
         recover(&dest);
         assert_eq!(read_installed(&dest).map(|m| m.version), Some("9.0.1".into()));
+    }
+
+    #[test]
+    fn startup_clears_work_dirs_a_quit_mid_install_left() {
+        let root = tempfile::tempdir().unwrap();
+        let dest = root.path().join("ffmpeg");
+        installed(&dest, "9.0.2");
+        for d in [".ffmpeg-unpack/0", ".ffmpeg-new"] {
+            std::fs::create_dir_all(root.path().join(d)).unwrap();
+        }
+        // Quit after the second rename: the old install is no longer needed.
+        installed(&root.path().join(".ffmpeg-old"), "9.0.1");
+        recover(&dest);
+        tidy(&dest);
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+        assert_eq!(read_installed(&dest).map(|m| m.version), Some("9.0.2".into()));
+        // A stranded old install survives (restored by `recover` first, or kept if that fails).
+        installed(&root.path().join(".ffmpeg-old"), "9.0.1");
+        std::fs::remove_dir_all(&dest).unwrap();
+        tidy(&dest);
+        assert!(read_installed(&root.path().join(".ffmpeg-old")).is_some());
+    }
+
+    #[test]
+    fn download_size_sums_the_pinned_assets() {
+        assert_eq!(download_size(), assets().iter().map(|a| a.size).sum::<u64>());
+        #[cfg(target_os = "macos")]
+        assert_eq!(download_size(), 28_395_699 + 28_317_701);
     }
 
     #[test]

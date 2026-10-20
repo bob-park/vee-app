@@ -133,7 +133,8 @@ export const ko: Dict = {
       ffmpeg: {
         caption: 'FFmpeg · 영상 변환',
         title: 'FFmpeg',
-        missingHint: (mb: number) => `영상·소리 변환에 필요해요. 약 ${mb}MB`,
+        missingHint: (size: string) => `영상·소리 변환에 필요해요. 약 ${size}`,
+        mb: (n: number) => `${n}MB`,
         download: '다운로드',
         progress: (r: string, t: string, s: string) => `내려받는 중 · ${r} / ${t} MB · ${s} MB/s`,
         verifying: '내려받은 파일 확인 중…',
@@ -144,7 +145,7 @@ export const ko: Dict = {
         removeConfirm: 'FFmpeg를 삭제할까요? 다시 내려받기 전까지 영상 변환을 할 수 없어요.',
         meta: { version: '버전', size: '크기', installedAt: '설치일', path: '위치' },
         quality: '영상 기본 화질',
-        qualityHint: 'MP4 · WEBM · MOV · GIF 변환에 쓰여요',
+        qualityHint: '모든 영상 변환에 쓰여요',
         qualities: { small: '작게', normal: '보통', original: '원본' },
         errors: {
           network: '내려받지 못했어요. 연결을 확인해 주세요.',
