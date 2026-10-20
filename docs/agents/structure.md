@@ -26,10 +26,11 @@ src/
 │   ├── settings/
 │   │   ├── SettingsApp.tsx   # `settings` window
 │   │   └── _components/      # Tabs, SettingSection, Row, Segmented, Switch, Button, Dropdown, ShortcutRecorder,
-│   │                         # HistorySection, AppPicker, ConfirmModal
+│   │                         # HistorySection, ConvertSection, AppPicker, ConfirmModal
 │   ├── toast/ToastApp.tsx    # `toast` window
+│   ├── convert/ConvertApp.tsx  # `convert` window (format donut)
 │   └── whats-new/WhatsNewApp.tsx  # `whats-new` window
-├── domain/<name>/            # clip, source_app, settings, whats_new, updater, panel
+├── domain/<name>/            # clip, source_app, settings, whats_new, convert, updater, panel
 │   ├── apis/                 # <name>.ts (call() per command) + <name>.dto.ts (wire types)
 │   ├── queries/              # <name>.tsx — React Query hooks
 │   ├── components/           # domain-scoped components (all empty today: .gitkeep)
@@ -45,14 +46,17 @@ src/
 
 src-tauri/
 ├── tauri.conf.json  capabilities/default.json  icons/  vendor/drag/
+├── Info.plist  Entitlements.plist   # macOS: Apple Events usage text + entitlement (Finder folder lookup)
 └── src/
     ├── main.rs  lib.rs       # lib.rs assembles: plugins, setup, window events, generate_handler!
     ├── app/                  # shell: state, window (+ window::commands), tray, updater, watcher, shortcut,
-    │                         # sound, front_app, disk_access, i18n, autostart, retention
+    │                         # sound, front_app, disk_access, i18n, autostart, retention,
+    │                         # convert (+ convert::commands; overlay, key watch, job worker), drop_target (folder under cursor, modifier key)
     ├── domain/
     │   ├── clip/             # mod.rs · model.rs · repository.rs · commands.rs
     │   ├── source_app/       # mod.rs · model.rs · repository.rs · commands.rs
     │   ├── settings/         # mod.rs · model.rs · repository.rs · commands.rs
+    │   ├── convert/          # mod.rs · model.rs · image.rs (formats, output naming, jobs, conversion; no table, no commands.rs)
     │   └── whats_new/        # mod.rs · commands.rs (stores two keys through the settings API; no table of its own)
     └── shared/               # db.rs, error.rs, png.rs, migrations/000N_*.sql
 ```
@@ -60,6 +64,7 @@ src-tauri/
 Frontend-only domains:
 
 - `updater`: the Rust half is `app/updater.rs` (not a business domain).
+- `convert` (Rust half in `domain/convert` + `app/convert.rs`): its commands live in `app/convert.rs` → `commands` because they drive the overlay window.
 - `panel`: wrappers for the window commands in `app/window.rs` (`hide_panel`, `set_panel_pinned`, `resize_panel`, …). Only `apis/` has files.
 
 ## Adding a domain

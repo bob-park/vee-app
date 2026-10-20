@@ -19,16 +19,22 @@ related:
 | `version` | source of truth for the app version — changed only by `bump-version-up.sh` ([versioning](./workflow/versioning.md)) |
 | `productName`, `identifier` | `Vee` / `com.bobpark.vee`; release scripts depend on `productName` for file names, and the identifier names the user's data folder — never change it |
 | `app.macOSPrivateApi` | `true`, for the transparent panel/toast windows |
-| `app.windows` | `panel`, `toast`, `settings`, `whats-new`, all `create: false` (built in `setup` after state exists), all `visible: false` |
+| `app.windows` | `panel`, `toast`, `convert`, `settings`, `whats-new`, all `create: false` (built in `setup` after state exists), all `visible: false` |
 | `bundle.targets` | `app`, `dmg`, `nsis` |
+| `bundle.macOS.entitlements` | `Entitlements.plist` — `com.apple.security.automation.apple-events`, so the signed (hardened runtime) app may ask Finder for its folder |
 | `bundle.createUpdaterArtifacts` | `true` — full builds need the signing key |
 | `plugins.updater.pubkey` | public half of the updater key ([release](../release.md)) |
 | `plugins.updater.endpoints` | `…/releases/latest/download/latest.json` of `bob-park/vee-app` |
 | `plugins.updater.windows.installMode` | `passive` |
 
+## macOS plists
+
+- `src-tauri/Info.plist` is merged into the bundle's `Info.plist` by Tauri. It holds `NSAppleEventsUsageDescription`, the text macOS shows when Vee first asks to control Finder (drag-to-convert).
+- `src-tauri/Entitlements.plist` is referenced from `bundle.macOS.entitlements`. Without the Apple Events entitlement a notarized build can't send Apple Events even after the user allows it.
+
 ## Capabilities
 
-- `capabilities/default.json` lists the windows (`panel`, `toast`, `settings`, `whats-new`) and `core:default`, `dialog:default`.
+- `capabilities/default.json` lists the windows (`panel`, `toast`, `convert`, `settings`, `whats-new`) and `core:default`, `dialog:default`.
 - A plugin API **called from JS** needs its permission here. Rust-only plugin use (global-shortcut, autostart, updater) does not.
 - A new window label must be added here.
 

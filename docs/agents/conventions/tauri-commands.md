@@ -32,7 +32,7 @@ pub fn set_setting(app: AppHandle, state: State<AppState>, key: String, value: S
 - **Lock scope:** keep the `MutexGuard` inside one expression. Don't hold the DB lock across `await` or while calling code that locks again (`tray::refresh`, `retention::prune_now` read the DB).
 - **Registration:** add every command to `tauri::generate_handler![…]` in `lib.rs`. An unregistered command fails at runtime, not at compile time.
 - **Async:** use an `async` command only for real async work (`updater::check_update`).
-- **Where:** domain commands in `domain/<name>/commands.rs`; panel/window commands in `app/window.rs` → `commands`; updater, autostart, disk-access commands in their `app/` file.
+- **Where:** domain commands in `domain/<name>/commands.rs`; panel/window commands in `app/window.rs` → `commands`; updater, autostart, disk-access, convert (`convert::commands`), drop-target commands in their `app/` file.
 
 ## Frontend side
 
@@ -59,6 +59,9 @@ export async function setSetting(key: SettingKey, value: string) {
 | `panel://opened`, `panel://refocused`, `panel://closing`, `panel://closed`, `panel://drag-cancelled` | — | `app/window.rs` (to `panel` only) | `PanelApp` |
 | `toast://show` | `{ … }` toast payload | `app/window.rs` (to `toast` only) | `ToastApp` |
 | `toast://hide` | — | `app/window.rs` | `ToastApp` |
+| `convert://open` | `{ formats, name }` | `app/convert.rs` (to `convert` only) | `ConvertApp` |
+| `convert://close` | — | `app/convert.rs` (to `convert` only) | `ConvertApp` |
+| `convert://jobs` | `ConvertJob[]` | `app/convert.rs` (to `panel` only) | `useConvertJobs` (`domain/convert/queries`) |
 | `update://status` | `UpdateStatus` | `updater::set_status` | `useUpdateStatus` |
 
 - Name new events `<domain>://<event>` in kebab-case. Use `emit_to(<label>, …)` when only one window cares.
@@ -69,4 +72,4 @@ export async function setSetting(key: SettingKey, value: string) {
 
 - Plugins used only from Rust (global-shortcut, autostart, updater) need no capability.
 - A plugin called **from JS** needs its permission in `src-tauri/capabilities/default.json` (today: `dialog:default`).
-- A new window label must be added to that file's `windows` list.
+- A new window label must be added to that file's `windows` list (today: `panel`, `toast`, `convert`, `settings`, `whats-new`).
