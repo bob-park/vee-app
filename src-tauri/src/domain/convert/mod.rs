@@ -2,9 +2,11 @@
 
 mod image;
 mod model;
+mod video;
 
 use self::image::convert_image;
-pub use model::{Caps, Engine, Format, Job, JobError, JobState, JobView, Slice, DONE_MS, SHOW_AFTER_MS};
+pub use model::{Caps, Engine, Format, Job, JobError, JobState, JobView, Quality, Slice, DONE_MS, SHOW_AFTER_MS};
+pub use video::Run;
 use model::{IMAGE_TARGETS, VIDEO_TARGETS};
 
 use std::path::{Path, PathBuf};
@@ -32,7 +34,9 @@ pub fn formats_for(paths: &[PathBuf], caps: Caps) -> Vec<Slice> {
 
 /// Whether `path` has a video extension (any case).
 pub fn is_video(path: &Path) -> bool {
-    const EXTS: [&str; 12] = ["mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "flv", "mpg", "mpeg", "ts", "3gp"];
+    // No `ts`: TypeScript files share it. MPEG-TS camcorder files come as `mts`/`m2ts`.
+    const EXTS: [&str; 13] =
+        ["mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "flv", "mpg", "mpeg", "mts", "m2ts", "3gp"];
     ext_of(path).is_some_and(|e| EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
 }
 
@@ -60,13 +64,22 @@ pub fn unique_path(dir: &Path, stem: &str, ext: &str) -> PathBuf {
 }
 
 /// Converts `src` into `tmp`, then moves the result to a free `dir/stem.<ext>` and returns that path.
-/// The source is never touched and the temp file never outlives the call.
-pub fn run(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path) -> Result<PathBuf, JobError> {
+/// Video sources go through FFmpeg (`ctx.ffmpeg`, `Engine` when missing), images through the image engine.
+/// The source is never touched and the temp file never outlives the call (error and cancel included).
+pub fn run(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path, ctx: &mut Run) -> Result<PathBuf, JobError> {
     if !src.is_file() {
         return Err(JobError::Missing);
     }
     let staged = unique_path(tmp, stem, to.ext());
-    let result = convert_image(src, to, &staged).and_then(|()| {
+    let converted = if is_video(src) {
+        match ctx.ffmpeg {
+            Some((ffmpeg, ffprobe)) => video::convert(src, to, &staged, ffmpeg, ffprobe, ctx),
+            None => Err(JobError::Engine),
+        }
+    } else {
+        convert_image(src, to, &staged)
+    };
+    let result = converted.and_then(|()| {
         let out = unique_path(dir, stem, to.ext());
         move_file(&staged, &out).map(|()| out).map_err(|e| {
             log::warn!("convert: moving {} into {} failed: {e}", staged.display(), dir.display());
@@ -145,6 +158,19 @@ pub fn prune(jobs: &mut Vec<Job>, now: i64) {
 mod tests {
     use super::*;
     use super::image::tests::tiny_png;
+    use std::sync::atomic::AtomicBool;
+
+    /// `run` for an image source: no FFmpeg, never cancelled.
+    fn run_image(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path) -> Result<PathBuf, JobError> {
+        let cancel = AtomicBool::new(false);
+        run(src, stem, to, dir, tmp, &mut Run { ffmpeg: None, quality: Quality::Normal, cancel: &cancel, progress: &mut |_| {} })
+    }
+
+    #[test]
+    fn typescript_files_are_not_videos() {
+        assert!(formats_for(&[PathBuf::from("a.ts")], Caps { heic: true, ffmpeg: true }).is_empty());
+        assert!(is_video(Path::new("a.MTS")) && is_video(Path::new("a.m2ts")));
+    }
 
     /// Image-rule formats, with FFmpeg missing (image slices never need it).
     fn formats(paths: &[PathBuf], heic: bool) -> Vec<Format> {
@@ -233,7 +259,7 @@ mod tests {
         let src = src_dir.path().join("p.png");
         std::fs::write(&src, tiny_png()).unwrap();
         std::fs::write(dst.path().join("p.jpg"), b"old").unwrap();
-        let out = run(&src, "p", Format::Jpg, dst.path(), tmp.path()).unwrap();
+        let out = run_image(&src, "p", Format::Jpg, dst.path(), tmp.path()).unwrap();
         assert_eq!(out, dst.path().join("p (1).jpg"));
         assert_eq!(std::fs::read(dst.path().join("p.jpg")).unwrap(), b"old");
         assert_eq!(std::fs::read(&src).unwrap(), tiny_png());
@@ -243,7 +269,7 @@ mod tests {
     #[test]
     fn run_reports_a_missing_source() {
         let d = tempfile::tempdir().unwrap();
-        assert_eq!(run(&d.path().join("gone.png"), "gone", Format::Jpg, d.path(), d.path()), Err(JobError::Missing));
+        assert_eq!(run_image(&d.path().join("gone.png"), "gone", Format::Jpg, d.path(), d.path()), Err(JobError::Missing));
     }
 
     #[test]
@@ -252,7 +278,7 @@ mod tests {
         let src = src_dir.path().join("p.png");
         std::fs::write(&src, tiny_png()).unwrap();
         let missing_dir = src_dir.path().join("no/such/dir");
-        assert_eq!(run(&src, "p", Format::Jpg, &missing_dir, tmp.path()), Err(JobError::Write));
+        assert_eq!(run_image(&src, "p", Format::Jpg, &missing_dir, tmp.path()), Err(JobError::Write));
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
     }
 

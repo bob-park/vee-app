@@ -28,6 +28,7 @@ pub struct SettingsDto {
     pub ocr: String,
     pub drag_convert: String,
     pub convert_key: String,
+    pub video_quality: String,
     pub autostart: bool,
     pub version: String,
 }

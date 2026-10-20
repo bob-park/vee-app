@@ -16,7 +16,8 @@ export type SettingKey =
   | 'resetSearchShortcut'
   | 'ocr'
   | 'dragConvert'
-  | 'convertKey';
+  | 'convertKey'
+  | 'videoQuality';
 
 export interface Settings {
   theme: 'system' | 'light' | 'dark';
@@ -37,6 +38,8 @@ export interface Settings {
   /** Holding `convertKey` while dragging a card out converts it into the folder under the cursor. */
   dragConvert: 'on' | 'off';
   convertKey: 'alt' | 'ctrl' | 'shift';
+  /** FFmpeg encoding quality for video conversions. */
+  videoQuality: 'small' | 'normal' | 'original';
   autostart: boolean;
   version: string;
 }

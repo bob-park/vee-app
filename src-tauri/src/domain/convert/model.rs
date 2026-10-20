@@ -102,6 +102,36 @@ pub enum JobError {
     Engine,
     /// The output could not be written to the destination folder.
     Write,
+    /// The user cancelled a running video job. Never shown: the worker drops the job.
+    Cancelled,
+}
+
+/// Video encoding quality (the `videoQuality` setting).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Quality {
+    Small,
+    Normal,
+    Original,
+}
+
+impl Quality {
+    /// The setting value; anything unknown is `Normal`.
+    pub fn parse(value: &str) -> Quality {
+        match value {
+            "small" => Quality::Small,
+            "original" => Quality::Original,
+            _ => Quality::Normal,
+        }
+    }
+
+    /// Picks the value for this quality from a `[small, normal, original]` triple.
+    pub fn pick<T>(self, [small, normal, original]: [T; 3]) -> T {
+        match self {
+            Quality::Small => small,
+            Quality::Normal => normal,
+            Quality::Original => original,
+        }
+    }
 }
 
 /// A queued or running job shows in the panel only after this long, so quick ones never flash.

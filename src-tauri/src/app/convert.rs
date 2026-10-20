@@ -8,7 +8,7 @@ use crate::{
     },
     domain::{
         clip::Kind,
-        convert::{self, Caps, Format, Job, JobError, JobState, JobView, Slice},
+        convert::{self, Caps, Format, Job, JobError, JobState, JobView, Quality, Run, Slice},
         settings,
     },
     shared::error::{AppError, AppResult},
@@ -16,7 +16,7 @@ use crate::{
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
@@ -276,13 +276,23 @@ fn work(app: &AppHandle, id: u64) {
     let Some((files, format, dir, start)) = picked else { return };
     publish(app);
     let tmp = std::env::temp_dir().join("vee-convert");
+    // ponytail: no FFmpeg or cancel until Task 4 wires them; video jobs fail with `Engine` meanwhile.
+    let cancel = AtomicBool::new(false);
+    let quality = Quality::parse(&settings::get(&app.state::<AppState>().db.lock().unwrap(), "videoQuality"));
+    let mut ctx = Run { ffmpeg: None, quality, cancel: &cancel, progress: &mut |_| {} };
     let mut failed: Option<(JobError, &Path)> = None;
     // A retried job resumes at the file that failed; the ones before it are already saved.
     for (i, src) in files.iter().enumerate().skip(start) {
         let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Vee".into());
         let result = std::fs::create_dir_all(&tmp)
             .map_err(|_| JobError::Write)
-            .and_then(|()| convert::run(src, &stem, format, &dir, &tmp));
+            .and_then(|()| convert::run(src, &stem, format, &dir, &tmp, &mut ctx));
+        if result == Err(JobError::Cancelled) {
+            // Cancelled by the user: drop the job without a toast.
+            c.jobs.lock().unwrap().list.retain(|j| j.id != id);
+            publish(app);
+            return;
+        }
         if let Err(e) = result {
             log::warn!("convert job {id} failed on file {}: {e:?}", i + 1);
             failed = Some((e, src));

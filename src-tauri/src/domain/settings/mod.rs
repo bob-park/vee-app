@@ -24,6 +24,7 @@ pub fn get(conn: &Connection, key: &str) -> String {
         "confirmDelete" => "off",
         "retention" | "panelResize" => "off",
         "dragConvert" => "on",
+        "videoQuality" => "normal",
         "convertKey" => if cfg!(target_os = "macos") { "alt" } else { "ctrl" },
         _ => "",
     };
@@ -78,6 +79,7 @@ fn validate(key: &str, value: &str) -> AppResult<()> {
         "retention" => matches!(value, "off" | "7" | "30" | "90"),
         "panelResize" | "ocr" | "dragConvert" => matches!(value, "on" | "off"),
         "convertKey" => matches!(value, "alt" | "ctrl" | "shift"),
+        "videoQuality" => matches!(value, "small" | "normal" | "original"),
         // Modifiers and a key code joined by `+`, as built by the settings recorder.
         "panelPinShortcut" | "resetSearchShortcut" => {
             value.contains('+') && value.split('+').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric()))
@@ -216,6 +218,11 @@ mod tests {
         assert!(validate("convertKey", "cmd").is_err());
         assert!(validate("dragConvert", "off").is_ok());
         assert!(validate("dragConvert", "yes").is_err());
+        assert_eq!(get(&conn, "videoQuality"), "normal");
+        for v in ["small", "normal", "original"] {
+            assert!(validate("videoQuality", v).is_ok());
+        }
+        assert!(validate("videoQuality", "best").is_err());
     }
 
     #[test]
