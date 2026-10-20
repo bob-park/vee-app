@@ -130,8 +130,8 @@ function FfmpegSection({ settings, run, updateSetting }: Props) {
                   : ffmpeg.stage === 'unpack'
                     ? f.unpacking
                     : f.progress(
-                        String(Math.round(ffmpeg.received / MB)),
-                        String(Math.round(ffmpeg.total / MB)),
+                        (ffmpeg.received / MB).toFixed(1),
+                        (ffmpeg.total / MB).toFixed(1),
                         (ffmpeg.speed / MB).toFixed(1),
                       )
               }
