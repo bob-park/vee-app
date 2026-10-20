@@ -1,8 +1,10 @@
 //! Convert domain: which image formats a dragged card can become, and where the output goes.
 
+mod image;
 mod model;
 
-pub use model::{Format, TARGETS};
+use self::image::convert_image;
+pub use model::{Format, JobError, TARGETS};
 
 use std::path::{Path, PathBuf};
 
@@ -28,9 +30,40 @@ pub fn unique_path(dir: &Path, stem: &str, ext: &str) -> PathBuf {
     (1..).map(|n| dir.join(format!("{stem} ({n}).{ext}"))).find(|p| !p.exists()).unwrap()
 }
 
+/// Converts `src` into `tmp`, then moves the result to a free `dir/stem.<ext>` and returns that path.
+/// The source is never touched and the temp file never outlives the call.
+pub fn run(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path) -> Result<PathBuf, JobError> {
+    if !src.is_file() {
+        return Err(JobError::Missing);
+    }
+    let staged = unique_path(tmp, stem, to.ext());
+    let result = convert_image(src, to, &staged).and_then(|()| {
+        let out = unique_path(dir, stem, to.ext());
+        move_file(&staged, &out).map(|()| out).map_err(|e| {
+            log::warn!("convert: moving {} into {} failed: {e}", staged.display(), dir.display());
+            JobError::Write
+        })
+    });
+    if result.is_err() {
+        let _ = std::fs::remove_file(&staged);
+    }
+    result
+}
+
+/// Rename, or copy + remove when `from` and `to` are on different volumes.
+fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::rename(from, to).or_else(|_| {
+        std::fs::copy(from, to).inspect_err(|_| {
+            let _ = std::fs::remove_file(to);
+        })?;
+        std::fs::remove_file(from)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::image::tests::tiny_png;
 
     #[test]
     fn formats_leave_out_the_source_format() {
@@ -65,5 +98,34 @@ mod tests {
         std::fs::write(dir.path().join("a (1).png"), b"2").unwrap();
         assert_eq!(unique_path(dir.path(), "a", "png"), dir.path().join("a (2).png"));
         assert_eq!(std::fs::read(dir.path().join("a.png")).unwrap(), b"1");
+    }
+
+    #[test]
+    fn run_moves_the_output_and_never_touches_the_source() {
+        let (src_dir, dst, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let src = src_dir.path().join("p.png");
+        std::fs::write(&src, tiny_png()).unwrap();
+        std::fs::write(dst.path().join("p.jpg"), b"old").unwrap();
+        let out = run(&src, "p", Format::Jpg, dst.path(), tmp.path()).unwrap();
+        assert_eq!(out, dst.path().join("p (1).jpg"));
+        assert_eq!(std::fs::read(dst.path().join("p.jpg")).unwrap(), b"old");
+        assert_eq!(std::fs::read(&src).unwrap(), tiny_png());
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn run_reports_a_missing_source() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(run(&d.path().join("gone.png"), "gone", Format::Jpg, d.path(), d.path()), Err(JobError::Missing));
+    }
+
+    #[test]
+    fn run_reports_an_unwritable_folder_and_cleans_up() {
+        let (src_dir, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let src = src_dir.path().join("p.png");
+        std::fs::write(&src, tiny_png()).unwrap();
+        let missing_dir = src_dir.path().join("no/such/dir");
+        assert_eq!(run(&src, "p", Format::Jpg, &missing_dir, tmp.path()), Err(JobError::Write));
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
     }
 }

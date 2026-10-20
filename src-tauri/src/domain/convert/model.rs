@@ -45,3 +45,15 @@ impl Format {
         }
     }
 }
+
+/// Why one conversion job failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum JobError {
+    /// The source file is gone.
+    Missing,
+    /// The engine could not read or convert it.
+    Engine,
+    /// The output could not be written to the destination folder.
+    Write,
+}
