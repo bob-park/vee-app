@@ -33,6 +33,7 @@ export const en = {
   restart: 'Restart',
   updateFailed: "Couldn't update",
   whatsNew: { title: "What's new in Vee", ok: 'OK' },
+  convert: { dropHint: 'Drop on a format' },
   settings: {
     title: 'Settings',
     tabs: { general: 'General', panel: 'Panel', shortcuts: 'Shortcuts', history: 'History' },

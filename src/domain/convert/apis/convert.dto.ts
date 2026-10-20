@@ -7,3 +7,16 @@ export type ConvertNote =
   | { type: 'failed'; name: string }
   | { type: 'notFolder'; finderBlocked: boolean }
   | { type: 'unsupported' };
+
+/** One conversion in the panel's job list; mirrors Rust `JobView`. */
+export interface ConvertJob {
+  id: number;
+  clipId: number;
+  format: Format;
+  state: 'queued' | 'running' | 'done' | 'failed';
+  position: number;
+  done: number;
+  total: number;
+  folder: string;
+  error: 'missing' | 'engine' | 'write' | null;
+}
