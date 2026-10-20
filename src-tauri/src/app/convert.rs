@@ -39,6 +39,8 @@ pub enum ConvertNote {
 
 /// The card being dragged. Survives `finish_drag` so the overlay's drop (which arrives later) can take it.
 struct Session {
+    /// The drag it belongs to (`Convert::drag`); a stale key watch leaves a newer session alone.
+    generation: u64,
     clip_id: i64,
     files: Vec<PathBuf>,
     formats: Vec<Format>,
@@ -46,6 +48,36 @@ struct Session {
     dir: Option<PathBuf>,
     /// A "not a folder" / "unsupported" toast was already shown this drag.
     noted: bool,
+    /// `finish_drag` saw the drag end on the open overlay, so `convert_drop` may take it.
+    dropped: bool,
+}
+
+/// The session of drag `generation`, if it is still the current one.
+fn of_drag(slot: &mut Option<Session>, generation: u64) -> Option<&mut Session> {
+    slot.as_mut().filter(|s| s.generation == generation)
+}
+
+/// After a drag ends: keep the session for the overlay's drop only if it landed there with a folder.
+fn mark_drop(slot: &mut Option<Session>, on_overlay: bool) {
+    match slot.as_mut() {
+        Some(s) if on_overlay && s.dir.is_some() => s.dropped = true,
+        _ => *slot = None,
+    }
+}
+
+/// Takes the session for a drop on `format`'s slice; anything else leaves it alone.
+fn take_drop(slot: &mut Option<Session>, format: &str) -> AppResult<(Session, Format, PathBuf)> {
+    let format = TARGETS.into_iter().find(|f| f.ext() == format);
+    let ready = slot.as_ref().is_some_and(|s| s.dropped && s.dir.is_some());
+    let (true, Some(format)) = (ready, format) else {
+        return Err(AppError::InvalidInput("no convert drop pending".into()));
+    };
+    if !slot.as_ref().is_some_and(|s| s.formats.contains(&format)) {
+        return Err(AppError::InvalidInput(format!("can't convert to {}", format.ext())));
+    }
+    let mut s = slot.take().expect("checked above");
+    let dir = s.dir.take().expect("checked above");
+    Ok((s, format, dir))
 }
 
 #[derive(Default)]
@@ -92,7 +124,7 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
         return;
     };
     let formats = convert::formats_for(&files, cfg!(target_os = "macos"));
-    *c.session.lock().unwrap() = Some(Session { clip_id, files, formats, dir: None, noted: false });
+    *c.session.lock().unwrap() = Some(Session { generation, clip_id, files, formats, dir: None, noted: false, dropped: false });
     let app = app.clone();
     std::thread::spawn(move || {
         let (c, state) = (app.state::<Convert>(), app.state::<AppState>());
@@ -101,7 +133,7 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
             let down = drop_target::key_down(&key);
             if down != held {
                 held = down;
-                if down { open_at(&app) } else { close(&app) }
+                if down { open_at(&app, generation) } else { close(&app) }
             }
             std::thread::sleep(Duration::from_millis(KEY_POLL_MS));
         }
@@ -109,21 +141,21 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
 }
 
 /// Looks up the folder under the cursor and opens the overlay there, or says why not (once per drag).
-fn open_at(app: &AppHandle) {
+fn open_at(app: &AppHandle, generation: u64) {
     let Some(point) = window::cursor_at(app) else { return };
     let c = app.state::<Convert>();
-    let unsupported = c.session.lock().unwrap().as_ref().is_none_or(|s| s.formats.is_empty());
+    let unsupported = of_drag(&mut c.session.lock().unwrap(), generation).is_none_or(|s| s.formats.is_empty());
     let note = if unsupported {
         ConvertNote::Unsupported
     } else {
         match drop_target::folder_at(point) {
             DropFolder::Folder(dir) => {
-                let open = c.session.lock().unwrap().as_mut().map(|s| {
+                let open = of_drag(&mut c.session.lock().unwrap(), generation).map(|s| {
                     s.dir = Some(dir);
                     Open { formats: s.formats.clone(), name: file_name(&s.files[0]) }
                 });
                 if let Some(open) = open {
-                    show(app, point, open);
+                    show(app, generation, point, open);
                 }
                 return;
             }
@@ -131,7 +163,7 @@ fn open_at(app: &AppHandle) {
             DropFolder::FinderBlocked => ConvertNote::NotFolder { finder_blocked: true },
         }
     };
-    let (first, files) = match c.session.lock().unwrap().as_mut() {
+    let (first, files) = match of_drag(&mut c.session.lock().unwrap(), generation) {
         Some(s) => (!std::mem::replace(&mut s.noted, true), s.files.len()),
         None => (false, 0),
     };
@@ -147,10 +179,15 @@ struct Open {
     name: String,
 }
 
-fn show(app: &AppHandle, (x, y): (f64, f64), open: Open) {
+/// Drag `generation` is still going.
+fn live(app: &AppHandle, generation: u64) -> bool {
+    app.state::<AppState>().dragging.load(Ordering::SeqCst) && app.state::<Convert>().drag.load(Ordering::SeqCst) == generation
+}
+
+fn show(app: &AppHandle, generation: u64, (x, y): (f64, f64), open: Open) {
     let Some(overlay) = app.get_webview_window(CONVERT) else { return };
     // A key press that lands after the drop must not leave the overlay up.
-    if !app.state::<AppState>().dragging.load(Ordering::SeqCst) {
+    if !live(app, generation) {
         return;
     }
     // Positioning units per design point: 1 on macOS, the monitor scale on Windows (as for the toast).
@@ -159,6 +196,11 @@ fn show(app: &AppHandle, (x, y): (f64, f64), open: Open) {
     let _ = window::place(&overlay, Rect { x: x - side / 2.0, y: y - side / 2.0, w: side, h: side });
     let _ = app.emit_to(CONVERT, "convert://open", open);
     let _ = overlay.show();
+    // The drag may have ended while showing; `finish_drag`'s hide would then come before this show.
+    // Both go through the main loop in order, so a hide sent now lands after it.
+    if !live(app, generation) {
+        close(app);
+    }
 }
 
 fn close(app: &AppHandle) {
@@ -169,6 +211,7 @@ fn close(app: &AppHandle) {
 }
 
 /// Whether the drag just ended over the open overlay, by the live cursor. Always hides the overlay.
+/// Keeps the session for the overlay's drop on a hit, and forgets it otherwise.
 pub fn dropped_on_overlay(app: &AppHandle) -> bool {
     let hit = (|| {
         let overlay = app.get_webview_window(CONVERT)?;
@@ -180,20 +223,14 @@ pub fn dropped_on_overlay(app: &AppHandle) -> bool {
     })()
     .unwrap_or(false);
     close(app);
+    mark_drop(&mut app.state::<Convert>().session.lock().unwrap(), hit);
     hit
 }
 
 /// Queues the dragged card for `format` into the folder the overlay opened over.
 fn drop_on(app: &AppHandle, format: &str) -> AppResult<()> {
     let c = app.state::<Convert>();
-    let session = c.session.lock().unwrap().take();
-    let format = TARGETS.into_iter().find(|f| f.ext() == format);
-    let (Some(s), Some(format)) = (session, format) else {
-        return Err(AppError::InvalidInput("no convert drop pending".into()));
-    };
-    let Some(dir) = s.dir.filter(|_| s.formats.contains(&format)) else {
-        return Err(AppError::InvalidInput(format!("can't convert to {}", format.ext())));
-    };
+    let (s, format, dir) = take_drop(&mut c.session.lock().unwrap(), format)?;
     let id = {
         let mut jobs = c.jobs.lock().unwrap();
         jobs.next_id += 1;
@@ -388,5 +425,53 @@ mod tests {
         jobs.list[1].ended = Some(now_ms() - 5000);
         assert!(!snapshot(&mut jobs).1);
         assert_eq!(jobs.list.len(), 1);
+    }
+
+    fn session(generation: u64, dir: Option<&str>) -> Option<Session> {
+        Some(Session {
+            generation,
+            clip_id: 1,
+            files: vec![PathBuf::from("/a/p.png")],
+            formats: vec![Format::Jpg],
+            dir: dir.map(PathBuf::from),
+            noted: false,
+            dropped: false,
+        })
+    }
+
+    #[test]
+    fn a_stale_watch_leaves_a_newer_session_alone() {
+        let mut slot = session(2, None);
+        assert!(of_drag(&mut slot, 1).is_none());
+        assert!(of_drag(&mut slot, 2).is_some());
+    }
+
+    #[test]
+    fn only_a_drop_on_the_open_overlay_keeps_the_session() {
+        let mut slot = session(1, Some("/out"));
+        mark_drop(&mut slot, false);
+        assert!(slot.is_none());
+        // Never opened (no folder): nothing for convert_drop either.
+        let mut slot = session(1, None);
+        mark_drop(&mut slot, true);
+        assert!(slot.is_none());
+        let mut slot = session(1, Some("/out"));
+        mark_drop(&mut slot, true);
+        assert!(slot.as_ref().unwrap().dropped);
+    }
+
+    #[test]
+    fn convert_drop_takes_only_a_dropped_session_with_that_format() {
+        // The next drag's session, not dropped yet: a stray convert_drop must not take it.
+        let mut slot = session(2, Some("/out"));
+        assert!(take_drop(&mut slot, "jpg").is_err());
+        assert!(slot.is_some());
+        slot.as_mut().unwrap().dropped = true;
+        assert!(take_drop(&mut slot, "png").is_err());
+        assert!(take_drop(&mut slot, "nope").is_err());
+        assert!(slot.is_some());
+        let (s, format, dir) = take_drop(&mut slot, "jpg").unwrap();
+        assert_eq!((s.clip_id, format, dir), (1, Format::Jpg, PathBuf::from("/out")));
+        assert!(slot.is_none());
     }
 }
