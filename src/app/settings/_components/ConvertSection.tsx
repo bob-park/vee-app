@@ -244,7 +244,10 @@ function LibreOfficeSection({ run }: { run: Props['run'] }) {
     <>
       <Caption>{l.caption}</Caption>
       <SettingSection>
-        <Row label={l.title} hint={!libreOffice ? l.hint : version ? l.version(version) : undefined}>
+        <Row
+          label={l.title}
+          hint={isLoading ? undefined : !libreOffice ? l.hint : version ? l.version(version) : undefined}
+        >
           {isLoading ? null : libreOffice ? (
             <span className={BADGE}>{l.found}</span>
           ) : (

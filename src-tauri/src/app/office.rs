@@ -82,9 +82,11 @@ pub mod commands {
     #[tauri::command]
     pub fn open_libreoffice_download() -> AppResult<()> {
         #[cfg(windows)]
-        command(Path::new("cmd")).args(["/c", "start", "", DOWNLOAD_PAGE]).spawn()?;
+        let mut child = command(Path::new("cmd")).args(["/c", "start", "", DOWNLOAD_PAGE]).spawn()?;
         #[cfg(not(windows))]
-        command(Path::new("open")).arg(DOWNLOAD_PAGE).spawn()?;
+        let mut child = command(Path::new("open")).arg(DOWNLOAD_PAGE).spawn()?;
+        // Reap the opener off the main thread so no zombie is left per click.
+        std::thread::spawn(move || child.wait());
         Ok(())
     }
 }

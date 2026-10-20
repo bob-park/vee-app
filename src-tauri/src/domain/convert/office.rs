@@ -65,7 +65,8 @@ pub fn textutil_args(src: &Path, to: Format, out: &Path) -> Option<Vec<OsString>
         Format::Docx => "docx",
         _ => return None,
     };
-    Some(vec!["-convert".into(), format.into(), "-output".into(), out.into(), src.into()])
+    // `-noload`: HTML never fetches its linked images or CSS, so a local conversion stays offline.
+    Some(vec!["-noload".into(), "-convert".into(), format.into(), "-output".into(), out.into(), src.into()])
 }
 
 /// Converts `src` to `to` with LibreOffice into a fresh dir under `tmp`, then moves it to `out`.
@@ -141,9 +142,9 @@ mod tests {
     #[test]
     fn textutil_args_per_target() {
         let a = |to| textutil_args(Path::new("/i/a.rtf"), to, Path::new("/o/a.x")).map(strings);
-        assert_eq!(a(Format::Txt).unwrap(), ["-convert", "txt", "-output", "/o/a.x", "/i/a.rtf"]);
+        assert_eq!(a(Format::Txt).unwrap(), ["-noload", "-convert", "txt", "-output", "/o/a.x", "/i/a.rtf"]);
         for (to, v) in [(Format::Rtf, "rtf"), (Format::Html, "html"), (Format::Docx, "docx")] {
-            assert_eq!(a(to).unwrap()[1], v);
+            assert_eq!(a(to).unwrap()[2], v);
         }
         assert_eq!(a(Format::Pdf), None);
     }
