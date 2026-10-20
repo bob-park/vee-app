@@ -38,3 +38,11 @@ export function labelAt(i: number, count: number) {
   const m = (DONUT.outer + DONUT.inner) / 2;
   return { x: +(m * Math.cos(a)).toFixed(2), y: +(m * Math.sin(a)).toFixed(2) };
 }
+
+/**
+ * A drag-drop `position` in CSS px. Tauri labels it physical, but on macOS wry passes the
+ * webview's own point coordinates; only Windows sends device pixels.
+ */
+export function dropPoint(p: { x: number; y: number }, dpr: number, points: boolean) {
+  return points ? { x: p.x, y: p.y } : { x: p.x / dpr, y: p.y / dpr };
+}

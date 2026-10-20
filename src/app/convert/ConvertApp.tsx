@@ -3,11 +3,13 @@ import { useEffect, useRef, useState } from 'react';
 import { convertDrop } from '@/domain/convert/apis/convert';
 import type { Format } from '@/domain/convert/apis/convert.dto';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
-import { DONUT, labelAt, sliceAt, slicePath } from '@/utils/donut';
+import { DONUT, dropPoint, labelAt, sliceAt, slicePath } from '@/utils/donut';
 
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import cx from 'classnames';
+
+const isMac = navigator.userAgent.includes('Mac');
 
 interface OpenPayload {
   formats: Format[];
@@ -41,7 +43,8 @@ export default function ConvertApp() {
       const p = e.payload;
       if (p.type === 'leave') return setHot(null);
       const formats = formatsRef.current;
-      const i = sliceAt(p.position.x / devicePixelRatio, p.position.y / devicePixelRatio, formats.length);
+      const { x, y } = dropPoint(p.position, devicePixelRatio, isMac);
+      const i = sliceAt(x, y, formats.length);
       if (p.type !== 'drop') return setHot(i);
       setHot(null);
       // Rejects when Rust has no pending drop for it (a stale or replaced drag); nothing to show.
