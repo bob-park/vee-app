@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
@@ -78,10 +79,10 @@ pub enum InstallError {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum FfmpegStatus {
-    Missing,
+    /// `error`: why the last download failed; cleared by the next one.
+    Missing { error: Option<InstallError> },
     Downloading { received: u64, total: u64, speed: u64, stage: Stage },
-    Installed { version: String, size: u64, installed_at: i64, path: String, update: bool },
-    Failed { reason: InstallError },
+    Installed { version: String, size: u64, installed_at: i64, path: String, update: bool, error: Option<InstallError> },
 }
 
 /// `meta.json` in the install dir.
@@ -143,8 +144,33 @@ fn remove_dir(path: &Path) {
     }
 }
 
+/// The work dirs next to `dest`: unpack, staged new install, and the old install during a swap.
+fn siblings(dest: &Path) -> Result<[PathBuf; 3], InstallError> {
+    let parent = dest.parent().ok_or(InstallError::Disk)?;
+    let name = dest.file_name().ok_or(InstallError::Disk)?.to_string_lossy();
+    Ok(["unpack", "new", "old"].map(|s| parent.join(format!(".{name}-{s}"))))
+}
+
+/// `old` holds the only usable install: a swap failed and couldn't roll back.
+fn stranded(dest: &Path, old: &Path) -> bool {
+    read_installed(dest).is_none() && read_installed(old).is_some()
+}
+
+/// Puts back an old install that a failed swap left next to `dest`. Call at startup.
+pub fn recover(dest: &Path) {
+    let Ok([.., old]) = siblings(dest) else { return };
+    if stranded(dest, &old) {
+        remove_dir(dest);
+        match std::fs::rename(&old, dest) {
+            Ok(()) => log::info!("engines: restored the previous FFmpeg install"),
+            Err(e) => log::warn!("engines: couldn't restore the previous FFmpeg install from {}: {e}", old.display()),
+        }
+    }
+}
+
 /// Verifies every archive, unpacks them, and swaps the binaries into `dest` with a fresh `meta.json`.
-/// On any error `dest` is left as it was and the sibling work dirs are removed.
+/// On any error `dest` is left as it was and the work dirs are removed, except an old install a
+/// failed rollback left in `.<name>-old` (restored by `recover`).
 pub fn install_from(
     archives: &[(PathBuf, &Asset)],
     unpack: impl Fn(&Path, &Path) -> io::Result<()>,
@@ -152,22 +178,28 @@ pub fn install_from(
     version: &str,
     now: i64,
 ) -> Result<(), InstallError> {
+    recover(dest);
+    let [work, staged, old] = siblings(dest)?;
+    if stranded(dest, &old) {
+        // `recover` couldn't put it back; don't risk the only install.
+        return Err(InstallError::Disk);
+    }
     for (path, asset) in archives {
         if sha256_file(path).map_err(disk)? != asset.sha256 {
             log::warn!("engines: checksum mismatch for {}", asset.url);
             return Err(InstallError::Checksum);
         }
     }
-    let parent = dest.parent().ok_or(InstallError::Disk)?;
-    let name = dest.file_name().ok_or(InstallError::Disk)?.to_string_lossy();
-    let (work, staged, old) =
-        (parent.join(format!(".{name}-unpack")), parent.join(format!(".{name}-new")), parent.join(format!(".{name}-old")));
     for d in [&work, &staged, &old] {
         remove_dir(d);
     }
     let result = stage(archives, &unpack, &work, &staged, version, now).and_then(|()| swap(&staged, dest, &old));
-    for d in [&work, &staged, &old] {
-        remove_dir(d);
+    remove_dir(&work);
+    remove_dir(&staged);
+    if stranded(dest, &old) {
+        log::warn!("engines: keeping the previous FFmpeg install in {}", old.display());
+    } else {
+        remove_dir(&old);
     }
     result
 }
@@ -218,8 +250,8 @@ fn swap(staged: &Path, dest: &Path, old: &Path) -> Result<(), InstallError> {
         std::fs::rename(dest, old).map_err(disk)?;
     }
     if let Err(e) = std::fs::rename(staged, dest) {
-        if had {
-            let _ = std::fs::rename(old, dest);
+        if had && let Err(back) = std::fs::rename(old, dest) {
+            log::warn!("engines: rolling back the FFmpeg swap failed: {back}");
         }
         return Err(disk(e));
     }
@@ -230,16 +262,36 @@ fn swap(staged: &Path, dest: &Path, old: &Path) -> Result<(), InstallError> {
 
 pub struct Engines {
     dir: PathBuf,
+    /// `<temp>/vee-ffmpeg-download-<identifier>`, so a dev build and the installed app don't share it.
+    tmp: PathBuf,
     status: Mutex<FfmpegStatus>,
-    /// The running download's cancel flag and the status to restore on cancel.
-    download: Mutex<Option<(Arc<AtomicBool>, FfmpegStatus)>>,
+    /// The running download's cancel flag.
+    cancel: Mutex<Option<Arc<AtomicBool>>>,
+    /// The running curl, killed on cancel and on app exit.
+    curl: Mutex<Option<Child>>,
 }
 
 /// Manages the engine state. Call once in setup, before any window is built.
+/// Clears a download left by a previous run and restores an install a failed swap left aside.
 pub fn manage(app: &AppHandle, data_dir: &Path) {
     let dir = data_dir.join("engines").join("ffmpeg");
-    let status = Mutex::new(on_disk(&dir));
-    app.manage(Engines { dir, status, download: Mutex::new(None) });
+    let tmp = std::env::temp_dir().join(format!("vee-ffmpeg-download-{}", app.config().identifier));
+    remove_dir(&tmp);
+    recover(&dir);
+    let status = Mutex::new(on_disk(&dir, None));
+    app.manage(Engines { dir, tmp, status, cancel: Mutex::new(None), curl: Mutex::new(None) });
+}
+
+/// Stops a running download and removes its temp dir. Call on app exit.
+pub fn shutdown(app: &AppHandle) {
+    let Some(e) = app.try_state::<Engines>() else { return };
+    if let Some(cancel) = &*e.cancel.lock().unwrap() {
+        cancel.store(true, Ordering::SeqCst);
+    }
+    if let Some(mut child) = e.curl.lock().unwrap().take() {
+        stop(&mut child);
+    }
+    remove_dir(&e.tmp);
 }
 
 /// `(ffmpeg, ffprobe)` when both are installed.
@@ -250,7 +302,8 @@ pub fn ffmpeg(app: &AppHandle) -> Option<(PathBuf, PathBuf)> {
     Some((dir.join(ffmpeg), dir.join(ffprobe)))
 }
 
-fn on_disk(dir: &Path) -> FfmpegStatus {
+/// What is installed in `dir`, with the last download's `error` attached.
+pub fn on_disk(dir: &Path, error: Option<InstallError>) -> FfmpegStatus {
     match read_installed(dir) {
         Some(m) => FfmpegStatus::Installed {
             update: m.version != FFMPEG_VERSION,
@@ -258,8 +311,9 @@ fn on_disk(dir: &Path) -> FfmpegStatus {
             size: m.size,
             installed_at: m.installed_at,
             path: dir.to_string_lossy().into_owned(),
+            error,
         },
-        None => FfmpegStatus::Missing,
+        None => FfmpegStatus::Missing { error },
     }
 }
 
@@ -283,12 +337,12 @@ impl From<InstallError> for Stop {
 fn download(app: &AppHandle) {
     let e = app.state::<Engines>();
     let cancel = {
-        let mut slot = e.download.lock().unwrap();
+        let mut slot = e.cancel.lock().unwrap();
         if slot.is_some() {
             return;
         }
         let cancel = Arc::new(AtomicBool::new(false));
-        *slot = Some((cancel.clone(), e.status.lock().unwrap().clone()));
+        *slot = Some(cancel.clone());
         cancel
     };
     let total = assets().iter().map(|a| a.size).sum();
@@ -296,18 +350,14 @@ fn download(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         let e = app.state::<Engines>();
-        let tmp = std::env::temp_dir().join("vee-ffmpeg-download");
-        let result = fetch_and_install(&app, &e.dir, &tmp, total, &cancel);
-        remove_dir(&tmp);
-        let previous = e.download.lock().unwrap().take().map(|(_, s)| s);
-        set(
-            &app,
-            match result {
-                Ok(()) => on_disk(&e.dir),
-                Err(Stop::Cancelled) => previous.unwrap_or_else(|| on_disk(&e.dir)),
-                Err(Stop::Failed(reason)) => FfmpegStatus::Failed { reason },
-            },
-        );
+        let result = fetch_and_install(&app, &e.dir, &e.tmp, total, &cancel);
+        remove_dir(&e.tmp);
+        *e.cancel.lock().unwrap() = None;
+        let error = match result {
+            Err(Stop::Failed(reason)) => Some(reason),
+            Ok(()) | Err(Stop::Cancelled) => None,
+        };
+        set(&app, on_disk(&e.dir, error));
     });
 }
 
@@ -343,37 +393,65 @@ fn fetch_and_install(app: &AppHandle, dest: &Path, tmp: &Path, total: u64, cance
     Ok(())
 }
 
+/// The curl arguments before `<file> <url>`; a stalled transfer fails instead of hanging.
+const CURL_ARGS: [&str; 10] =
+    ["-fL", "--retry", "2", "--connect-timeout", "20", "--speed-time", "60", "--speed-limit", "1024", "-o"];
+
+fn stop(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 /// Runs curl into `file`, publishing `progress(bytes so far)` every poll.
 fn curl(app: &AppHandle, url: &str, file: &Path, cancel: &AtomicBool, progress: impl Fn(u64) -> FfmpegStatus) -> Result<(), Stop> {
-    let program = if cfg!(windows) { "curl.exe" } else { "curl" };
-    let mut child = command(Path::new(program))
-        .args(["-fL", "--retry", "2", "-o"])
-        .arg(file)
-        .arg(url)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| {
-            log::warn!("engines: curl spawn failed: {e}");
-            Stop::Failed(InstallError::Network)
-        })?;
+    let slot = &app.state::<Engines>().curl;
+    {
+        // Spawned under the lock after a cancel check, so `shutdown` either sees the child or stops us here.
+        let mut running = slot.lock().unwrap();
+        if cancel.load(Ordering::SeqCst) {
+            return Err(Stop::Cancelled);
+        }
+        let program = if cfg!(windows) { "curl.exe" } else { "curl" };
+        let child = command(Path::new(program))
+            .args(CURL_ARGS)
+            .arg(file)
+            .arg(url)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| {
+                log::warn!("engines: curl spawn failed: {e}");
+                Stop::Failed(InstallError::Network)
+            })?;
+        *running = Some(child);
+    }
     loop {
         std::thread::sleep(POLL);
+        let mut running = slot.lock().unwrap();
+        // Taken by `shutdown`.
+        let Some(child) = running.as_mut() else { return Err(Stop::Cancelled) };
         if cancel.load(Ordering::SeqCst) {
-            let _ = child.kill();
-            let _ = child.wait();
+            stop(child);
+            *running = None;
             return Err(Stop::Cancelled);
         }
         match child.try_wait() {
-            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(None) => {
+                drop(running);
+                set(app, progress(std::fs::metadata(file).map(|m| m.len()).unwrap_or(0)));
+            }
             Ok(Some(status)) => {
+                *running = None;
+                if status.success() {
+                    return Ok(());
+                }
                 log::warn!("engines: curl {url} exited with {status}");
                 return Err(Stop::Failed(InstallError::Network));
             }
-            Ok(None) => set(app, progress(std::fs::metadata(file).map(|m| m.len()).unwrap_or(0))),
             Err(e) => {
-                let _ = child.kill();
+                stop(child);
+                *running = None;
                 log::warn!("engines: curl wait failed: {e}");
                 return Err(Stop::Failed(InstallError::Network));
             }
@@ -392,13 +470,13 @@ fn unzip(zip: &Path, into: &Path) -> io::Result<()> {
         c.args(["-x", "-k"]).arg(zip).arg(into);
         c
     };
-    let status = c.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status()?;
+    let status = c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status()?;
     if status.success() { Ok(()) } else { Err(io::Error::other(format!("unzip exited with {status}"))) }
 }
 
 /// FFmpeg engine commands.
 pub mod commands {
-    use super::{Engines, FfmpegStatus};
+    use super::{Engines, FfmpegStatus, on_disk};
     use crate::shared::error::{AppError, AppResult};
     use std::sync::atomic::Ordering;
     use tauri::{AppHandle, Manager, State};
@@ -414,10 +492,10 @@ pub mod commands {
         super::download(&app);
     }
 
-    /// Stops the running download; the status goes back to what it was before.
+    /// Stops the running download; the status goes back to what is on disk, without an error.
     #[tauri::command]
     pub fn cancel_ffmpeg_download(state: State<Engines>) {
-        if let Some((cancel, _)) = &*state.download.lock().unwrap() {
+        if let Some(cancel) = &*state.cancel.lock().unwrap() {
             cancel.store(true, Ordering::SeqCst);
         }
     }
@@ -426,14 +504,13 @@ pub mod commands {
     #[tauri::command]
     pub fn remove_ffmpeg(app: AppHandle) -> AppResult<()> {
         let e = app.state::<Engines>();
-        if e.download.lock().unwrap().is_some() {
+        if e.cancel.lock().unwrap().is_some() {
             return Err(AppError::InvalidInput("FFmpeg is downloading".into()));
         }
-        if e.dir.exists() {
-            std::fs::remove_dir_all(&e.dir)?;
-        }
-        super::set(&app, FfmpegStatus::Missing);
-        Ok(())
+        let removed = if e.dir.exists() { std::fs::remove_dir_all(&e.dir) } else { Ok(()) };
+        // A partial removal may leave a broken dir: report what is really there.
+        super::set(&app, on_disk(&e.dir, None));
+        Ok(removed?)
     }
 }
 
@@ -540,16 +617,88 @@ mod tests {
     #[test]
     fn status_serializes_for_the_settings_tab() {
         let json = |s: FfmpegStatus| serde_json::to_value(s).unwrap();
-        assert_eq!(json(FfmpegStatus::Missing), serde_json::json!({ "state": "missing" }));
+        assert_eq!(json(FfmpegStatus::Missing { error: None }), serde_json::json!({ "state": "missing", "error": null }));
+        assert_eq!(
+            json(FfmpegStatus::Missing { error: Some(InstallError::Network) }),
+            serde_json::json!({ "state": "missing", "error": "network" })
+        );
         assert_eq!(
             json(FfmpegStatus::Downloading { received: 1, total: 2, speed: 3, stage: Stage::Verify }),
             serde_json::json!({ "state": "downloading", "received": 1, "total": 2, "speed": 3, "stage": "verify" })
         );
         assert_eq!(
-            json(FfmpegStatus::Installed { version: "9.0.2".into(), size: 5, installed_at: 6, path: "/p".into(), update: false }),
-            serde_json::json!({ "state": "installed", "version": "9.0.2", "size": 5, "installedAt": 6, "path": "/p", "update": false })
+            json(FfmpegStatus::Installed {
+                version: "9.0.2".into(),
+                size: 5,
+                installed_at: 6,
+                path: "/p".into(),
+                update: false,
+                error: Some(InstallError::Checksum)
+            }),
+            serde_json::json!({ "state": "installed", "version": "9.0.2", "size": 5, "installedAt": 6, "path": "/p", "update": false, "error": "checksum" })
         );
-        assert_eq!(json(FfmpegStatus::Failed { reason: InstallError::Checksum }), serde_json::json!({ "state": "failed", "reason": "checksum" }));
+    }
+
+    /// A complete install of `version` in `dir`.
+    fn installed(dir: &Path, version: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        for b in BINARIES {
+            std::fs::write(dir.join(b), b"bin").unwrap();
+        }
+        let meta = Meta { version: version.into(), installed_at: 7, size: 6 };
+        std::fs::write(dir.join("meta.json"), serde_json::to_vec(&meta).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_failed_update_keeps_the_old_install_with_the_error() {
+        let root = tempfile::tempdir().unwrap();
+        let dest = root.path().join("ffmpeg");
+        installed(&dest, "9.0.1");
+        let (_r, archive, fixture) = setup(&BINARIES);
+        let a = asset("00");
+        let err = install_from(&[(archive, &a)], copy_from(fixture), &dest, "9.0.2", 1).unwrap_err();
+        let status = on_disk(&dest, Some(err));
+        assert!(matches!(
+            status,
+            FfmpegStatus::Installed { ref version, update: true, error: Some(InstallError::Checksum), .. } if version == "9.0.1"
+        ));
+        assert_eq!(on_disk(&root.path().join("none"), Some(InstallError::Network)), FfmpegStatus::Missing { error: Some(InstallError::Network) });
+    }
+
+    #[test]
+    fn an_old_install_left_by_a_failed_rollback_is_restored() {
+        let root = tempfile::tempdir().unwrap();
+        let dest = root.path().join("ffmpeg");
+        let old = root.path().join(".ffmpeg-old");
+        installed(&old, "9.0.1");
+        // A broken leftover where the install should be.
+        std::fs::create_dir_all(&dest).unwrap();
+        recover(&dest);
+        assert_eq!(read_installed(&dest).map(|m| m.version), Some("9.0.1".into()));
+        assert!(!old.exists());
+        // A newer install next to a stale old one: nothing moves.
+        installed(&old, "9.0.0");
+        recover(&dest);
+        assert_eq!(read_installed(&dest).map(|m| m.version), Some("9.0.1".into()));
+    }
+
+    #[test]
+    fn install_from_restores_a_stranded_old_install_first() {
+        let root = tempfile::tempdir().unwrap();
+        let dest = root.path().join("ffmpeg");
+        installed(&root.path().join(".ffmpeg-old"), "9.0.1");
+        let (_r, archive, fixture) = setup(&BINARIES);
+        let a = asset("00");
+        assert_eq!(install_from(&[(archive, &a)], copy_from(fixture), &dest, "9.0.2", 1), Err(InstallError::Checksum));
+        assert_eq!(read_installed(&dest).map(|m| m.version), Some("9.0.1".into()));
+    }
+
+    #[test]
+    fn curl_gives_up_on_a_stalled_download() {
+        for w in [["--connect-timeout", "20"], ["--speed-time", "60"], ["--speed-limit", "1024"]] {
+            assert!(CURL_ARGS.windows(2).any(|p| p == w), "{w:?}");
+        }
+        assert_eq!(CURL_ARGS.last(), Some(&"-o"));
     }
 
     #[test]
@@ -571,7 +720,7 @@ mod tests {
         let mut archives = Vec::new();
         for (i, a) in assets().iter().enumerate() {
             let file = root.path().join(format!("{i}.zip"));
-            let ok = std::process::Command::new("curl").args(["-fL", "--retry", "2", "-o"]).arg(&file).arg(a.url).status().unwrap();
+            let ok = std::process::Command::new("curl").args(CURL_ARGS).arg(&file).arg(a.url).status().unwrap();
             assert!(ok.success(), "curl {}", a.url);
             assert_eq!(std::fs::metadata(&file).unwrap().len(), a.size);
             archives.push((file, a));

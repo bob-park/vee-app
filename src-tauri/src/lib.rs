@@ -5,7 +5,7 @@ mod shared;
 use app::{autostart, convert, disk_access, drop_target, engines, ocr, retention, shortcut, state::AppState, tray, updater, watcher, window};
 use domain::{clip, settings, source_app, whats_new};
 use std::sync::atomic::Ordering;
-use tauri::{Manager, WindowEvent};
+use tauri::{Manager, RunEvent, WindowEvent};
 
 pub fn run() {
     tauri::Builder::default()
@@ -126,7 +126,12 @@ pub fn run() {
             whats_new::commands::get_whats_new,
             whats_new::commands::dismiss_whats_new
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let RunEvent::Exit = event {
+                engines::shutdown(app);
+            }
+        });
 }
 
