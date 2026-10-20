@@ -36,6 +36,8 @@ pub fn convert_image(src: &Path, to: Format, out: &Path) -> Result<(), JobError>
         Format::Tiff => sips(src, "tiff", &[], out),
         Format::Gif => sips(src, "gif", &[], out),
         Format::Bmp => sips(src, "bmp", &[], out),
+        // Video targets come only from video sources, which never reach here.
+        Format::Mp4 | Format::Webm | Format::Mov | Format::Mp3 | Format::Mp4720 => Err(JobError::Engine),
     }
 }
 
@@ -86,7 +88,10 @@ pub fn convert_image(src: &Path, to: Format, out: &Path) -> Result<(), JobError>
         Format::Tiff => ImageFormat::Tiff,
         Format::Gif => ImageFormat::Gif,
         Format::Bmp => ImageFormat::Bmp,
-        Format::Heic => return Err(JobError::Engine),
+        // HEIC never reaches here; video targets come only from video sources.
+        Format::Heic | Format::Mp4 | Format::Webm | Format::Mov | Format::Mp3 | Format::Mp4720 => {
+            return Err(JobError::Engine);
+        }
     };
     // 8-bit RGBA is the one layout every encoder here accepts.
     ::image::DynamicImage::from(img.into_rgba8()).save_with_format(out, format).map_err(|e| engine_error("encode", e))

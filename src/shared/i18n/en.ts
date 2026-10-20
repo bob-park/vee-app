@@ -34,6 +34,7 @@ export const en = {
   updateFailed: "Couldn't update",
   whatsNew: { title: "What's new in Vee", ok: 'OK' },
   convert: {
+    needsFfmpeg: 'Needs FFmpeg',
     dropHint: 'Drop on a format',
     converting: (f: string) => `To ${f}…`,
     queued: (n: number) => `Waiting · #${n}`,

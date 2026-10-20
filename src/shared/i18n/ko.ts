@@ -36,6 +36,7 @@ export const ko: Dict = {
   updateFailed: '업데이트하지 못했어요',
   whatsNew: { title: '새로워진 Vee', ok: '확인' },
   convert: {
+    needsFfmpeg: 'FFmpeg 필요',
     dropHint: '놓을 포맷 선택',
     converting: (f: string) => `${f} 변환 중`,
     queued: (n: number) => `대기 중 · ${n}번째`,

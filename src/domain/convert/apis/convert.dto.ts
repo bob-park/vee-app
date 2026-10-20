@@ -1,5 +1,12 @@
-/** Target formats, in the donut's slice order. */
-export type Format = 'png' | 'jpg' | 'webp' | 'heic' | 'tiff' | 'gif' | 'bmp' | 'pdf';
+/** Target formats; mirrors Rust `Format` (serde names). */
+export type Format =
+  'png' | 'jpg' | 'webp' | 'heic' | 'tiff' | 'gif' | 'bmp' | 'pdf' | 'mp4' | 'webm' | 'mov' | 'mp3' | '720p';
+
+/** One donut slice; mirrors Rust `Slice`. `needs` names the engine still missing for it. */
+export interface Slice {
+  format: Format;
+  needs: 'ffmpeg' | null;
+}
 
 /** Why a conversion failed; mirrors Rust `JobError`. */
 export type ConvertError = 'missing' | 'engine' | 'write';

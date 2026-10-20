@@ -12,11 +12,44 @@ pub enum Format {
     Gif,
     Bmp,
     Pdf,
+    Mp4,
+    Webm,
+    Mov,
+    Mp3,
+    /// MP4 scaled down to at most 720 lines.
+    #[serde(rename = "720p")]
+    Mp4720,
 }
 
-/// Every target format, in the donut's slice order.
-pub const TARGETS: [Format; 8] =
+/// Image target formats, in the donut's slice order.
+pub const IMAGE_TARGETS: [Format; 8] =
     [Format::Png, Format::Jpg, Format::Webp, Format::Heic, Format::Tiff, Format::Gif, Format::Bmp, Format::Pdf];
+/// Video target formats, in the donut's slice order. `Gif` is shared with images.
+pub const VIDEO_TARGETS: [Format; 6] = [Format::Mp4, Format::Webm, Format::Mov, Format::Gif, Format::Mp3, Format::Mp4720];
+
+/// A converter that has to be installed before its slices work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Engine {
+    Ffmpeg,
+}
+
+/// One donut slice: a target format, and the engine it still needs (dimmed while `Some`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Slice {
+    pub format: Format,
+    pub needs: Option<Engine>,
+}
+
+/// What this machine can convert with right now.
+#[derive(Debug, Clone, Copy)]
+pub struct Caps {
+    /// HEIC read/write (macOS `sips`).
+    pub heic: bool,
+    /// FFmpeg is installed.
+    pub ffmpeg: bool,
+}
 
 impl Format {
     pub fn ext(self) -> &'static str {
@@ -29,10 +62,22 @@ impl Format {
             Format::Gif => "gif",
             Format::Bmp => "bmp",
             Format::Pdf => "pdf",
+            Format::Mp4 | Format::Mp4720 => "mp4",
+            Format::Webm => "webm",
+            Format::Mov => "mov",
+            Format::Mp3 => "mp3",
         }
     }
 
-    /// The source format for a file extension (any case). `pdf` is a target only, so it is `None`.
+    /// The serde name: unique per format, unlike `ext` (`720p` writes `.mp4`).
+    pub fn id(self) -> &'static str {
+        match self {
+            Format::Mp4720 => "720p",
+            f => f.ext(),
+        }
+    }
+
+    /// The image source format for a file extension (any case). `pdf` is a target only, so it is `None`.
     pub fn from_ext(ext: &str) -> Option<Format> {
         match ext.to_ascii_lowercase().as_str() {
             "png" => Some(Format::Png),

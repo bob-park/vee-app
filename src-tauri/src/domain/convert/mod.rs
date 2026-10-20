@@ -1,25 +1,53 @@
-//! Convert domain: which image formats a dragged card can become, and where the output goes.
+//! Convert domain: which image or video formats a dragged card can become, and where the output goes.
 
 mod image;
 mod model;
 
 use self::image::convert_image;
-pub use model::{Format, Job, JobError, JobState, JobView, DONE_MS, SHOW_AFTER_MS, TARGETS};
+pub use model::{Caps, Engine, Format, Job, JobError, JobState, JobView, Slice, DONE_MS, SHOW_AFTER_MS};
+use model::{IMAGE_TARGETS, VIDEO_TARGETS};
 
 use std::path::{Path, PathBuf};
 
-/// Targets every source can become, in `TARGETS` order, minus each source's own format.
-/// Empty when `paths` is empty or any path is not a supported image. `heic` says whether HEIC output is available.
-pub fn formats_for(paths: &[PathBuf], heic: bool) -> Vec<Format> {
-    let sources: Option<Vec<Format>> =
-        paths.iter().map(|p| p.extension().and_then(|e| e.to_str()).and_then(Format::from_ext)).collect();
+/// Slices every source can become, in target order, minus each source's own format.
+/// All images or all videos; empty when `paths` is empty, mixes the two, or holds anything else.
+/// Video slices need FFmpeg while `caps.ffmpeg` is false; image slices never need anything.
+pub fn formats_for(paths: &[PathBuf], caps: Caps) -> Vec<Slice> {
+    if !paths.is_empty() && paths.iter().all(|p| is_video(p)) {
+        let own: Vec<Format> = paths.iter().filter_map(|p| ext_of(p).and_then(video_container)).collect();
+        let needs = (!caps.ffmpeg).then_some(Engine::Ffmpeg);
+        return VIDEO_TARGETS.into_iter().filter(|f| !own.contains(f)).map(|format| Slice { format, needs }).collect();
+    }
+    let sources: Option<Vec<Format>> = paths.iter().map(|p| ext_of(p).and_then(Format::from_ext)).collect();
     match sources {
         // Without HEIC support (Windows) a HEIC source can't be read either.
-        Some(sources) if !sources.is_empty() && (heic || !sources.contains(&Format::Heic)) => {
-            TARGETS.into_iter().filter(|f| (heic || *f != Format::Heic) && !sources.contains(f)).collect()
-        }
+        Some(sources) if !sources.is_empty() && (caps.heic || !sources.contains(&Format::Heic)) => IMAGE_TARGETS
+            .into_iter()
+            .filter(|f| (caps.heic || *f != Format::Heic) && !sources.contains(f))
+            .map(|format| Slice { format, needs: None })
+            .collect(),
         _ => Vec::new(),
     }
+}
+
+/// Whether `path` has a video extension (any case).
+pub fn is_video(path: &Path) -> bool {
+    const EXTS: [&str; 12] = ["mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "flv", "mpg", "mpeg", "ts", "3gp"];
+    ext_of(path).is_some_and(|e| EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
+/// The video target a source already is, so the donut leaves it out. `720p` always stays.
+fn video_container(ext: &str) -> Option<Format> {
+    match ext.to_ascii_lowercase().as_str() {
+        "mp4" | "m4v" => Some(Format::Mp4),
+        "mov" => Some(Format::Mov),
+        "webm" => Some(Format::Webm),
+        _ => None,
+    }
+}
+
+fn ext_of(path: &Path) -> Option<&str> {
+    path.extension().and_then(|e| e.to_str())
 }
 
 /// `dir/stem.ext`, or the first free `dir/stem (n).ext` so an existing file is never overwritten.
@@ -118,36 +146,75 @@ mod tests {
     use super::*;
     use super::image::tests::tiny_png;
 
+    /// Image-rule formats, with FFmpeg missing (image slices never need it).
+    fn formats(paths: &[PathBuf], heic: bool) -> Vec<Format> {
+        let s = formats_for(paths, Caps { heic, ffmpeg: false });
+        assert!(s.iter().all(|s| s.needs.is_none()));
+        s.iter().map(|s| s.format).collect()
+    }
+
+    #[test]
+    fn video_sources_get_video_slices_without_their_own_container() {
+        let s = formats_for(&[PathBuf::from("a.MOV")], Caps { heic: true, ffmpeg: true });
+        let f: Vec<Format> = s.iter().map(|s| s.format).collect();
+        assert_eq!(f, vec![Format::Mp4, Format::Webm, Format::Gif, Format::Mp3, Format::Mp4720]);
+        assert!(s.iter().all(|s| s.needs.is_none()));
+    }
+
+    #[test]
+    fn mp4_keeps_720p() {
+        let f: Vec<Format> =
+            formats_for(&[PathBuf::from("a.m4v")], Caps { heic: true, ffmpeg: true }).iter().map(|s| s.format).collect();
+        assert!(!f.contains(&Format::Mp4) && f.contains(&Format::Mp4720));
+    }
+
+    #[test]
+    fn video_slices_need_ffmpeg_when_missing() {
+        let s = formats_for(&[PathBuf::from("a.mkv")], Caps { heic: true, ffmpeg: false });
+        assert!(!s.is_empty() && s.iter().all(|s| s.needs == Some(Engine::Ffmpeg)));
+    }
+
+    #[test]
+    fn images_and_videos_together_are_unsupported() {
+        assert!(formats_for(&[PathBuf::from("a.png"), PathBuf::from("b.mp4")], Caps { heic: true, ffmpeg: true }).is_empty());
+    }
+
+    #[test]
+    fn format_ids_are_unique_and_720p_writes_mp4() {
+        assert_eq!(Format::Mp4720.id(), "720p");
+        assert_eq!(Format::Mp4720.ext(), "mp4");
+    }
+
     #[test]
     fn formats_leave_out_the_source_format() {
-        let f = formats_for(&[PathBuf::from("/a/shot.PNG")], true);
+        let f = formats(&[PathBuf::from("/a/shot.PNG")], true);
         assert_eq!(f, vec![Format::Jpg, Format::Webp, Format::Heic, Format::Tiff, Format::Gif, Format::Bmp, Format::Pdf]);
     }
 
     #[test]
     fn heic_target_only_when_supported() {
-        assert!(!formats_for(&[PathBuf::from("a.png")], false).contains(&Format::Heic));
+        assert!(!formats(&[PathBuf::from("a.png")], false).contains(&Format::Heic));
     }
 
     #[test]
     fn heic_sources_need_heic_support() {
-        assert!(formats_for(&[PathBuf::from("a.HEIC")], false).is_empty());
-        assert!(formats_for(&[PathBuf::from("a.png"), PathBuf::from("b.heif")], false).is_empty());
-        assert!(formats_for(&[PathBuf::from("a.heic")], true).contains(&Format::Png));
+        assert!(formats(&[PathBuf::from("a.HEIC")], false).is_empty());
+        assert!(formats(&[PathBuf::from("a.png"), PathBuf::from("b.heif")], false).is_empty());
+        assert!(formats(&[PathBuf::from("a.heic")], true).contains(&Format::Png));
     }
 
     #[test]
     fn mixed_images_drop_every_source_format() {
-        let f = formats_for(&[PathBuf::from("a.jpeg"), PathBuf::from("b.tif")], true);
+        let f = formats(&[PathBuf::from("a.jpeg"), PathBuf::from("b.tif")], true);
         assert!(!f.contains(&Format::Jpg) && !f.contains(&Format::Tiff));
         assert!(f.contains(&Format::Png));
     }
 
     #[test]
     fn any_non_image_means_no_formats() {
-        assert!(formats_for(&[PathBuf::from("a.png"), PathBuf::from("b.docx")], true).is_empty());
-        assert!(formats_for(&[PathBuf::from("noext")], true).is_empty());
-        assert!(formats_for(&[], true).is_empty());
+        assert!(formats(&[PathBuf::from("a.png"), PathBuf::from("b.docx")], true).is_empty());
+        assert!(formats(&[PathBuf::from("noext")], true).is_empty());
+        assert!(formats(&[], true).is_empty());
     }
 
     #[test]

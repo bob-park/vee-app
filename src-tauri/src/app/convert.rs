@@ -8,7 +8,7 @@ use crate::{
     },
     domain::{
         clip::Kind,
-        convert::{self, Format, Job, JobError, JobState, JobView, TARGETS},
+        convert::{self, Caps, Format, Job, JobError, JobState, JobView, Slice},
         settings,
     },
     shared::error::{AppError, AppResult},
@@ -43,7 +43,7 @@ struct Session {
     generation: u64,
     clip_id: i64,
     files: Vec<PathBuf>,
-    formats: Vec<Format>,
+    slices: Vec<Slice>,
     /// The folder under the last key-down; set when the overlay opens.
     dir: Option<PathBuf>,
     /// A "not a folder" / "unsupported" toast was already shown this drag.
@@ -65,16 +65,15 @@ fn mark_drop(slot: &mut Option<Session>, on_overlay: bool) {
     }
 }
 
-/// Takes the session for a drop on `format`'s slice; anything else leaves it alone.
+/// Takes the session for a drop on the slice with id `format`; anything else leaves it alone.
+/// A slice that still needs an engine is rejected, like one that isn't there.
 fn take_drop(slot: &mut Option<Session>, format: &str) -> AppResult<(Session, Format, PathBuf)> {
-    let format = TARGETS.into_iter().find(|f| f.ext() == format);
-    let ready = slot.as_ref().is_some_and(|s| s.dropped && s.dir.is_some());
-    let (true, Some(format)) = (ready, format) else {
+    let Some(s) = slot.as_ref().filter(|s| s.dropped && s.dir.is_some()) else {
         return Err(AppError::InvalidInput("no convert drop pending".into()));
     };
-    if !slot.as_ref().is_some_and(|s| s.formats.contains(&format)) {
-        return Err(AppError::InvalidInput(format!("can't convert to {}", format.ext())));
-    }
+    let Some(format) = s.slices.iter().find(|x| x.format.id() == format && x.needs.is_none()).map(|x| x.format) else {
+        return Err(AppError::InvalidInput(format!("can't convert to {format}")));
+    };
     let mut s = slot.take().expect("checked above");
     let dir = s.dir.take().expect("checked above");
     Ok((s, format, dir))
@@ -123,8 +122,8 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
         *c.session.lock().unwrap() = None;
         return;
     };
-    let formats = convert::formats_for(&files, cfg!(target_os = "macos"));
-    *c.session.lock().unwrap() = Some(Session { generation, clip_id, files, formats, dir: None, noted: false, dropped: false });
+    let slices = convert::formats_for(&files, Caps { heic: cfg!(target_os = "macos"), ffmpeg: ffmpeg_installed(app) });
+    *c.session.lock().unwrap() = Some(Session { generation, clip_id, files, slices, dir: None, noted: false, dropped: false });
     let app = app.clone();
     std::thread::spawn(move || {
         let (c, state) = (app.state::<Convert>(), app.state::<AppState>());
@@ -141,11 +140,16 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
     });
 }
 
+// ponytail: stub until the FFmpeg installer lands (Task 3 replaces it with `engines::ffmpeg`).
+fn ffmpeg_installed(_: &AppHandle) -> bool {
+    false
+}
+
 /// Looks up the folder under the cursor and opens the overlay there, or says why not (once per drag).
 fn open_at(app: &AppHandle, generation: u64) {
     let Some(point) = window::cursor_at(app) else { return };
     let c = app.state::<Convert>();
-    let unsupported = of_drag(&mut c.session.lock().unwrap(), generation).is_none_or(|s| s.formats.is_empty());
+    let unsupported = of_drag(&mut c.session.lock().unwrap(), generation).is_none_or(|s| s.slices.is_empty());
     let note = if unsupported {
         ConvertNote::Unsupported
     } else {
@@ -153,7 +157,7 @@ fn open_at(app: &AppHandle, generation: u64) {
             DropFolder::Folder(dir) => {
                 let open = of_drag(&mut c.session.lock().unwrap(), generation).map(|s| {
                     s.dir = Some(dir);
-                    Open { formats: s.formats.clone(), name: file_name(&s.files[0]) }
+                    Open { slices: s.slices.clone(), name: file_name(&s.files[0]) }
                 });
                 if let Some(open) = open {
                     show(app, generation, point, open);
@@ -175,7 +179,7 @@ fn open_at(app: &AppHandle, generation: u64) {
 
 #[derive(Clone, Serialize)]
 struct Open {
-    formats: Vec<Format>,
+    slices: Vec<Slice>,
     /// File name for the donut's centre (the first file of a files clip).
     name: String,
 }
@@ -416,6 +420,7 @@ pub mod commands {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::convert::Engine;
 
     fn job(id: u64, state: JobState) -> Job {
         let now = now_ms();
@@ -439,7 +444,7 @@ mod tests {
             generation,
             clip_id: 1,
             files: vec![PathBuf::from("/a/p.png")],
-            formats: vec![Format::Jpg],
+            slices: vec![Slice { format: Format::Jpg, needs: None }],
             dir: dir.map(PathBuf::from),
             noted: false,
             dropped: false,
@@ -491,5 +496,15 @@ mod tests {
         let (s, format, dir) = take_drop(&mut slot, "jpg").unwrap();
         assert_eq!((s.clip_id, format, dir), (1, Format::Jpg, PathBuf::from("/out")));
         assert!(slot.is_none());
+    }
+
+    #[test]
+    fn convert_drop_rejects_a_slice_that_needs_ffmpeg() {
+        let mut slot = session(1, Some("/out"));
+        let s = slot.as_mut().unwrap();
+        s.slices = vec![Slice { format: Format::Mp4, needs: Some(Engine::Ffmpeg) }];
+        s.dropped = true;
+        assert!(matches!(take_drop(&mut slot, "mp4"), Err(AppError::InvalidInput(_))));
+        assert!(slot.is_some());
     }
 }
