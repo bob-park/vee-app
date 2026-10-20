@@ -7,7 +7,7 @@ mod video;
 use self::image::convert_image;
 pub use model::{Caps, Engine, Format, Job, JobError, JobState, JobView, Quality, Slice, DONE_MS, SHOW_AFTER_MS};
 use model::eta;
-pub use video::{Run, command};
+pub use video::{Run, command, hw_encoder};
 use model::{IMAGE_TARGETS, VIDEO_TARGETS};
 
 use std::path::{Path, PathBuf};
@@ -171,7 +171,7 @@ mod tests {
     /// `run` for an image source: no FFmpeg, never cancelled.
     fn run_image(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path) -> Result<PathBuf, JobError> {
         let cancel = AtomicBool::new(false);
-        run(src, stem, to, dir, tmp, &mut Run { ffmpeg: None, quality: Quality::Normal, cancel: &cancel, progress: &mut |_| {} })
+        run(src, stem, to, dir, tmp, &mut Run { ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, progress: &mut |_| {} })
     }
 
     #[test]

@@ -184,6 +184,13 @@ function FfmpegSection({ settings, run, updateSetting }: Props) {
                 options={QUALITIES.map((q) => ({ value: q, label: f.qualities[q] }))}
               />
             </Row>
+            <Row label={f.hwAccel} hint={f.hwAccelHint}>
+              <Switch
+                ariaLabel={f.hwAccel}
+                checked={settings.videoHwAccel === 'on'}
+                onChange={(checked) => updateSetting({ key: 'videoHwAccel', value: checked ? 'on' : 'off' })}
+              />
+            </Row>
           </>
         )}
       </SettingSection>

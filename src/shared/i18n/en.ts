@@ -148,6 +148,8 @@ export const en = {
         meta: { version: 'Version', size: 'Size', installedAt: 'Installed' },
         quality: 'Video quality',
         qualityHint: 'Used for every video conversion',
+        hwAccel: 'Hardware acceleration',
+        hwAccelHint: 'Converts MP4, MOV and 720p faster with the graphics chip. Falls back to software if it fails.',
         qualities: { small: 'Small', normal: 'Normal', original: 'Best' },
         errors: {
           network: "Couldn't download. Check the connection.",

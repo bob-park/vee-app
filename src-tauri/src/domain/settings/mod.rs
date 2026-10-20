@@ -25,6 +25,7 @@ pub fn get(conn: &Connection, key: &str) -> String {
         "retention" | "panelResize" => "off",
         "dragConvert" => "on",
         "videoQuality" => "normal",
+        "videoHwAccel" => "on",
         "convertKey" => if cfg!(target_os = "macos") { "alt" } else { "ctrl" },
         _ => "",
     };
@@ -77,7 +78,7 @@ fn validate(key: &str, value: &str) -> AppResult<()> {
         "soundName" => value == SILENT || SOUND_NAMES.contains(&value),
         "confirmDelete" => matches!(value, "on" | "off"),
         "retention" => matches!(value, "off" | "7" | "30" | "90"),
-        "panelResize" | "ocr" | "dragConvert" => matches!(value, "on" | "off"),
+        "panelResize" | "ocr" | "dragConvert" | "videoHwAccel" => matches!(value, "on" | "off"),
         "convertKey" => matches!(value, "alt" | "ctrl" | "shift"),
         "videoQuality" => matches!(value, "small" | "normal" | "original"),
         // Modifiers and a key code joined by `+`, as built by the settings recorder.
@@ -223,6 +224,9 @@ mod tests {
             assert!(validate("videoQuality", v).is_ok());
         }
         assert!(validate("videoQuality", "best").is_err());
+        assert_eq!(get(&conn, "videoHwAccel"), "on");
+        assert!(validate("videoHwAccel", "off").is_ok());
+        assert!(validate("videoHwAccel", "auto").is_err());
     }
 
     #[test]

@@ -271,12 +271,17 @@ fn work(app: &AppHandle, id: u64) {
     let Some((files, format, dir, start, cancel)) = picked else { return };
     publish(app);
     let tmp = &c.tmp;
-    let quality = Quality::parse(&settings::get(&app.state::<AppState>().db.lock().unwrap(), "videoQuality"));
+    let (quality, hw_on) = {
+        let state = app.state::<AppState>();
+        let db = state.db.lock().unwrap();
+        (Quality::parse(&settings::get(&db, "videoQuality")), settings::get(&db, "videoHwAccel") == "on")
+    };
     let engine = engines::ffmpeg(app);
+    let hw = engine.as_ref().filter(|_| hw_on).and_then(|(ffmpeg, _)| convert::hw_encoder(ffmpeg));
     // Stored only; the running tick publishes it, so FFmpeg's chatty output costs no emits.
     let mut progress = |p: Option<f64>| with_job(&c, id, |j| j.progress = p);
     let mut ctx =
-        Run { ffmpeg: engine.as_ref().map(|(f, p)| (f.as_path(), p.as_path())), quality, cancel: &cancel, progress: &mut progress };
+        Run { ffmpeg: engine.as_ref().map(|(f, p)| (f.as_path(), p.as_path())), quality, hw, cancel: &cancel, progress: &mut progress };
     let mut failed: Option<(JobError, &Path)> = None;
     // A retried job resumes at the file that failed; the ones before it are already saved.
     for (i, src) in files.iter().enumerate().skip(start) {

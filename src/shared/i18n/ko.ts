@@ -145,6 +145,8 @@ export const ko: Dict = {
         meta: { version: '버전', size: '크기', installedAt: '설치일' },
         quality: '영상 기본 화질',
         qualityHint: '모든 영상 변환에 쓰여요',
+        hwAccel: '하드웨어 가속',
+        hwAccelHint: '그래픽 칩으로 MP4·MOV·720p를 더 빠르게 변환해요. 실패하면 소프트웨어로 변환해요.',
         qualities: { small: '작게', normal: '보통', original: '원본' },
         errors: {
           network: '내려받지 못했어요. 연결을 확인해 주세요.',

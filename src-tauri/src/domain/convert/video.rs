@@ -6,7 +6,7 @@ use std::io::BufRead;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
+use std::sync::{OnceLock, mpsc};
 use std::time::Duration;
 
 /// How often a run checks the cancel flag and the process while FFmpeg prints nothing.
@@ -17,15 +17,90 @@ pub struct Run<'a> {
     /// `(ffmpeg, ffprobe)`; `None` while FFmpeg is not installed.
     pub ffmpeg: Option<(&'a Path, &'a Path)>,
     pub quality: Quality,
+    /// Hardware H.264 encoder to try first for MP4 / MOV / 720p; software on failure.
+    pub hw: Option<HwEncoder>,
     /// Set to stop a running conversion.
     pub cancel: &'a AtomicBool,
     /// Called with the done share (0.0..=0.99), or `None` when the length is unknown.
     pub progress: &'a mut dyn FnMut(Option<f64>),
 }
 
+/// A hardware H.264 encoder FFmpeg can drive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HwEncoder {
+    /// macOS.
+    VideoToolbox,
+    /// Windows: NVIDIA, Intel, AMD.
+    Nvenc,
+    Qsv,
+    Amf,
+}
+
+impl HwEncoder {
+    fn name(self) -> &'static str {
+        match self {
+            HwEncoder::VideoToolbox => "h264_videotoolbox",
+            HwEncoder::Nvenc => "h264_nvenc",
+            HwEncoder::Qsv => "h264_qsv",
+            HwEncoder::Amf => "h264_amf",
+        }
+    }
+
+    /// The `-c:v …` encoder args at `q`, replacing libx264's `-crf` / `-preset`.
+    fn video_args(self, q: Quality) -> Vec<String> {
+        let mut v = vec!["-c:v".to_string(), self.name().into()];
+        let cq = q.pick(["28", "23", "19"]).to_string();
+        let rest: Vec<String> = match self {
+            // Matched to libx264 crf 28/23/18 by output size (within ±15 %) on a noisy 1080p clip.
+            HwEncoder::VideoToolbox => vec!["-q:v".into(), q.pick(["47", "60", "70"]).into()],
+            HwEncoder::Nvenc => ["-preset", "p4", "-rc", "vbr", "-cq", &cq, "-b:v", "0"].map(String::from).into(),
+            HwEncoder::Qsv => vec!["-global_quality".into(), cq],
+            HwEncoder::Amf => vec!["-rc".into(), "cqp".into(), "-qp_i".into(), cq.clone(), "-qp_p".into(), cq],
+        };
+        v.extend(rest);
+        v
+    }
+}
+
+/// Whether `to` is encoded with H.264, the only targets a hardware encoder takes.
+fn is_h264(to: Format) -> bool {
+    matches!(to, Format::Mp4 | Format::Mov | Format::Mp4720)
+}
+
+/// The hardware encoder to try on this machine: VideoToolbox on macOS, elsewhere the first of
+/// NVENC / QSV / AMF that encodes a test frame, probed once per app run.
+pub fn hw_encoder(ffmpeg: &Path) -> Option<HwEncoder> {
+    if cfg!(target_os = "macos") {
+        return Some(HwEncoder::VideoToolbox);
+    }
+    // ponytail: cached for the run; an FFmpeg update or a new GPU is seen after a restart.
+    static PROBED: OnceLock<Option<HwEncoder>> = OnceLock::new();
+    *PROBED.get_or_init(|| {
+        let found = [HwEncoder::Nvenc, HwEncoder::Qsv, HwEncoder::Amf].into_iter().find(|e| {
+            command(ffmpeg)
+                .args(["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.1"])
+                .args(["-frames:v", "1", "-c:v", e.name(), "-f", "null", "-"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success())
+        });
+        log::info!("convert: hardware H.264 encoder {found:?}");
+        found
+    })
+}
+
 /// The full FFmpeg argument list converting `src` to `to` at `q`, writing `out`.
-pub fn ffmpeg_args(src: &Path, to: Format, q: Quality, out: &Path) -> Vec<OsString> {
-    let mut a: Vec<OsString> = ["-y", "-nostats", "-progress", "pipe:1", "-i"].map(OsString::from).into();
+/// `hw` swaps libx264 for that encoder on H.264 targets; other targets ignore it.
+pub fn ffmpeg_args(src: &Path, to: Format, q: Quality, out: &Path, hw: Option<HwEncoder>) -> Vec<OsString> {
+    let hw = hw.filter(|_| is_h264(to));
+    let mut a: Vec<OsString> = ["-y", "-nostats", "-progress", "pipe:1"].map(OsString::from).into();
+    if let Some(hw) = hw {
+        let decoder = if hw == HwEncoder::VideoToolbox { "videotoolbox" } else { "auto" };
+        a.extend(["-hwaccel", decoder].map(OsString::from));
+    }
+    a.push("-i".into());
     a.push(src.into());
     let rest: Vec<String> = match to {
         Format::Webm => vec![
@@ -59,15 +134,22 @@ pub fn ffmpeg_args(src: &Path, to: Format, q: Quality, out: &Path) -> Vec<OsStri
             // libx264 with yuv420p needs even sides; `-2` alone evens only the width.
             let scale = if to == Format::Mp4720 { "scale=-2:'trunc(min(720,ih)/2)*2'" } else { "scale=trunc(iw/2)*2:trunc(ih/2)*2" };
             let mut v: Vec<String> = vec!["-vf".into(), scale.into()];
+            match hw {
+                Some(hw) => v.extend(hw.video_args(q)),
+                None => v.extend([
+                    "-c:v".into(),
+                    "libx264".into(),
+                    "-crf".into(),
+                    q.pick(["28", "23", "18"]).into(),
+                    "-preset".into(),
+                    q.pick(["veryfast", "medium", "slow"]).into(),
+                ]),
+            }
+            // QSV takes no yuv420p; nv12 is the same 4:2:0 layout.
+            let pix_fmt = if hw == Some(HwEncoder::Qsv) { "nv12" } else { "yuv420p" };
             v.extend([
-                "-c:v".into(),
-                "libx264".into(),
-                "-crf".into(),
-                q.pick(["28", "23", "18"]).into(),
-                "-preset".into(),
-                q.pick(["veryfast", "medium", "slow"]).into(),
                 "-pix_fmt".into(),
-                "yuv420p".into(),
+                pix_fmt.into(),
                 "-c:a".into(),
                 "aac".into(),
                 "-b:a".into(),
@@ -104,8 +186,23 @@ pub fn convert(src: &Path, to: Format, out: &Path, ffmpeg: &Path, ffprobe: &Path
     if ctx.cancel.load(Ordering::SeqCst) {
         return Err(JobError::Cancelled);
     }
+    let hw = ctx.hw.filter(|_| is_h264(to));
+    match encode(ffmpeg, ffmpeg_args(src, to, ctx.quality, out, hw), duration, ctx) {
+        // A hardware encoder that fails (driver, size, profile) gets one software rerun, from 0 %.
+        Err(JobError::Engine) if hw.is_some() => {
+            log::warn!("convert: {hw:?} failed on {}; retrying in software", src.display());
+            let _ = std::fs::remove_file(out);
+            (ctx.progress)(duration.map(|_| 0.0));
+            encode(ffmpeg, ffmpeg_args(src, to, ctx.quality, out, None), duration, ctx)
+        }
+        r => r,
+    }
+}
+
+/// Runs FFmpeg with `args`, reporting progress against `duration`, until it exits or `ctx.cancel` is set.
+fn encode(ffmpeg: &Path, args: Vec<OsString>, duration: Option<f64>, ctx: &mut Run) -> Result<(), JobError> {
     let mut child = Killed(command(ffmpeg)
-        .args(ffmpeg_args(src, to, ctx.quality, out))
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         // ponytail: FFmpeg's log is dropped; pipe and tail it if failures need a reason.
@@ -199,7 +296,7 @@ mod tests {
 
     #[test]
     fn mp4_normal_args() {
-        let a = ffmpeg_args(Path::new("/i.mov"), Format::Mp4, Quality::Normal, Path::new("/o.mp4"));
+        let a = ffmpeg_args(Path::new("/i.mov"), Format::Mp4, Quality::Normal, Path::new("/o.mp4"), None);
         let a: Vec<&str> = a.iter().map(|s| s.to_str().unwrap()).collect();
         assert_eq!(&a[..6], ["-y", "-nostats", "-progress", "pipe:1", "-i", "/i.mov"]);
         for w in [["-crf", "23"], ["-preset", "medium"], ["-b:a", "128k"], ["-movflags", "+faststart"]] {
@@ -210,27 +307,27 @@ mod tests {
 
     #[test]
     fn p720_scales_down_only_and_mov_has_no_faststart() {
-        let a = ffmpeg_args(Path::new("i"), Format::Mp4720, Quality::Small, Path::new("o"));
+        let a = ffmpeg_args(Path::new("i"), Format::Mp4720, Quality::Small, Path::new("o"), None);
         assert!(a.windows(2).any(|p| p[0] == "-vf" && p[1] == "scale=-2:'trunc(min(720,ih)/2)*2'"));
-        let m = ffmpeg_args(Path::new("i"), Format::Mov, Quality::Original, Path::new("o"));
+        let m = ffmpeg_args(Path::new("i"), Format::Mov, Quality::Original, Path::new("o"), None);
         assert!(!m.iter().any(|s| s == "-movflags") && m.iter().any(|s| s == "18"));
         for to in [Format::Mp4, Format::Mov] {
-            let a = ffmpeg_args(Path::new("i"), to, Quality::Normal, Path::new("o"));
+            let a = ffmpeg_args(Path::new("i"), to, Quality::Normal, Path::new("o"), None);
             assert!(a.windows(2).any(|p| p[0] == "-vf" && p[1] == "scale=trunc(iw/2)*2:trunc(ih/2)*2"), "{to:?}");
         }
     }
 
     #[test]
     fn mp3_drops_video_and_gif_drops_audio() {
-        assert!(ffmpeg_args(Path::new("i"), Format::Mp3, Quality::Normal, Path::new("o")).iter().any(|s| s == "-vn"));
-        assert!(ffmpeg_args(Path::new("i"), Format::Gif, Quality::Normal, Path::new("o")).iter().any(|s| s == "-an"));
+        assert!(ffmpeg_args(Path::new("i"), Format::Mp3, Quality::Normal, Path::new("o"), None).iter().any(|s| s == "-vn"));
+        assert!(ffmpeg_args(Path::new("i"), Format::Gif, Quality::Normal, Path::new("o"), None).iter().any(|s| s == "-an"));
     }
 
     #[test]
     fn webm_and_gif_args_follow_quality() {
-        let w = ffmpeg_args(Path::new("i"), Format::Webm, Quality::Small, Path::new("o"));
+        let w = ffmpeg_args(Path::new("i"), Format::Webm, Quality::Small, Path::new("o"), None);
         assert!(w.windows(2).any(|p| p[0] == "-crf" && p[1] == "40") && w.iter().any(|s| s == "64k"));
-        let g = ffmpeg_args(Path::new("i"), Format::Gif, Quality::Original, Path::new("o"));
+        let g = ffmpeg_args(Path::new("i"), Format::Gif, Quality::Original, Path::new("o"), None);
         assert!(g.iter().any(|s| s
             == "fps=15,scale='min(800,iw)':-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse"));
     }
@@ -279,7 +376,7 @@ mod tests {
         std::fs::write(&src, b"v").unwrap();
         let (ffmpeg, ffprobe) = fake(bin.path(), "exit 1");
         let cancel = AtomicBool::new(false);
-        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, cancel: &cancel, progress: &mut |_| {} };
+        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancel, progress: &mut |_| {} };
         assert_eq!(run(&src, "a", Format::Mp4, dir.path(), tmp.path(), &mut ctx), Err(JobError::Engine));
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
@@ -301,7 +398,7 @@ mod tests {
             }
         };
         let started = std::time::Instant::now();
-        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, cancel: &cancel, progress: &mut progress };
+        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancel, progress: &mut progress };
         assert_eq!(run(&src, "a", Format::Mp4, dir.path(), tmp.path(), &mut ctx), Err(JobError::Cancelled));
         assert!(started.elapsed() < Duration::from_secs(5));
         assert_eq!(seen, vec![Some(0.0), Some(0.25)]);
@@ -323,7 +420,7 @@ mod tests {
                 cancel.store(true, Ordering::SeqCst);
             }
         };
-        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, cancel: &cancel, progress: &mut progress };
+        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancel, progress: &mut progress };
         assert_eq!(run(&src, "a", Format::Mp4, dir.path(), tmp.path(), &mut ctx), Err(JobError::Cancelled));
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
@@ -338,7 +435,7 @@ mod tests {
         let marker = bin.path().join("ran");
         let (ffmpeg, ffprobe) = fake(bin.path(), &format!("touch '{}'", marker.display()));
         let cancel = AtomicBool::new(true);
-        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, cancel: &cancel, progress: &mut |_| {} };
+        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancel, progress: &mut |_| {} };
         assert_eq!(run(&src, "a", Format::Mp4, dir.path(), tmp.path(), &mut ctx), Err(JobError::Cancelled));
         assert!(!marker.exists());
     }
@@ -354,12 +451,91 @@ mod tests {
         let started = std::time::Instant::now();
         let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut progress = |p: Option<f64>| assert!(p.is_none_or(|p| p == 0.0), "boom");
-            let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, cancel: &cancel, progress: &mut progress };
+            let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancel, progress: &mut progress };
             let _ = run(&src, "a", Format::Mp4, dir.path(), tmp.path(), &mut ctx);
         }));
         assert!(panicked.is_err());
         // Unwinding reaped it: without the kill the guard would wait out the 10 s sleep.
         assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    /// `ffmpeg_args` as `&str`s.
+    fn args(to: Format, q: Quality, hw: Option<HwEncoder>) -> Vec<String> {
+        ffmpeg_args(Path::new("i"), to, q, Path::new("o"), hw).iter().map(|s| s.to_string_lossy().into_owned()).collect()
+    }
+
+    fn has(a: &[String], pair: [&str; 2]) -> bool {
+        a.windows(2).any(|p| p[0] == pair[0] && p[1] == pair[1])
+    }
+
+    #[test]
+    fn videotoolbox_replaces_libx264_and_decodes_in_hardware() {
+        let a = args(Format::Mp4, Quality::Normal, Some(HwEncoder::VideoToolbox));
+        assert_eq!(&a[4..8], ["-hwaccel", "videotoolbox", "-i", "i"]);
+        for w in [["-c:v", "h264_videotoolbox"], ["-q:v", "60"], ["-pix_fmt", "yuv420p"], ["-movflags", "+faststart"], ["-b:a", "128k"]] {
+            assert!(has(&a, w), "{w:?}");
+        }
+        assert!(has(&a, ["-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2"]));
+        assert!(!a.iter().any(|s| s == "libx264" || s == "-crf" || s == "-preset"));
+        let p = args(Format::Mp4720, Quality::Small, Some(HwEncoder::VideoToolbox));
+        assert!(has(&p, ["-q:v", "47"]) && has(&p, ["-vf", "scale=-2:'trunc(min(720,ih)/2)*2'"]));
+        let m = args(Format::Mov, Quality::Original, Some(HwEncoder::VideoToolbox));
+        assert!(has(&m, ["-q:v", "70"]) && !m.iter().any(|s| s == "-movflags"));
+    }
+
+    #[test]
+    fn non_h264_targets_ignore_the_hardware_encoder() {
+        for to in [Format::Webm, Format::Gif, Format::Mp3] {
+            assert_eq!(args(to, Quality::Normal, Some(HwEncoder::Nvenc)), args(to, Quality::Normal, None), "{to:?}");
+        }
+    }
+
+    #[test]
+    fn windows_encoder_args() {
+        let n = args(Format::Mp4, Quality::Original, Some(HwEncoder::Nvenc));
+        assert_eq!(&n[4..6], ["-hwaccel", "auto"]);
+        for w in [["-c:v", "h264_nvenc"], ["-preset", "p4"], ["-rc", "vbr"], ["-cq", "19"], ["-b:v", "0"], ["-pix_fmt", "yuv420p"]] {
+            assert!(has(&n, w), "{w:?}");
+        }
+        let q = args(Format::Mp4, Quality::Small, Some(HwEncoder::Qsv));
+        assert!(has(&q, ["-c:v", "h264_qsv"]) && has(&q, ["-global_quality", "28"]) && has(&q, ["-pix_fmt", "nv12"]));
+        let a = args(Format::Mov, Quality::Normal, Some(HwEncoder::Amf));
+        for w in [["-c:v", "h264_amf"], ["-rc", "cqp"], ["-qp_i", "23"], ["-qp_p", "23"]] {
+            assert!(has(&a, w), "{w:?}");
+        }
+        for a in [&n, &q, &a] {
+            assert!(!a.iter().any(|s| s == "libx264" || s == "-crf"));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failing_hardware_encode_reruns_in_software() {
+        let (bin, dir, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let src = dir.path().join("a.mov");
+        std::fs::write(&src, b"v").unwrap();
+        // Fails with the hardware encoder after a partial write; writes `sw` without it.
+        let ffmpeg = script(
+            bin.path(),
+            "ffmpeg",
+            "for a; do out=$a; done\ncase \"$*\" in *h264_videotoolbox*) echo partial > \"$out\"; echo out_time_us=1000000; exit 1;; esac\necho sw > \"$out\"",
+        );
+        let ffprobe = script(bin.path(), "ffprobe", "echo 2.0");
+        let cancel = AtomicBool::new(false);
+        let mut seen = Vec::new();
+        let mut progress = |p: Option<f64>| seen.push(p);
+        let mut ctx = Run {
+            ffmpeg: Some((&ffmpeg, &ffprobe)),
+            quality: Quality::Normal,
+            hw: Some(HwEncoder::VideoToolbox),
+            cancel: &cancel,
+            progress: &mut progress,
+        };
+        let out = run(&src, "a", Format::Mp4, dir.path(), tmp.path(), &mut ctx).unwrap();
+        assert_eq!(std::fs::read_to_string(out).unwrap(), "sw\n");
+        // Progress restarts at 0 for the software run.
+        assert_eq!(seen, vec![Some(0.0), Some(0.5), Some(0.0)]);
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
     }
 
     #[test]
@@ -368,11 +544,12 @@ mod tests {
         let src = d.path().join("a.mp4");
         std::fs::write(&src, b"v").unwrap();
         let cancel = AtomicBool::new(false);
-        let mut ctx = Run { ffmpeg: None, quality: Quality::Normal, cancel: &cancel, progress: &mut |_| {} };
+        let mut ctx = Run { ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, progress: &mut |_| {} };
         assert_eq!(run(&src, "a", Format::Gif, d.path(), d.path(), &mut ctx), Err(JobError::Engine));
     }
 
-    /// Every target at every quality, plus an odd-sized source for the libx264 targets:
+    /// Every target at every quality, plus an odd-sized source for the H.264 targets, and those
+    /// again through this machine's hardware encoder:
     /// `VEE_FFMPEG_DIR=/opt/homebrew/bin cargo test --lib converts_a_generated_clip -- --ignored --nocapture`
     #[test]
     #[ignore]
@@ -403,29 +580,38 @@ mod tests {
         };
         let cancel = AtomicBool::new(false);
         let mut failed = Vec::new();
-        let mut cases: Vec<(&Path, Format, Quality)> = Vec::new();
+        let mut cases: Vec<(&Path, Format, Quality, Option<HwEncoder>)> = Vec::new();
         for q in [Quality::Small, Quality::Normal, Quality::Original] {
-            cases.extend(VIDEO_TARGETS.map(|to| (even.as_path(), to, q)));
+            cases.extend(VIDEO_TARGETS.map(|to| (even.as_path(), to, q, None)));
         }
-        cases.extend([Format::Mp4, Format::Mov, Format::Mp4720].map(|to| (odd.as_path(), to, Quality::Normal)));
-        for (src, to, q) in cases {
+        const H264: [Format; 3] = [Format::Mp4, Format::Mov, Format::Mp4720];
+        cases.extend(H264.map(|to| (odd.as_path(), to, Quality::Normal, None)));
+        // The hardware path, where this machine has one (VideoToolbox on macOS, a probed encoder elsewhere).
+        if let Some(hw) = hw_encoder(&ffmpeg) {
+            for src in [even.as_path(), odd.as_path()] {
+                cases.extend(H264.map(|to| (src, to, Quality::Normal, Some(hw))));
+            }
+        }
+        for (src, to, q, hw) in cases {
             let mut last = None;
             let mut progress = |p: Option<f64>| last = p;
-            let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: q, cancel: &cancel, progress: &mut progress };
+            let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: q, hw, cancel: &cancel, progress: &mut progress };
             let stem = src.file_stem().unwrap().to_string_lossy().into_owned();
             let result = run(src, &stem, to, dir.path(), tmp.path(), &mut ctx);
             let ok = result.as_ref().is_ok_and(|out| std::fs::metadata(out).is_ok_and(|m| m.len() > 0));
             let size = result.as_ref().map(|out| size_of(out)).unwrap_or_default();
-            println!("{stem} {} {q:?}: ok={ok} size={size} last progress {last:?}", to.id());
+            println!("{stem} {} {q:?} {hw:?}: ok={ok} size={size} last progress {last:?}", to.id());
             let odd_side = size.split(',').any(|n| n.parse::<u32>().is_ok_and(|n| n % 2 == 1));
-            if !ok || (to != Format::Gif && odd_side) {
-                failed.push(format!("{stem} {} {q:?}", to.id()));
+            // libx264 stamps its options into the stream; a hardware case carrying it fell back to software.
+            let x264 = result.as_ref().is_ok_and(|out| std::fs::read(out).unwrap().windows(4).any(|w| w == b"x264"));
+            if !ok || (to != Format::Gif && odd_side) || (hw.is_some() && x264) {
+                failed.push(format!("{stem} {} {q:?} {hw:?}", to.id()));
             }
         }
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
         let before = std::fs::read_dir(dir.path()).unwrap().count();
         let cancelled = AtomicBool::new(true);
-        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, cancel: &cancelled, progress: &mut |_| {} };
+        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancelled, progress: &mut |_| {} };
         assert_eq!(run(&even, "clip", Format::Webm, dir.path(), tmp.path(), &mut ctx), Err(JobError::Cancelled));
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), before);
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);

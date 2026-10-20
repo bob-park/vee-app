@@ -17,7 +17,8 @@ export type SettingKey =
   | 'ocr'
   | 'dragConvert'
   | 'convertKey'
-  | 'videoQuality';
+  | 'videoQuality'
+  | 'videoHwAccel';
 
 export interface Settings {
   theme: 'system' | 'light' | 'dark';
@@ -40,6 +41,8 @@ export interface Settings {
   convertKey: 'alt' | 'ctrl' | 'shift';
   /** FFmpeg encoding quality for video conversions. */
   videoQuality: 'small' | 'normal' | 'original';
+  /** Encodes MP4 / MOV / 720p with the GPU's H.264 encoder, falling back to software. */
+  videoHwAccel: 'on' | 'off';
   autostart: boolean;
   version: string;
 }
