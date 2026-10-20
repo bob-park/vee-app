@@ -2,6 +2,7 @@
 
 pub mod autostart;
 pub mod disk_access;
+pub mod drop_target;
 pub mod front_app;
 pub mod i18n;
 pub mod ocr;

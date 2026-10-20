@@ -14,7 +14,9 @@ export type SettingKey =
   | 'panelResize'
   | 'panelPinShortcut'
   | 'resetSearchShortcut'
-  | 'ocr';
+  | 'ocr'
+  | 'dragConvert'
+  | 'convertKey';
 
 export interface Settings {
   theme: 'system' | 'light' | 'dark';
@@ -32,6 +34,9 @@ export interface Settings {
   retention: Retention;
   /** Reads text in image clips with the OS OCR so search can find it. */
   ocr: 'on' | 'off';
+  /** Holding `convertKey` while dragging a card out converts it into the folder under the cursor. */
+  dragConvert: 'on' | 'off';
+  convertKey: 'alt' | 'ctrl' | 'shift';
   autostart: boolean;
   version: string;
 }

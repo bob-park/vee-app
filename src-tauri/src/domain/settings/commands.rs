@@ -35,6 +35,8 @@ pub fn get_settings(app: AppHandle, state: State<AppState>) -> SettingsDto {
         panel_resize: get(&conn, "panelResize"),
         panel_height_ratio: get(&conn, "panelHeightRatio"),
         ocr: get(&conn, "ocr"),
+        drag_convert: get(&conn, "dragConvert"),
+        convert_key: get(&conn, "convertKey"),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         version: app.package_info().version.to_string(),
     }

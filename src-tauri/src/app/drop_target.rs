@@ -1,0 +1,371 @@
+//! The folder under the cursor during a drag out of the panel, and the convert modifier key.
+//! Points are in the window-positioning space (`window::cursor_point`): macOS points from the
+//! primary display's top-left, Windows physical virtual-desktop pixels.
+
+use std::path::PathBuf;
+
+/// What a drop at the cursor would land in.
+#[derive(Debug, PartialEq)]
+pub enum DropFolder {
+    Folder(PathBuf),
+    NotFolder,
+    /// A Finder window is under the cursor but Vee may not ask Finder for its folder.
+    FinderBlocked,
+}
+
+/// Whether Vee may send Apple Events to Finder.
+#[derive(Debug, PartialEq)]
+pub enum FinderAccess {
+    Granted,
+    Denied,
+    /// Not asked yet, or Finder isn't running.
+    Unknown,
+}
+
+/// An on-screen window, front to back as the OS lists them.
+pub struct WinInfo {
+    pub pid: i32,
+    pub layer: i64,
+    /// x, y, w, h
+    pub bounds: (f64, f64, f64, f64),
+    pub finder: bool,
+}
+
+#[derive(Debug)]
+pub enum Hit {
+    Desktop,
+    Finder,
+    Other,
+}
+
+fn contains((x, y, w, h): (f64, f64, f64, f64), (px, py): (f64, f64)) -> bool {
+    px >= x && px < x + w && py >= y && py < y + h
+}
+
+/// The front normal-layer window under `point`; none means the desktop.
+pub fn pick_hit(windows: &[WinInfo], point: (f64, f64), own_pid: i32) -> Hit {
+    match windows.iter().find(|w| w.layer == 0 && contains(w.bounds, point)) {
+        None => Hit::Desktop,
+        Some(w) if w.pid != own_pid && w.finder => Hit::Finder,
+        Some(_) => Hit::Other,
+    }
+}
+
+/// Parses `left,top,right,bottom\t/abs/path/` lines from the Finder script into (x, y, w, h) and path.
+pub fn parse_finder_windows(out: &str) -> Vec<((f64, f64, f64, f64), PathBuf)> {
+    out.lines()
+        .filter_map(|line| {
+            let (bounds, path) = line.split_once('\t')?;
+            if !path.starts_with('/') {
+                return None;
+            }
+            let n: Vec<f64> = bounds.split(',').map(|v| v.trim().parse().ok()).collect::<Option<_>>()?;
+            let [l, t, r, b] = n[..] else { return None };
+            Some(((l, t, r - l, b - t), PathBuf::from(path)))
+        })
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+pub fn key_down(key: &str) -> bool {
+    use objc2_core_graphics::{CGEventFlags, CGEventSource, CGEventSourceStateID};
+    let mask = match key {
+        "alt" => CGEventFlags::MaskAlternate,
+        "ctrl" => CGEventFlags::MaskControl,
+        "shift" => CGEventFlags::MaskShift,
+        _ => return false,
+    };
+    CGEventSource::flags_state(CGEventSourceStateID::CombinedSessionState).contains(mask)
+}
+
+#[cfg(target_os = "macos")]
+fn on_screen_windows() -> Vec<WinInfo> {
+    use objc2_app_kit::NSRunningApplication;
+    use objc2_core_foundation::{CFDictionary, CFNumber, CFRetained, CFString, CFType, CGRect};
+    use objc2_core_graphics::{
+        CGRectMakeWithDictionaryRepresentation, CGWindowListCopyWindowInfo, CGWindowListOption, kCGNullWindowID,
+        kCGWindowBounds, kCGWindowLayer, kCGWindowOwnerPID,
+    };
+    let Some(list) = CGWindowListCopyWindowInfo(
+        CGWindowListOption::OptionOnScreenOnly | CGWindowListOption::ExcludeDesktopElements,
+        kCGNullWindowID,
+    ) else {
+        return Vec::new();
+    };
+    // SAFETY: CGWindowListCopyWindowInfo returns an array of CFDictionary<CFString, CFType>.
+    let list: CFRetained<objc2_core_foundation::CFArray<CFDictionary<CFString, CFType>>> =
+        unsafe { CFRetained::cast_unchecked(list) };
+    // SAFETY: the key constants are immutable statics provided by CoreGraphics.
+    let (pid_key, layer_key, bounds_key) = unsafe { (kCGWindowOwnerPID, kCGWindowLayer, kCGWindowBounds) };
+    let number = |d: &CFDictionary<CFString, CFType>, k: &CFString| d.get(k)?.downcast::<CFNumber>().ok()?.as_i64();
+    list.iter()
+        .filter_map(|d| {
+            let pid = number(&d, pid_key)? as i32;
+            let layer = number(&d, layer_key)?;
+            let dict = d.get(bounds_key)?.downcast::<CFDictionary>().ok()?;
+            let mut r = CGRect::default();
+            // SAFETY: `dict` is the window bounds dictionary and `r` is a valid CGRect to write into.
+            if !unsafe { CGRectMakeWithDictionaryRepresentation(Some(&dict), &mut r) } {
+                return None;
+            }
+            let finder = layer == 0
+                && NSRunningApplication::runningApplicationWithProcessIdentifier(pid)
+                    .and_then(|a| a.bundleIdentifier())
+                    .is_some_and(|b| b.to_string() == "com.apple.finder");
+            Some(WinInfo { pid, layer, bounds: (r.origin.x, r.origin.y, r.size.width, r.size.height), finder })
+        })
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+const FINDER_WINDOWS_SCRIPT: &str = r#"tell application "Finder"
+  set out to ""
+  repeat with w in (every Finder window)
+    try
+      set b to bounds of w
+      set out to out & (item 1 of b) & "," & (item 2 of b) & "," & (item 3 of b) & "," & (item 4 of b) & tab & (POSIX path of (target of w as alias)) & linefeed
+    end try
+  end repeat
+  return out
+end tell"#;
+
+#[cfg(target_os = "macos")]
+pub fn folder_at(point: (f64, f64)) -> DropFolder {
+    match pick_hit(&on_screen_windows(), point, std::process::id() as i32) {
+        Hit::Desktop => match std::env::home_dir() {
+            Some(home) => DropFolder::Folder(home.join("Desktop")),
+            None => DropFolder::NotFolder,
+        },
+        Hit::Other => DropFolder::NotFolder,
+        Hit::Finder => {
+            if finder_access(false) != Some(FinderAccess::Granted) {
+                return DropFolder::FinderBlocked;
+            }
+            // ponytail: osascript process per lookup (~100 ms); move to NSAppleScript on a dedicated thread if it feels slow.
+            let out = match std::process::Command::new("osascript").args(["-e", FINDER_WINDOWS_SCRIPT]).output() {
+                Ok(out) if out.status.success() => out,
+                Ok(out) => {
+                    log::warn!("finder windows script failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+                    return DropFolder::NotFolder;
+                }
+                Err(e) => {
+                    log::warn!("osascript failed to start: {e}");
+                    return DropFolder::NotFolder;
+                }
+            };
+            parse_finder_windows(&String::from_utf8_lossy(&out.stdout))
+                .into_iter()
+                .find(|(b, _)| contains(*b, point))
+                .map_or(DropFolder::NotFolder, |(_, p)| DropFolder::Folder(p))
+        }
+    }
+}
+
+/// Asks the Apple Events permission state for Finder; `ask` shows the system prompt when not yet decided.
+/// Blocks while the prompt is up, so never call it with `ask` on the main thread.
+#[cfg(target_os = "macos")]
+pub fn finder_access(ask: bool) -> Option<FinderAccess> {
+    use std::ffi::c_void;
+    #[repr(C)]
+    struct AEDesc {
+        descriptor_type: u32,
+        data_handle: *mut c_void,
+    }
+    #[link(name = "CoreServices", kind = "framework")]
+    unsafe extern "C" {
+        fn AECreateDesc(type_code: u32, data_ptr: *const c_void, data_size: isize, result: *mut AEDesc) -> i16;
+        fn AEDisposeDesc(desc: *mut AEDesc) -> i16;
+        fn AEDeterminePermissionToAutomateTarget(target: *const AEDesc, class: u32, id: u32, ask: u8) -> i32;
+    }
+    const TYPE_APPLICATION_BUNDLE_ID: u32 = u32::from_be_bytes(*b"bund");
+    const TYPE_WILD_CARD: u32 = u32::from_be_bytes(*b"****");
+    const BUNDLE: &[u8] = b"com.apple.finder";
+    let mut desc = AEDesc { descriptor_type: 0, data_handle: std::ptr::null_mut() };
+    // SAFETY: BUNDLE outlives the call (AECreateDesc copies it) and `desc` is a valid out pointer.
+    if unsafe { AECreateDesc(TYPE_APPLICATION_BUNDLE_ID, BUNDLE.as_ptr().cast(), BUNDLE.len() as isize, &mut desc) } != 0 {
+        return Some(FinderAccess::Unknown);
+    }
+    // SAFETY: `desc` was created above and is disposed exactly once after the check.
+    let status = unsafe {
+        let status = AEDeterminePermissionToAutomateTarget(&desc, TYPE_WILD_CARD, TYPE_WILD_CARD, ask as u8);
+        AEDisposeDesc(&mut desc);
+        status
+    };
+    Some(match status {
+        0 => FinderAccess::Granted,
+        -1743 => FinderAccess::Denied,
+        _ => FinderAccess::Unknown,
+    })
+}
+
+#[cfg(windows)]
+pub fn key_down(key: &str) -> bool {
+    use ::windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_MENU, VK_SHIFT};
+    let vk = match key {
+        "alt" => VK_MENU,
+        "ctrl" => VK_CONTROL,
+        "shift" => VK_SHIFT,
+        _ => return false,
+    };
+    // SAFETY: GetAsyncKeyState only reads global key state.
+    (unsafe { GetAsyncKeyState(vk.0 as i32) } as u16 & 0x8000) != 0
+}
+
+#[cfg(windows)]
+pub fn finder_access(_ask: bool) -> Option<FinderAccess> {
+    None
+}
+
+#[cfg(windows)]
+pub fn folder_at(point: (f64, f64)) -> DropFolder {
+    use ::windows::Win32::Foundation::POINT;
+    use ::windows::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, GetClassNameW, GetWindowThreadProcessId, WindowFromPoint};
+    // SAFETY: plain user32 queries on whatever window is under the point; a stale HWND only makes them fail.
+    unsafe {
+        let hwnd = WindowFromPoint(POINT { x: point.0.round() as i32, y: point.1.round() as i32 });
+        if hwnd.is_invalid() {
+            return DropFolder::NotFolder;
+        }
+        let root = GetAncestor(hwnd, GA_ROOT);
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(root, Some(&mut pid));
+        if pid == std::process::id() {
+            return DropFolder::NotFolder;
+        }
+        let mut buf = [0u16; 256];
+        let len = GetClassNameW(root, &mut buf).max(0) as usize;
+        let found = match String::from_utf16_lossy(&buf[..len]).as_str() {
+            "Progman" | "WorkerW" => windows_desktop(),
+            "CabinetWClass" => explorer_folder(root),
+            _ => return DropFolder::NotFolder,
+        };
+        found.map_or(DropFolder::NotFolder, DropFolder::Folder)
+    }
+}
+
+#[cfg(windows)]
+fn windows_desktop() -> Option<PathBuf> {
+    use ::windows::Win32::System::Com::CoTaskMemFree;
+    use ::windows::Win32::UI::Shell::{FOLDERID_Desktop, KF_FLAG_DEFAULT, SHGetKnownFolderPath};
+    // SAFETY: the returned string is read once and freed with CoTaskMemFree as the API requires.
+    unsafe {
+        let p = SHGetKnownFolderPath(&FOLDERID_Desktop, KF_FLAG_DEFAULT, None).ok()?;
+        let path = p.to_string().ok();
+        CoTaskMemFree(Some(p.0 as *const _));
+        path.map(PathBuf::from)
+    }
+}
+
+/// The folder shown in the active tab of the Explorer window `root`.
+#[cfg(windows)]
+fn explorer_folder(root: ::windows::Win32::Foundation::HWND) -> Option<PathBuf> {
+    use ::windows::Win32::System::Com::{
+        CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, IServiceProvider,
+    };
+    use ::windows::Win32::System::Variant::{VARIANT, VT_I4};
+    use ::windows::Win32::UI::Shell::{
+        IFolderView, IPersistFolder2, IShellBrowser, IShellWindows, IWebBrowserApp, SHGetPathFromIDListW, SID_STopLevelBrowser,
+        ShellWindows,
+    };
+    use ::windows::Win32::UI::WindowsAndMessaging::FindWindowExW;
+    use ::windows::core::{Interface, PCWSTR, w};
+    // SAFETY: COM is initialised for this thread for the duration of the lookup and released after;
+    // every interface is dropped before CoUninitialize, and the PIDL is freed with CoTaskMemFree.
+    unsafe {
+        let init = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let result = (|| -> Option<PathBuf> {
+            let windows: IShellWindows = CoCreateInstance(&ShellWindows, None, CLSCTX_ALL).ok()?;
+            // Explorer keeps the active tab first among the window's tab children.
+            let active_tab = FindWindowExW(Some(root), None, w!("ShellTabWindowClass"), PCWSTR::null()).ok();
+            for i in 0..windows.Count().ok()? {
+                let mut index = VARIANT::default();
+                (*index.Anonymous.Anonymous).vt = VT_I4;
+                (*index.Anonymous.Anonymous).Anonymous.lVal = i;
+                let Ok(item) = windows.Item(&index) else { continue };
+                let Ok(app) = item.cast::<IWebBrowserApp>() else { continue };
+                if !app.HWND().is_ok_and(|h| h.0 == root.0 as isize) {
+                    continue;
+                }
+                let Ok(browser) = item
+                    .cast::<IServiceProvider>()
+                    .and_then(|sp| sp.QueryService::<IShellBrowser>(&SID_STopLevelBrowser))
+                else {
+                    continue;
+                };
+                if active_tab.is_some_and(|tab| browser.GetWindow().ok() != Some(tab)) {
+                    continue;
+                }
+                let folder: IPersistFolder2 = browser.QueryActiveShellView().ok()?.cast::<IFolderView>().ok()?.GetFolder().ok()?;
+                let pidl = folder.GetCurFolder().ok()?;
+                let mut buf = [0u16; 260];
+                let ok = SHGetPathFromIDListW(pidl, &mut buf).as_bool();
+                CoTaskMemFree(Some(pidl as *const _));
+                if !ok {
+                    return None;
+                }
+                let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+                return Some(PathBuf::from(String::from_utf16_lossy(&buf[..len])));
+            }
+            None
+        })();
+        if init.is_ok() {
+            CoUninitialize();
+        }
+        result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn w(pid: i32, layer: i64, b: (f64, f64, f64, f64), finder: bool) -> WinInfo {
+        WinInfo { pid, layer, bounds: b, finder }
+    }
+
+    #[test]
+    fn nothing_under_the_point_is_the_desktop() {
+        assert!(matches!(pick_hit(&[w(9, 0, (0., 0., 10., 10.), false)], (50., 50.), 1), Hit::Desktop));
+    }
+
+    #[test]
+    fn front_window_wins_and_other_layers_are_ignored() {
+        let ws = [w(5, 25, (0., 0., 100., 100.), false), w(7, 0, (0., 0., 100., 100.), true), w(8, 0, (0., 0., 100., 100.), false)];
+        assert!(matches!(pick_hit(&ws, (10., 10.), 1), Hit::Finder));
+    }
+
+    #[test]
+    fn own_windows_are_not_folders() {
+        let ws = [w(1, 0, (0., 0., 100., 100.), false), w(7, 0, (0., 0., 100., 100.), true)];
+        assert!(matches!(pick_hit(&ws, (10., 10.), 1), Hit::Other));
+    }
+
+    #[test]
+    fn finder_lines_without_a_path_are_skipped() {
+        let out = "10,20,410,320\t/Users/me/Downloads/\n0,0,5,5\t\n0,0,5,5\tmissing value\n";
+        assert_eq!(parse_finder_windows(out), vec![((10., 20., 400., 300.), PathBuf::from("/Users/me/Downloads/"))]);
+    }
+
+    #[cfg(target_os = "macos")]
+    fn cursor() -> (f64, f64) {
+        use objc2_core_graphics::{CGEvent, CGEventCreate};
+        let p = CGEvent::location(CGEventCreate(None).as_deref());
+        (p.x, p.y)
+    }
+
+    #[cfg(windows)]
+    fn cursor() -> (f64, f64) {
+        let mut p = ::windows::Win32::Foundation::POINT::default();
+        // SAFETY: `p` is a valid out pointer.
+        unsafe { ::windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut p) }.unwrap();
+        (p.x as f64, p.y as f64)
+    }
+
+    #[test]
+    #[ignore = "needs a desktop session; put the cursor on the desktop or a Finder/Explorer window"]
+    fn folder_at_desktop_corner() {
+        let point = cursor();
+        println!("finder_access = {:?}", finder_access(false));
+        println!("folder_at({point:?}) = {:?}", folder_at(point));
+    }
+}
