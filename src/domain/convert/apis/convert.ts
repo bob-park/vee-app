@@ -1,4 +1,4 @@
-import type { ConvertJob, FinderAccess, Format } from '@/domain/convert/apis/convert.dto';
+import type { ConvertJob, FfmpegStatus, FinderAccess, Format } from '@/domain/convert/apis/convert.dto';
 import call from '@/shared/api';
 
 /** Converts the dragged clip into the folder under the drop; rejects when no drop is pending. */
@@ -37,4 +37,21 @@ export async function requestFinderAccess() {
 
 export async function openAutomationSettings() {
   return call<void>('open_automation_settings');
+}
+
+export async function getFfmpegStatus() {
+  return call<FfmpegStatus>('get_ffmpeg_status');
+}
+
+/** Downloads (or updates) FFmpeg; progress arrives on `engines://ffmpeg`. */
+export async function downloadFfmpeg() {
+  return call<void>('download_ffmpeg');
+}
+
+export async function cancelFfmpegDownload() {
+  return call<void>('cancel_ffmpeg_download');
+}
+
+export async function removeFfmpeg() {
+  return call<void>('remove_ffmpeg');
 }

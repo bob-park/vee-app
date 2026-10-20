@@ -39,3 +39,20 @@ export interface ConvertJob {
 
 /** Apple Events permission for Finder; mirrors `get_finder_access`. */
 export type FinderAccess = 'granted' | 'denied' | 'unknown';
+
+/** Why the last FFmpeg download failed; mirrors Rust `InstallError`. */
+export type InstallError = 'network' | 'checksum' | 'unpack' | 'disk';
+
+/** The downloaded FFmpeg; mirrors Rust `FfmpegStatus`. `error` is the last failed download, if any. */
+export type FfmpegStatus =
+  | { state: 'missing'; error: InstallError | null }
+  | { state: 'downloading'; received: number; total: number; speed: number; stage: 'download' | 'verify' | 'unpack' }
+  | {
+      state: 'installed';
+      version: string;
+      size: number;
+      installedAt: number;
+      path: string;
+      update: boolean;
+      error: InstallError | null;
+    };

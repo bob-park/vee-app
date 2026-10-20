@@ -4,6 +4,7 @@ import { convertDrop } from '@/domain/convert/apis/convert';
 import type { Slice } from '@/domain/convert/apis/convert.dto';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { DONUT, dropPoint, labelAt, sliceAt, slicePath } from '@/utils/donut';
+import { formatLabel } from '@/utils/formatLabel';
 
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -76,7 +77,7 @@ export default function ConvertApp() {
                 textAnchor="middle"
                 className={cx('text-[12px] font-bold', active ? 'fill-primary-content' : 'fill-base-content')}
               >
-                {format === '720p' ? '720p' : format.toUpperCase()}
+                {formatLabel(format)}
               </text>
               {needs && (
                 <text x={l.x} y={l.y + 11} textAnchor="middle" className="fill-base-content text-[9px]">

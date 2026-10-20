@@ -4,6 +4,7 @@ import type { Kind, ToastPayload } from '@/domain/clip/apis/clip.dto';
 import type { ConvertNote } from '@/domain/convert/apis/convert.dto';
 import type { Dict } from '@/shared/i18n/en';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
+import { formatLabel } from '@/utils/formatLabel';
 
 import { listen } from '@tauri-apps/api/event';
 import cx from 'classnames';
@@ -36,7 +37,7 @@ function Icon({ path }: { path: string }) {
 function convertLines(note: ConvertNote, t: Dict): [string, string | null] {
   switch (note.type) {
     case 'saved': {
-      const fmt = note.format.toUpperCase();
+      const fmt = formatLabel(note.format);
       return [note.count > 1 ? t.convert.savedMany(note.count, fmt) : t.convert.savedOne(fmt), note.folder];
     }
     case 'failed':

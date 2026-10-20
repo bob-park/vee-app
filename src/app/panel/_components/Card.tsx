@@ -1,12 +1,13 @@
 import { useRef } from 'react';
 
 import type { Clip } from '@/domain/clip/apis/clip.dto';
-import { dismissConvert, retryConvert } from '@/domain/convert/apis/convert';
+import { cancelConvert, dismissConvert, retryConvert } from '@/domain/convert/apis/convert';
 import type { ConvertJob } from '@/domain/convert/apis/convert.dto';
 import { relativeTime } from '@/shared/i18n';
 import type { Dict } from '@/shared/i18n/en';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { imageTag } from '@/utils/fileThumb';
+import { formatLabel } from '@/utils/formatLabel';
 
 import cx from 'classnames';
 
@@ -146,7 +147,7 @@ function JobOverlay({ job }: { job: ConvertJob }) {
   // hooks
   const { t } = useI18n();
 
-  const fmt = job.format.toUpperCase();
+  const fmt = formatLabel(job.format);
   if (job.state === 'done') {
     return (
       <span className="bg-primary absolute top-1.5 left-3.5 rounded-md px-1.5 py-0.5 text-[10px] font-bold text-white">
@@ -173,22 +174,36 @@ function JobOverlay({ job }: { job: ConvertJob }) {
       </div>
     );
   }
+  const running = job.state === 'running';
+  const { percent } = job;
   const counted = job.total > 1;
+  const width = percent !== null ? percent : counted ? (job.done / job.total) * 100 : null;
   return (
     <div className="from-job-veil to-job-veil/5 absolute inset-x-2 inset-y-0 flex flex-col justify-end rounded-md bg-linear-to-t to-70% p-2 text-white">
       {job.state === 'queued' && dismiss}
+      {running && job.cancellable && (
+        <span className="absolute top-1.5 right-1.5">
+          <JobButton label={t.convert.cancel} onClick={() => void cancelConvert(job.id)}>
+            ✕
+          </JobButton>
+        </span>
+      )}
       <div className="mb-1.5 flex justify-between gap-1.5 text-[11px] font-semibold *:truncate">
         <span>{job.state === 'queued' ? t.convert.queued(job.position) : t.convert.converting(fmt)}</span>
-        {job.state === 'running' && counted && <span>{`${job.done}/${job.total}`}</span>}
+        {running && percent !== null ? (
+          <span>{`${percent}%`}</span>
+        ) : (
+          running && counted && <span>{`${job.done}/${job.total}`}</span>
+        )}
       </div>
       {job.state === 'running' && (
         <div className="h-1 overflow-hidden rounded-xs bg-white/30">
           <i
             className={cx(
               'block h-full rounded-xs bg-white',
-              !counted && 'animate-job-indeterminate w-[35%] motion-reduce:animate-none',
+              width === null && 'animate-job-indeterminate w-[35%] motion-reduce:animate-none',
             )}
-            style={counted ? { width: `${(job.done / job.total) * 100}%` } : undefined}
+            style={width !== null ? { width: `${width}%` } : undefined}
           />
         </div>
       )}
@@ -328,7 +343,11 @@ export function Card({
         )}
       >
         <span>{job?.state === 'done' ? job.folder : footLabel(clip, t)}</span>
-        {selected && <span>{t.copyHint}</span>}
+        {job?.state === 'running' && job.eta !== null ? (
+          <span>{t.convert.remaining(job.eta)}</span>
+        ) : (
+          selected && <span>{t.copyHint}</span>
+        )}
       </div>
       {confirming && (
         <div
