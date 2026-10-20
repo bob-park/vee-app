@@ -26,7 +26,7 @@ const QUALITIES: Settings['videoQuality'][] = ['small', 'normal', 'original'];
 
 const MB = 1024 * 1024;
 
-const BADGE = 'bg-ok-bg text-ok-fg rounded-md px-2 py-0.5 text-[11px] font-semibold';
+const BADGE = 'bg-ok-bg text-ok-fg shrink-0 rounded-md px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap';
 
 interface Props {
   settings: Settings;
@@ -112,7 +112,7 @@ function Head({ title, hint, children }: { title: React.ReactNode; hint?: string
 }
 
 function Caption({ children }: { children: React.ReactNode }) {
-  return <div className="text-muted mx-0.5 mb-1.5 text-[11px] font-semibold">{children}</div>;
+  return <div className="text-muted mx-0.5 mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold">{children}</div>;
 }
 
 interface EngineSectionProps {
@@ -242,7 +242,12 @@ function LibreOfficeSection({ run }: { run: Props['run'] }) {
 
   return (
     <>
-      <Caption>{l.caption}</Caption>
+      <Caption>
+        {l.caption}
+        <span className="bg-accent-subtle text-primary rounded-md px-1.5 py-px text-[10px] font-semibold">
+          {l.beta}
+        </span>
+      </Caption>
       <SettingSection>
         <Row
           label={l.title}
@@ -251,8 +256,9 @@ function LibreOfficeSection({ run }: { run: Props['run'] }) {
           {isLoading ? null : libreOffice ? (
             <span className={BADGE}>{l.found}</span>
           ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-muted text-[11px]">{l.missing}</span>
+            // Kept whole: the long hint on the left would otherwise squeeze this to one character per line.
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="text-muted text-[11px] whitespace-nowrap">{l.missing}</span>
               <Button onClick={() => run(openLibreOfficeDownload())}>{l.install}</Button>
             </div>
           )}

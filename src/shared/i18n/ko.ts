@@ -173,6 +173,7 @@ export const ko: Dict = {
       },
       libreoffice: {
         caption: 'LibreOffice · 문서 변환',
+        beta: 'Beta',
         title: 'LibreOffice',
         found: '찾음',
         missing: '찾을 수 없음',

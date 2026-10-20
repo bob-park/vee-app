@@ -172,6 +172,7 @@ export const en = {
       },
       libreoffice: {
         caption: 'LibreOffice · Document conversion',
+        beta: 'Beta',
         title: 'LibreOffice',
         found: 'Found',
         missing: 'Not found',
