@@ -175,11 +175,17 @@ function JobOverlay({ job }: { job: ConvertJob }) {
     );
   }
   const running = job.state === 'running';
-  const { percent } = job;
   const counted = job.total > 1;
-  const width = percent !== null ? percent : counted ? (job.done / job.total) * 100 : null;
+  // Video jobs report a percent; image batches fall back to finished files; otherwise it spins.
+  const percent = job.percent ?? (running && counted ? Math.round((job.done / job.total) * 100) : null);
+  const detail = [
+    running && counted && `${job.done}/${job.total}`,
+    running && job.eta !== null && t.convert.remaining(job.eta),
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return (
-    <div className="from-job-veil to-job-veil/5 absolute inset-x-2 inset-y-0 flex flex-col justify-end rounded-md bg-linear-to-t to-70% p-2 text-white">
+    <div className="bg-job-veil absolute inset-x-2 inset-y-0 flex flex-col items-center justify-center gap-1.5 rounded-md px-2 text-center text-white">
       {job.state === 'queued' && dismiss}
       {running && job.cancellable && (
         <span className="absolute top-1.5 right-1.5">
@@ -188,26 +194,49 @@ function JobOverlay({ job }: { job: ConvertJob }) {
           </JobButton>
         </span>
       )}
-      <div className="mb-1.5 flex justify-between gap-1.5 text-[11px] font-semibold *:truncate">
-        <span>{job.state === 'queued' ? t.convert.queued(job.position) : t.convert.converting(fmt)}</span>
-        {running && percent !== null ? (
-          <span>{`${percent}%`}</span>
-        ) : (
-          running && counted && <span>{`${job.done}/${job.total}`}</span>
-        )}
-      </div>
-      {job.state === 'running' && (
-        <div className="h-1 overflow-hidden rounded-xs bg-white/30">
-          <i
-            className={cx(
-              'block h-full rounded-xs bg-white',
-              width === null && 'animate-job-indeterminate w-[35%] motion-reduce:animate-none',
-            )}
-            style={width !== null ? { width: `${width}%` } : undefined}
-          />
-        </div>
-      )}
+      <ProgressRing percent={job.state === 'queued' ? 0 : percent} spin={running && percent === null} />
+      <span className="w-full truncate text-[11px] font-semibold">
+        {job.state === 'queued' ? t.convert.queued(job.position) : t.convert.converting(fmt)}
+      </span>
+      {/* Always rendered so the ring doesn't jump up when the remaining time first appears. */}
+      <span className="w-full truncate text-[10px] opacity-75">{detail || '\u00a0'}</span>
     </div>
+  );
+}
+
+const RING_R = 36;
+const RING_C = 2 * Math.PI * RING_R;
+
+/** A ring filled to `percent` with the number in the middle; `spin` turns a partial arc when there is no number. */
+function ProgressRing({ percent, spin }: { percent: number | null; spin: boolean }) {
+  const offset = percent === null ? RING_C * 0.72 : RING_C * (1 - percent / 100);
+  return (
+    // Drawn in one viewBox so the number scales with the ring, which shrinks with a short panel (78px at most).
+    <svg viewBox="0 0 80 80" className="aspect-square h-[45%] max-h-[78px] min-h-8" aria-hidden>
+      <g className={cx('origin-center', spin && 'animate-spin motion-reduce:animate-none')}>
+        <g transform="rotate(-90 40 40)">
+          <circle cx="40" cy="40" r={RING_R} fill="none" strokeWidth="6" className="stroke-white/20" />
+          <circle
+            cx="40"
+            cy="40"
+            r={RING_R}
+            fill="none"
+            strokeWidth="6"
+            strokeLinecap="round"
+            strokeDasharray={RING_C}
+            strokeDashoffset={offset}
+            className="stroke-white [transition:stroke-dashoffset_400ms] motion-reduce:transition-none"
+          />
+        </g>
+      </g>
+      {percent !== null && !spin && (
+        // Alphabetic baseline so the smaller % sits on the number's baseline; y=48 centres the digits.
+        <text x="40" y="48" textAnchor="middle" className="fill-white text-[22px] font-bold">
+          {percent}
+          <tspan className="text-[13px] font-semibold opacity-80">%</tspan>
+        </text>
+      )}
+    </svg>
   );
 }
 
@@ -343,11 +372,7 @@ export function Card({
         )}
       >
         <span>{job?.state === 'done' ? job.folder : footLabel(clip, t)}</span>
-        {job?.state === 'running' && job.eta !== null ? (
-          <span>{t.convert.remaining(job.eta)}</span>
-        ) : (
-          selected && <span>{t.copyHint}</span>
-        )}
+        {selected && <span>{t.copyHint}</span>}
       </div>
       {confirming && (
         <div
