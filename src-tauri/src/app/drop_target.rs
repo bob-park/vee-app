@@ -135,7 +135,9 @@ fn on_screen_windows() -> Vec<WinInfo> {
 #[cfg(target_os = "macos")]
 const FINDER_WINDOWS_SCRIPT: &str = r#"tell application "Finder"
   set out to ""
-  repeat with w in (every Finder window)
+  -- By index: looping over the window list makes w "item 1 of …", which Finder reads as a file in the window.
+  repeat with i from 1 to (count of Finder windows)
+    set w to Finder window i
     try
       if collapsed of w then error number -128
       set b to bounds of w
@@ -423,6 +425,14 @@ mod tests {
     fn finder_lines_without_a_path_are_skipped() {
         let out = "10,20,410,320\t/Users/me/Downloads/\n0,0,5,5\t\n0,0,5,5\tmissing value\n";
         assert_eq!(parse_finder_windows(out), vec![((10., 20., 400., 300.), PathBuf::from("/Users/me/Downloads/"))]);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn finder_script_reads_windows_by_index() {
+        // `repeat with w in every Finder window` resolves w to a file inside the window; every line failed.
+        assert!(!FINDER_WINDOWS_SCRIPT.contains("repeat with w in"));
+        assert!(FINDER_WINDOWS_SCRIPT.contains("set w to Finder window i"));
     }
 
     #[test]
