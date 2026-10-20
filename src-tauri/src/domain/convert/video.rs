@@ -3,7 +3,7 @@
 use super::{Format, JobError, Quality};
 use std::ffi::OsString;
 use std::io::BufRead;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, mpsc};
@@ -25,6 +25,12 @@ pub struct Run<'a> {
     pub cancel: &'a AtomicBool,
     /// Called with the done share (0.0..=0.99), or `None` when the length is unknown.
     pub progress: &'a mut dyn FnMut(Option<f64>),
+    /// The rhwp CLI; `None` while it is not installed.
+    pub rhwp: Option<PathBuf>,
+    /// LibreOffice's `soffice`; `None` while it is not found.
+    pub soffice: Option<PathBuf>,
+    /// LibreOffice's own profile dir, so a LibreOffice the user has open doesn't take the job.
+    pub lo_profile: PathBuf,
 }
 
 /// A hardware H.264 encoder FFmpeg can drive.
@@ -286,6 +292,36 @@ pub fn command(program: &Path) -> Command {
     c
 }
 
+/// Exit code of a Windows program whose DLLs are missing (`0xC0000135`, STATUS_DLL_NOT_FOUND).
+const DLL_NOT_FOUND: i32 = -1073741515;
+
+/// Runs `cmd` with no stdio until it exits, killing it after `timeout`.
+/// Exit 0 is `Ok`; missing DLLs (the MSVC runtime) are `Runtime`; anything else is `Engine`.
+pub(super) fn exec(cmd: &mut Command, timeout: Duration, name: &str) -> Result<(), JobError> {
+    // ponytail: the tool's log is dropped; pipe and tail it if failures need a reason.
+    let child = cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    let mut child = Killed(child.map_err(|e| engine_error(name, e))?);
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.0.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(status)) => {
+                log::warn!("convert: {name} failed: {status}");
+                return Err(exit_error(status.code()));
+            }
+            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
+            // Dropping `child` kills and reaps it.
+            Ok(None) => return Err(engine_error(name, "timed out")),
+            Err(e) => return Err(engine_error(name, e)),
+        }
+    }
+}
+
+/// The error for a failed exit `code`.
+fn exit_error(code: Option<i32>) -> JobError {
+    if code == Some(DLL_NOT_FOUND) { JobError::Runtime } else { JobError::Engine }
+}
+
 /// A running FFmpeg, killed and reaped when dropped: on cancel, on error, and on a panic mid-run.
 /// After `try_wait` has reaped it, `kill` is a no-op (std keeps the status), so no stray PID is signalled.
 struct Killed(Child);
@@ -306,7 +342,13 @@ fn engine_error(step: &str, e: impl std::fmt::Display) -> JobError {
 mod tests {
     use super::super::{run, VIDEO_TARGETS};
     use super::*;
-    use std::path::PathBuf;
+
+    #[test]
+    fn missing_dlls_are_a_runtime_error() {
+        assert_eq!(exit_error(Some(-1073741515)), JobError::Runtime);
+        assert_eq!(exit_error(Some(1)), JobError::Engine);
+        assert_eq!(exit_error(None), JobError::Engine);
+    }
 
     #[test]
     fn mp4_normal_args() {
@@ -390,7 +432,7 @@ mod tests {
         std::fs::write(&src, b"v").unwrap();
         let (ffmpeg, ffprobe) = fake(bin.path(), "exit 1");
         let cancel = AtomicBool::new(false);
-        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancel, progress: &mut |_| {} };
+        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancel, rhwp: None, soffice: None, lo_profile: PathBuf::new(), progress: &mut |_| {} };
         assert_eq!(run(&src, "a", Format::Mp4, dir.path(), tmp.path(), &mut ctx), Err(JobError::Engine));
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
@@ -412,7 +454,7 @@ mod tests {
             }
         };
         let started = std::time::Instant::now();
-        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancel, progress: &mut progress };
+        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancel, rhwp: None, soffice: None, lo_profile: PathBuf::new(), progress: &mut progress };
         assert_eq!(run(&src, "a", Format::Mp4, dir.path(), tmp.path(), &mut ctx), Err(JobError::Cancelled));
         assert!(started.elapsed() < Duration::from_secs(5));
         assert_eq!(seen, vec![Some(0.0), Some(0.25)]);
@@ -434,7 +476,7 @@ mod tests {
                 cancel.store(true, Ordering::SeqCst);
             }
         };
-        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancel, progress: &mut progress };
+        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancel, rhwp: None, soffice: None, lo_profile: PathBuf::new(), progress: &mut progress };
         assert_eq!(run(&src, "a", Format::Mp4, dir.path(), tmp.path(), &mut ctx), Err(JobError::Cancelled));
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
@@ -449,7 +491,7 @@ mod tests {
         let marker = bin.path().join("ran");
         let (ffmpeg, ffprobe) = fake(bin.path(), &format!("touch '{}'", marker.display()));
         let cancel = AtomicBool::new(true);
-        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancel, progress: &mut |_| {} };
+        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancel, rhwp: None, soffice: None, lo_profile: PathBuf::new(), progress: &mut |_| {} };
         assert_eq!(run(&src, "a", Format::Mp4, dir.path(), tmp.path(), &mut ctx), Err(JobError::Cancelled));
         assert!(!marker.exists());
     }
@@ -465,7 +507,7 @@ mod tests {
         let started = std::time::Instant::now();
         let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut progress = |p: Option<f64>| assert!(p.is_none_or(|p| p == 0.0), "boom");
-            let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancel, progress: &mut progress };
+            let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancel, rhwp: None, soffice: None, lo_profile: PathBuf::new(), progress: &mut progress };
             let _ = run(&src, "a", Format::Mp4, dir.path(), tmp.path(), &mut ctx);
         }));
         assert!(panicked.is_err());
@@ -542,7 +584,7 @@ mod tests {
             ffmpeg: Some((&ffmpeg, &ffprobe)),
             quality: Quality::Normal,
             hw: Some(HwEncoder::VideoToolbox),
-            cancel: &cancel,
+            cancel: &cancel, rhwp: None, soffice: None, lo_profile: PathBuf::new(),
             progress: &mut progress,
         };
         let out = run(&src, "a", Format::Mp4, dir.path(), tmp.path(), &mut ctx).unwrap();
@@ -558,7 +600,7 @@ mod tests {
         let src = d.path().join("a.mp4");
         std::fs::write(&src, b"v").unwrap();
         let cancel = AtomicBool::new(false);
-        let mut ctx = Run { ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, progress: &mut |_| {} };
+        let mut ctx = Run { ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, rhwp: None, soffice: None, lo_profile: PathBuf::new(), progress: &mut |_| {} };
         assert_eq!(run(&src, "a", Format::Gif, d.path(), d.path(), &mut ctx), Err(JobError::Engine));
     }
 
@@ -609,7 +651,7 @@ mod tests {
         for (src, to, q, hw) in cases {
             let mut last = None;
             let mut progress = |p: Option<f64>| last = p;
-            let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: q, hw, cancel: &cancel, progress: &mut progress };
+            let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: q, hw, cancel: &cancel, rhwp: None, soffice: None, lo_profile: PathBuf::new(), progress: &mut progress };
             let stem = src.file_stem().unwrap().to_string_lossy().into_owned();
             let result = run(src, &stem, to, dir.path(), tmp.path(), &mut ctx);
             let ok = result.as_ref().is_ok_and(|out| std::fs::metadata(out).is_ok_and(|m| m.len() > 0));
@@ -625,7 +667,7 @@ mod tests {
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
         let before = std::fs::read_dir(dir.path()).unwrap().count();
         let cancelled = AtomicBool::new(true);
-        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancelled, progress: &mut |_| {} };
+        let mut ctx = Run { ffmpeg: Some((&ffmpeg, &ffprobe)), quality: Quality::Normal, hw: None, cancel: &cancelled, rhwp: None, soffice: None, lo_profile: PathBuf::new(), progress: &mut |_| {} };
         assert_eq!(run(&even, "clip", Format::Webm, dir.path(), tmp.path(), &mut ctx), Err(JobError::Cancelled));
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), before);
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);

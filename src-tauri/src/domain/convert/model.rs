@@ -157,6 +157,8 @@ pub enum JobError {
     Engine,
     /// The output could not be written to the destination folder.
     Write,
+    /// The engine needs the Microsoft Visual C++ runtime (Windows rhwp).
+    Runtime,
     /// The user cancelled a running video job. Never shown: the worker drops the job.
     Cancelled,
 }

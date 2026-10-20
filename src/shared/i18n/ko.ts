@@ -48,7 +48,12 @@ export const ko: Dict = {
     failed: '변환 실패',
     retry: '다시',
     dismiss: '닫기',
-    errors: { missing: '원본이 없어요', engine: '이 파일은 변환할 수 없어요', write: '이 폴더에 저장할 수 없어요' },
+    errors: {
+      missing: '원본이 없어요',
+      engine: '이 파일은 변환할 수 없어요',
+      write: '이 폴더에 저장할 수 없어요',
+      runtime: 'Microsoft Visual C++ 런타임이 필요해요',
+    },
     savedOne: (f: string) => `${f} 파일로 저장했어요`,
     savedMany: (n: number, f: string) => `${n}개 파일을 ${f} 파일로 저장했어요`,
     failedTitle: '변환하지 못했어요',

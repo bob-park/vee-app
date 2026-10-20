@@ -32,7 +32,7 @@ export interface Slice {
 }
 
 /** Why a conversion failed; mirrors Rust `JobError`. */
-export type ConvertError = 'missing' | 'engine' | 'write';
+export type ConvertError = 'missing' | 'engine' | 'write' | 'runtime';
 
 /** What a toast says about converting; mirrors Rust `ConvertNote`. */
 export type ConvertNote =

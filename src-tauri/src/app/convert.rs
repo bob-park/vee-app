@@ -137,7 +137,7 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
         heic: cfg!(target_os = "macos"),
         ffmpeg: engines::ffmpeg(app).is_some(),
         rhwp: engines::rhwp(app).is_some(),
-        libreoffice: libreoffice_found(),
+        libreoffice: soffice_path().is_some(),
         textutil: cfg!(target_os = "macos"),
     };
     let slices = convert::formats_for(&files, caps);
@@ -159,8 +159,9 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
 }
 
 /// ponytail: stub until LibreOffice detection lands; checks the default macOS install only.
-fn libreoffice_found() -> bool {
-    cfg!(target_os = "macos") && Path::new("/Applications/LibreOffice.app/Contents/MacOS/soffice").exists()
+fn soffice_path() -> Option<PathBuf> {
+    let path = PathBuf::from("/Applications/LibreOffice.app/Contents/MacOS/soffice");
+    (cfg!(target_os = "macos") && path.exists()).then_some(path)
 }
 
 /// Looks up the folder under the cursor and opens the overlay there, or says why not (once per drag).
@@ -292,8 +293,17 @@ fn work(app: &AppHandle, id: u64) {
     let hw = engine.as_ref().filter(|_| hw_on).and_then(|(ffmpeg, _)| convert::hw_encoder(ffmpeg));
     // Stored only; the running tick publishes it, so FFmpeg's chatty output costs no emits.
     let mut progress = |p: Option<f64>| with_job(&c, id, |j| j.progress = p);
-    let mut ctx =
-        Run { ffmpeg: engine.as_ref().map(|(f, p)| (f.as_path(), p.as_path())), quality, hw, cancel: &cancel, progress: &mut progress };
+    let lo_profile = app.path().app_data_dir().unwrap_or_else(|_| tmp.clone()).join("lo-profile");
+    let mut ctx = Run {
+        ffmpeg: engine.as_ref().map(|(f, p)| (f.as_path(), p.as_path())),
+        quality,
+        hw,
+        cancel: &cancel,
+        rhwp: engines::rhwp(app),
+        soffice: soffice_path(),
+        lo_profile,
+        progress: &mut progress,
+    };
     let mut failed: Option<(JobError, &Path)> = None;
     // A retried job resumes at the file that failed; the ones before it are already saved.
     for (i, src) in files.iter().enumerate().skip(start) {

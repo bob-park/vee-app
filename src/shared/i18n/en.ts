@@ -50,6 +50,7 @@ export const en = {
       missing: 'The original is gone',
       engine: "This file can't be converted",
       write: "Couldn't save in this folder",
+      runtime: 'Needs the Microsoft Visual C++ runtime',
     },
     savedOne: (f: string) => `Saved as ${f}`,
     savedMany: (n: number, f: string) => `Saved ${n} files as ${f}`,

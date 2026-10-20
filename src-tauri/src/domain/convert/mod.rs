@@ -1,7 +1,9 @@
 //! Convert domain: which image, video or document formats a dragged card can become, and where the output goes.
 
+mod hwp;
 mod image;
 mod model;
+mod office;
 mod video;
 
 use self::image::convert_image;
@@ -109,9 +111,8 @@ pub fn run(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path, ctx: &mut
             Some((ffmpeg, ffprobe)) => video::convert(src, to, &staged, ffmpeg, ffprobe, ctx),
             None => Err(JobError::Engine),
         }
-    } else if doc_source(src).is_some() {
-        // No document runner yet: rhwp, LibreOffice and textutil come next.
-        Err(JobError::Engine)
+    } else if let Some((targets, _)) = doc_source(src) {
+        convert_doc(src, to, &staged, tmp, targets, ctx)
     } else {
         convert_image(src, to, &staged)
     };
@@ -126,6 +127,24 @@ pub fn run(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path, ctx: &mut
         let _ = std::fs::remove_file(&staged);
     }
     result
+}
+
+/// Converts a document with the engine its family uses for `to` (`None` in the table is textutil).
+/// `Engine` when that engine is missing or `to` isn't one of the family's targets.
+fn convert_doc(src: &Path, to: Format, out: &Path, tmp: &Path, targets: DocTargets, ctx: &Run) -> Result<(), JobError> {
+    let Some(&(_, engine)) = targets.iter().find(|(f, _)| *f == to) else { return Err(JobError::Engine) };
+    match engine {
+        Some(Engine::Rhwp) => match &ctx.rhwp {
+            Some(rhwp) => hwp::convert(src, to, out, rhwp, hwp::RHWP_TIMEOUT),
+            None => Err(JobError::Engine),
+        },
+        Some(Engine::LibreOffice) => match &ctx.soffice {
+            Some(soffice) => office::convert_lo(src, to, out, tmp, soffice, &ctx.lo_profile, office::OFFICE_TIMEOUT),
+            None => Err(JobError::Engine),
+        },
+        None if cfg!(target_os = "macos") => office::convert_textutil(src, to, out, office::TEXTUTIL_TIMEOUT),
+        _ => Err(JobError::Engine),
+    }
 }
 
 /// Rename, or copy + remove when `from` and `to` are on different volumes.
@@ -283,20 +302,174 @@ mod tests {
         }
         assert_eq!(serde_json::to_value(Engine::LibreOffice).unwrap(), "libreoffice");
         assert_eq!(serde_json::to_value(Engine::Rhwp).unwrap(), "rhwp");
+        assert_eq!(serde_json::to_value(JobError::Runtime).unwrap(), "runtime");
     }
 
     #[test]
-    fn documents_have_no_runner_yet() {
+    fn documents_without_their_engine_are_engine_errors() {
         let d = tempfile::tempdir().unwrap();
-        let src = d.path().join("a.hwp");
-        std::fs::write(&src, b"x").unwrap();
-        assert_eq!(run_image(&src, "a", Format::Pdf, d.path(), d.path()), Err(JobError::Engine));
+        for name in ["a.hwp", "a.docx", "a.xlsx"] {
+            let src = d.path().join(name);
+            std::fs::write(&src, b"x").unwrap();
+            assert_eq!(run_image(&src, "a", Format::Pdf, d.path(), d.path()), Err(JobError::Engine), "{name}");
+        }
+        // A target the family doesn't have.
+        assert_eq!(run_image(&d.path().join("a.hwp"), "a", Format::Docx, d.path(), d.path()), Err(JobError::Engine));
+    }
+
+    /// Writes an executable shell script standing in for rhwp or soffice.
+    #[cfg(unix)]
+    fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let p = dir.join(name);
+        std::fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        p
+    }
+
+    /// `run` for a document with these engines.
+    fn run_doc(src: &Path, to: Format, dir: &Path, tmp: &Path, rhwp: Option<PathBuf>, soffice: Option<PathBuf>) -> Result<PathBuf, JobError> {
+        let cancel = AtomicBool::new(false);
+        let stem = src.file_stem().unwrap().to_string_lossy().into_owned();
+        let mut ctx = Run { ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, rhwp, soffice, lo_profile: tmp.join("lo"), progress: &mut |_| {} };
+        run(src, &stem, to, dir, tmp, &mut ctx)
+    }
+
+    /// Source dir with `name` in it, destination dir, temp dir, bin dir.
+    fn doc_dirs(name: &str) -> (PathBuf, [tempfile::TempDir; 4]) {
+        let d = [(); 4].map(|()| tempfile::tempdir().unwrap());
+        let src = d[0].path().join(name);
+        std::fs::write(&src, b"doc").unwrap();
+        (src, d)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rhwp_writes_the_output_and_a_failing_one_leaves_nothing() {
+        let (src, [_s, dst, tmp, bin]) = doc_dirs("a.hwp");
+        // Writes its first argument (the subcommand) into its last (the output).
+        let ok = script(bin.path(), "rhwp", "for a; do out=$a; done\necho \"$1\" > \"$out\"");
+        let out = run_doc(&src, Format::Pdf, dst.path(), tmp.path(), Some(ok), None).unwrap();
+        assert_eq!((out.file_name().unwrap(), std::fs::read_to_string(&out).unwrap().as_str()), ("a.pdf".as_ref(), "export-pdf\n"));
+        // Can't open it (encrypted, damaged): a partial file, then exit 1.
+        let bad = script(bin.path(), "bad", "for a; do out=$a; done\necho partial > \"$out\"\nexit 1");
+        assert_eq!(run_doc(&src, Format::Hwpx, dst.path(), tmp.path(), Some(bad), None), Err(JobError::Engine));
+        assert_eq!(std::fs::read_dir(dst.path()).unwrap().count(), 1);
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+        // Exit 0 without an output.
+        let silent = script(bin.path(), "silent", "exit 0");
+        assert_eq!(run_doc(&src, Format::Hwpx, dst.path(), tmp.path(), Some(silent), None), Err(JobError::Engine));
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+    }
+
+    /// A fake soffice: writes `<outdir>/<src stem>.pdf` (and a decoy beside it), then runs `then`.
+    #[cfg(unix)]
+    fn fake_soffice(bin: &Path, then: &str) -> PathBuf {
+        let body = format!(
+            "while [ $# -gt 1 ]; do [ \"$1\" = --outdir ] && dir=$2; shift; done\nname=$(basename \"$1\")\necho decoy > \"$dir/0.pdf\"\necho right > \"$dir/${{name%.*}}.pdf\"\n{then}"
+        );
+        script(bin, "soffice", &body)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn soffice_output_is_found_by_the_dotted_stem() {
+        let (src, [_s, dst, tmp, bin]) = doc_dirs("a.b.docx");
+        let out = run_doc(&src, Format::Pdf, dst.path(), tmp.path(), None, Some(fake_soffice(bin.path(), "exit 0"))).unwrap();
+        assert_eq!(out, dst.path().join("a.b.pdf"));
+        assert_eq!(std::fs::read_to_string(&out).unwrap(), "right\n");
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failing_soffice_leaves_nothing() {
+        let (src, [_s, dst, tmp, bin]) = doc_dirs("a.xlsx");
+        assert_eq!(run_doc(&src, Format::Pdf, dst.path(), tmp.path(), None, Some(fake_soffice(bin.path(), "exit 3"))), Err(JobError::Engine));
+        // Exit 0 but nothing under the expected name (LibreOffice's way of saying it couldn't load it).
+        let silent = script(bin.path(), "silent", "exit 0");
+        assert_eq!(run_doc(&src, Format::Pdf, dst.path(), tmp.path(), None, Some(silent)), Err(JobError::Engine));
+        assert_eq!(std::fs::read_dir(dst.path()).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hung_soffice_is_killed_at_the_timeout() {
+        let (src, [_s, _d, tmp, bin]) = doc_dirs("a.pptx");
+        let soffice = fake_soffice(bin.path(), "exec sleep 10");
+        let out = tmp.path().join("a.pdf");
+        let started = std::time::Instant::now();
+        let r = office::convert_lo(&src, Format::Pdf, &out, tmp.path(), &soffice, &tmp.path().join("lo"), std::time::Duration::from_secs(1));
+        assert_eq!(r, Err(JobError::Engine));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn textutil_converts_plain_text() {
+        let (src, [_s, dst, tmp, _b]) = doc_dirs("a.b.txt");
+        let out = run_doc(&src, Format::Html, dst.path(), tmp.path(), None, None).unwrap();
+        assert_eq!(out, dst.path().join("a.b.html"));
+        assert!(std::fs::read_to_string(&out).unwrap().contains("doc"));
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+    }
+
+    /// HWPX → PDF/HWP → HWPX/PDF with rhwp, then DOCX → PDF/ODT and ODT → DOCX with LibreOffice
+    /// at its default path, and TXT → DOCX with textutil:
+    /// `VEE_RHWP_DIR=… VEE_HWP_SAMPLE=…/a.hwpx cargo test --lib converts_documents -- --ignored --nocapture`
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore]
+    fn converts_documents() {
+        const PDF: &[u8] = b"%PDF";
+        const ZIP: &[u8] = b"PK";
+        const CFB: &[u8] = b"\xD0\xCF\x11\xE0";
+        let (Ok(bin), Ok(sample)) = (std::env::var("VEE_RHWP_DIR"), std::env::var("VEE_HWP_SAMPLE")) else { return };
+        let rhwp = Some(Path::new(&bin).join("rhwp"));
+        let soffice = PathBuf::from("/Applications/LibreOffice.app/Contents/MacOS/soffice");
+        let (dir, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        // A profile path with a space and Hangul, like `Application Support` and Korean user names.
+        let profile = tmp.path().join("lo 프로필");
+        let cancel = AtomicBool::new(false);
+        let mut ctx = Run {
+            ffmpeg: None,
+            quality: Quality::Normal,
+            hw: None,
+            cancel: &cancel,
+            rhwp,
+            soffice: Some(soffice),
+            lo_profile: profile.clone(),
+            progress: &mut |_| {},
+        };
+        let mut convert = |src: &Path, to: Format, magic: &[u8]| {
+            let started = std::time::Instant::now();
+            let stem = src.file_stem().unwrap().to_string_lossy().into_owned();
+            let out = run(src, &stem, to, dir.path(), tmp.path(), &mut ctx).unwrap_or_else(|e| panic!("{} → {}: {e:?}", src.display(), to.id()));
+            let bytes = std::fs::read(&out).unwrap();
+            println!("{} → {}: {} bytes in {:?}", src.display(), out.display(), bytes.len(), started.elapsed());
+            assert!(bytes.starts_with(magic), "{}", out.display());
+            out
+        };
+        convert(Path::new(&sample), Format::Pdf, PDF);
+        let hwp = convert(Path::new(&sample), Format::Hwp, CFB);
+        convert(&hwp, Format::Hwpx, ZIP);
+        convert(&hwp, Format::Pdf, PDF);
+        let txt = dir.path().join("note.txt");
+        std::fs::write(&txt, "Vee 문서 변환 테스트\nSecond line.\n").unwrap();
+        let docx = convert(&txt, Format::Docx, ZIP);
+        convert(&docx, Format::Pdf, PDF);
+        let odt = convert(&docx, Format::Odt, ZIP);
+        convert(&odt, Format::Docx, ZIP);
+        assert!(profile.is_dir(), "LibreOffice used its own profile");
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().filter(|e| e.as_ref().unwrap().path() != profile).count(), 0);
     }
 
     /// `run` for an image source: no FFmpeg, never cancelled.
     fn run_image(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path) -> Result<PathBuf, JobError> {
         let cancel = AtomicBool::new(false);
-        run(src, stem, to, dir, tmp, &mut Run { ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, progress: &mut |_| {} })
+        run(src, stem, to, dir, tmp, &mut Run { ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, rhwp: None, soffice: None, lo_profile: PathBuf::new(), progress: &mut |_| {} })
     }
 
     #[test]
