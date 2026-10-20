@@ -311,11 +311,13 @@ mod tests {
         assert_eq!(visible_jobs(&mut jobs, 10_000)[0].percent, Some(99));
         // Unknown length: no percent, no eta.
         jobs[0].progress = None;
-        assert_eq!((visible_jobs(&mut jobs, 10_000)[0].percent, visible_jobs(&mut jobs, 10_000)[0].eta), (None, None));
+        let v = &visible_jobs(&mut jobs, 10_000)[0];
+        assert_eq!((v.percent, v.eta), (None, None));
         // Under 3 %: percent but no eta yet.
         jobs[0].done = 0;
         jobs[0].progress = Some(0.04);
-        assert_eq!((visible_jobs(&mut jobs, 10_000)[0].percent, visible_jobs(&mut jobs, 10_000)[0].eta), (Some(2), None));
+        let v = &visible_jobs(&mut jobs, 10_000)[0];
+        assert_eq!((v.percent, v.eta), (Some(2), None));
     }
 
     #[test]

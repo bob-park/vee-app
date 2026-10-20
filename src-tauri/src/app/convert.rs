@@ -254,9 +254,7 @@ fn drop_on(app: &AppHandle, format: &str) -> AppResult<()> {
 fn work(app: &AppHandle, id: u64) {
     let c = app.state::<Convert>();
     let picked = c.jobs.lock().unwrap().list.iter_mut().find(|j| j.id == id && j.state == JobState::Queued).map(|j| {
-        j.state = JobState::Running;
-        j.started = Some(now_ms());
-        j.progress = None;
+        j.start(now_ms());
         (j.files.clone(), j.format, j.dir.clone(), j.done, j.cancel.clone())
     });
     // Dismissed while queued.
@@ -289,7 +287,8 @@ fn work(app: &AppHandle, id: u64) {
         }
         with_job(&c, id, |j| {
             j.done = i + 1;
-            j.progress = None;
+            // A video's next file starts at 0 so the percent holds until ffprobe answers; images stay `None`.
+            j.progress = j.progress.map(|_| 0.0);
         });
         publish(app);
     }

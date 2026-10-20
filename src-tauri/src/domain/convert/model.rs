@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -192,6 +192,15 @@ impl Job {
             cancel: Arc::default(),
         }
     }
+
+    /// Marks the job running from `now`. Clears a cancel that landed too late to stop the last run,
+    /// so a retry doesn't stop at once.
+    pub fn start(&mut self, now: i64) {
+        self.state = JobState::Running;
+        self.started = Some(now);
+        self.progress = None;
+        self.cancel.store(false, Ordering::SeqCst);
+    }
 }
 
 /// Seconds left after `elapsed_ms` at done share `p`; `None` below 3 %, where the guess is noise.
@@ -226,6 +235,16 @@ pub struct JobView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn starting_clears_a_stale_cancel() {
+        let mut job = Job::new(1, 1, Format::Mp4, vec![], PathBuf::new(), 0);
+        job.cancel.store(true, Ordering::SeqCst);
+        job.progress = Some(0.5);
+        job.start(42);
+        assert!(!job.cancel.load(Ordering::SeqCst));
+        assert_eq!((job.state, job.started, job.progress), (JobState::Running, Some(42), None));
+    }
 
     #[test]
     fn eta_scales_elapsed_by_what_is_left() {
