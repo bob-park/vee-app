@@ -4,12 +4,14 @@ mod hwp;
 mod image;
 mod model;
 mod office;
+mod process;
 mod video;
 
 use self::image::convert_image;
 pub use model::{Caps, Engine, Format, Job, JobError, JobState, JobView, Quality, Slice, DONE_MS, SHOW_AFTER_MS};
 use model::eta;
-pub use video::{Run, command, hw_encoder};
+pub use process::command;
+pub use video::{Run, hw_encoder};
 use model::{DocTargets, HWP_TARGETS, IMAGE_TARGETS, PLAIN_TARGETS, SHEET_TARGETS, SLIDE_TARGETS, TEXT_TARGETS, VIDEO_TARGETS};
 
 use std::path::{Path, PathBuf};
@@ -135,14 +137,14 @@ fn convert_doc(src: &Path, to: Format, out: &Path, tmp: &Path, targets: DocTarge
     let Some(&(_, engine)) = targets.iter().find(|(f, _)| *f == to) else { return Err(JobError::Engine) };
     match engine {
         Some(Engine::Rhwp) => match &ctx.rhwp {
-            Some(rhwp) => hwp::convert(src, to, out, rhwp, hwp::RHWP_TIMEOUT),
+            Some(rhwp) => hwp::convert(src, to, out, rhwp, hwp::RHWP_TIMEOUT, ctx.cancel),
             None => Err(JobError::Engine),
         },
         Some(Engine::LibreOffice) => match &ctx.soffice {
-            Some(soffice) => office::convert_lo(src, to, out, tmp, soffice, &ctx.lo_profile, office::OFFICE_TIMEOUT),
+            Some(soffice) => office::convert_lo(src, to, out, tmp, soffice, &ctx.lo_profile, office::OFFICE_TIMEOUT, ctx.cancel),
             None => Err(JobError::Engine),
         },
-        None if cfg!(target_os = "macos") => office::convert_textutil(src, to, out, office::TEXTUTIL_TIMEOUT),
+        None if cfg!(target_os = "macos") => office::convert_textutil(src, to, out, office::TEXTUTIL_TIMEOUT, ctx.cancel),
         _ => Err(JobError::Engine),
     }
 }
@@ -400,10 +402,45 @@ mod tests {
         let soffice = fake_soffice(bin.path(), "exec sleep 10");
         let out = tmp.path().join("a.pdf");
         let started = std::time::Instant::now();
-        let r = office::convert_lo(&src, Format::Pdf, &out, tmp.path(), &soffice, &tmp.path().join("lo"), std::time::Duration::from_secs(1));
+        let r = office::convert_lo(&src, Format::Pdf, &out, tmp.path(), &soffice, &tmp.path().join("lo"), std::time::Duration::from_secs(1), &AtomicBool::new(false));
         assert_eq!(r, Err(JobError::Engine));
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_cancel_stops_a_running_document_engine() {
+        let (src, [_s, dst, tmp, bin]) = doc_dirs("a.hwp");
+        let rhwp = script(bin.path(), "rhwp", "for a; do out=$a; done\necho partial > \"$out\"\nexec sleep 10");
+        let soffice = fake_soffice(bin.path(), "exec sleep 10");
+        for to in [Format::Pdf, Format::Docx] {
+            let src = if to == Format::Pdf { src.clone() } else { src.with_extension("odt") };
+            std::fs::write(&src, b"doc").unwrap();
+            let cancel = AtomicBool::new(false);
+            let started = std::time::Instant::now();
+            let mut ctx = Run {
+                ffmpeg: None,
+                quality: Quality::Normal,
+                hw: None,
+                cancel: &cancel,
+                rhwp: Some(rhwp.clone()),
+                soffice: Some(soffice.clone()),
+                lo_profile: tmp.path().join("lo"),
+                progress: &mut |_| {},
+            };
+            let r = std::thread::scope(|s| {
+                s.spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                    cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+                });
+                run(&src, "a", to, dst.path(), tmp.path(), &mut ctx)
+            });
+            assert_eq!(r, Err(JobError::Cancelled), "{to:?}");
+            assert!(started.elapsed() < std::time::Duration::from_secs(5));
+            assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+            assert_eq!(std::fs::read_dir(dst.path()).unwrap().count(), 0);
+        }
     }
 
     #[cfg(target_os = "macos")]

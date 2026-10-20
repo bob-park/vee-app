@@ -1,9 +1,10 @@
 //! HWP and HWPX conversion through the rhwp CLI.
 
-use super::video::{command, exec};
+use super::process::{command, exec};
 use super::{Format, JobError};
 use std::ffi::OsString;
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 /// rhwp is killed after this long; a hung one would stall the single worker.
@@ -21,9 +22,9 @@ pub fn rhwp_args(src: &Path, to: Format, out: &Path) -> Option<Vec<OsString>> {
 }
 
 /// Converts `src` to `to` with `rhwp`, writing `out`. The caller removes `out` on any error.
-pub fn convert(src: &Path, to: Format, out: &Path, rhwp: &Path, timeout: Duration) -> Result<(), JobError> {
+pub fn convert(src: &Path, to: Format, out: &Path, rhwp: &Path, timeout: Duration, cancel: &AtomicBool) -> Result<(), JobError> {
     let args = rhwp_args(src, to, out).ok_or(JobError::Engine)?;
-    exec(command(rhwp).args(args), timeout, "rhwp")?;
+    exec(command(rhwp).args(args), timeout, cancel, "rhwp")?;
     if out.is_file() { Ok(()) } else { Err(JobError::Engine) }
 }
 

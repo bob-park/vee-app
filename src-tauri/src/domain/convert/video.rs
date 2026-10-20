@@ -1,10 +1,11 @@
 //! Video conversion through an installed FFmpeg CLI: argument building, progress parsing, a cancellable run.
 
+use super::process::{Killed, command, engine_error};
 use super::{Format, JobError, Quality};
 use std::ffi::OsString;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, mpsc};
 use std::time::Duration;
@@ -279,76 +280,11 @@ fn probe_duration(ffprobe: &Path, src: &Path) -> Option<f64> {
     out.status.success().then(|| parse_duration(&String::from_utf8_lossy(&out.stdout))).flatten()
 }
 
-/// A command that opens no console window on Windows.
-pub fn command(program: &Path) -> Command {
-    #[allow(unused_mut)]
-    let mut c = Command::new(program);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        c.creation_flags(CREATE_NO_WINDOW);
-    }
-    c
-}
-
-/// Exit code of a Windows program whose DLLs are missing (`0xC0000135`, STATUS_DLL_NOT_FOUND).
-const DLL_NOT_FOUND: i32 = -1073741515;
-
-/// Runs `cmd` with no stdio until it exits, killing it after `timeout`.
-/// Exit 0 is `Ok`; missing DLLs (the MSVC runtime) are `Runtime`; anything else is `Engine`.
-pub(super) fn exec(cmd: &mut Command, timeout: Duration, name: &str) -> Result<(), JobError> {
-    // ponytail: the tool's log is dropped; pipe and tail it if failures need a reason.
-    let child = cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
-    let mut child = Killed(child.map_err(|e| engine_error(name, e))?);
-    let deadline = std::time::Instant::now() + timeout;
-    loop {
-        match child.0.try_wait() {
-            Ok(Some(status)) if status.success() => return Ok(()),
-            Ok(Some(status)) => {
-                log::warn!("convert: {name} failed: {status}");
-                return Err(exit_error(status.code()));
-            }
-            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
-            // Dropping `child` kills and reaps it.
-            Ok(None) => return Err(engine_error(name, "timed out")),
-            Err(e) => return Err(engine_error(name, e)),
-        }
-    }
-}
-
-/// The error for a failed exit `code`.
-fn exit_error(code: Option<i32>) -> JobError {
-    if code == Some(DLL_NOT_FOUND) { JobError::Runtime } else { JobError::Engine }
-}
-
-/// A running FFmpeg, killed and reaped when dropped: on cancel, on error, and on a panic mid-run.
-/// After `try_wait` has reaped it, `kill` is a no-op (std keeps the status), so no stray PID is signalled.
-struct Killed(Child);
-
-impl Drop for Killed {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-fn engine_error(step: &str, e: impl std::fmt::Display) -> JobError {
-    log::warn!("convert: {step} failed: {e}");
-    JobError::Engine
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::{run, VIDEO_TARGETS};
+    use std::process::Command;
     use super::*;
-
-    #[test]
-    fn missing_dlls_are_a_runtime_error() {
-        assert_eq!(exit_error(Some(-1073741515)), JobError::Runtime);
-        assert_eq!(exit_error(Some(1)), JobError::Engine);
-        assert_eq!(exit_error(None), JobError::Engine);
-    }
 
     #[test]
     fn mp4_normal_args() {

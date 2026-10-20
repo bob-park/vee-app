@@ -293,7 +293,14 @@ fn work(app: &AppHandle, id: u64) {
     let hw = engine.as_ref().filter(|_| hw_on).and_then(|(ffmpeg, _)| convert::hw_encoder(ffmpeg));
     // Stored only; the running tick publishes it, so FFmpeg's chatty output costs no emits.
     let mut progress = |p: Option<f64>| with_job(&c, id, |j| j.progress = p);
-    let lo_profile = app.path().app_data_dir().unwrap_or_else(|_| tmp.clone()).join("lo-profile");
+    let lo_profile = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|e| {
+            log::warn!("convert: no app data dir ({e}); LibreOffice profile goes in {}", tmp.display());
+            tmp.clone()
+        })
+        .join("lo-profile");
     let mut ctx = Run {
         ffmpeg: engine.as_ref().map(|(f, p)| (f.as_path(), p.as_path())),
         quality,

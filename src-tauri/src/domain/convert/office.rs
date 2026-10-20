@@ -1,9 +1,10 @@
 //! Document conversion: LibreOffice (`soffice --headless`) and macOS `textutil`.
 
-use super::video::{command, exec};
+use super::process::{command, exec};
 use super::{Format, JobError, unique_path};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 /// LibreOffice is killed after this long; a hung one would stall the single worker.
@@ -77,12 +78,13 @@ pub fn convert_lo(
     soffice: &Path,
     profile: &Path,
     timeout: Duration,
+    cancel: &AtomicBool,
 ) -> Result<(), JobError> {
     // A dir of its own, so the expected name can't meet another file.
     let outdir = unique_path(tmp, "soffice", "out");
     let args = soffice_args(src, to, &outdir, profile).ok_or(JobError::Engine)?;
     std::fs::create_dir(&outdir).map_err(|_| JobError::Write)?;
-    let result = exec(command(soffice).args(args), timeout, "soffice").and_then(|()| {
+    let result = exec(command(soffice).args(args), timeout, cancel, "soffice").and_then(|()| {
         // LibreOffice exits 0 even when it couldn't load the file, so the output is the real check.
         std::fs::rename(lo_output(&outdir, src, to), out).map_err(|e| {
             log::warn!("convert: soffice wrote no {}: {e}", to.ext());
@@ -94,9 +96,9 @@ pub fn convert_lo(
 }
 
 /// Converts `src` to `to` with macOS `textutil`, writing `out`. The caller removes `out` on any error.
-pub fn convert_textutil(src: &Path, to: Format, out: &Path, timeout: Duration) -> Result<(), JobError> {
+pub fn convert_textutil(src: &Path, to: Format, out: &Path, timeout: Duration, cancel: &AtomicBool) -> Result<(), JobError> {
     let args = textutil_args(src, to, out).ok_or(JobError::Engine)?;
-    exec(command(Path::new("textutil")).args(args), timeout, "textutil")?;
+    exec(command(Path::new("/usr/bin/textutil")).args(args), timeout, cancel, "textutil")?;
     if out.is_file() { Ok(()) } else { Err(JobError::Engine) }
 }
 
