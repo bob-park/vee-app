@@ -102,7 +102,7 @@ fn format_ids_are_unique_and_720p_writes_mp4() {
   - `pub fn parse_duration(stdout: &str) -> Option<f64>` (seconds; `N/A`/empty → None).
   - `pub fn progress_of(line: &str, duration_s: f64) -> Option<f64>` (0.0–1.0 from an `out_time_us=` line; other lines None).
   - `pub struct Run<'a> { pub ffmpeg: Option<(&'a Path, &'a Path)> /* ffmpeg, ffprobe */, pub quality: Quality, pub cancel: &'a AtomicBool, pub progress: &'a mut dyn FnMut(Option<f64>) }`.
-  - `run(src, stem, to, dir, tmp, ctx: &mut Run) -> Result<PathBuf, JobError>` — image formats go to `convert_image` as before; video formats to `video::convert(...)`; `JobError` gains `Cancelled` (never shown: the worker drops the job silently).
+  - `run(src, stem, to, dir, tmp, ctx: &mut Run) -> Result<PathBuf, JobError>` — dispatches by the **source** (`pub fn is_video(path) -> bool`, the video extension list): image sources go to `convert_image` as before, video sources to `video::convert(...)` (so `Gif` from a video uses FFmpeg); a video source with `ctx.ffmpeg == None` → `Engine`; `JobError` gains `Cancelled` (never shown: the worker drops the job silently).
   - settings: `videoQuality` default `normal`, validate `small|normal|original`; DTO field; TS `videoQuality: 'small' | 'normal' | 'original'`, `SettingKey` adds it.
 
 - [ ] **Step 1: Failing tests** (`video.rs`):
