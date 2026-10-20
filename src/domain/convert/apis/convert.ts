@@ -1,4 +1,11 @@
-import type { ConvertJob, EngineId, EngineStatus, FinderAccess, Format } from '@/domain/convert/apis/convert.dto';
+import type {
+  ConvertJob,
+  EngineId,
+  EngineStatus,
+  FinderAccess,
+  Format,
+  LibreOffice,
+} from '@/domain/convert/apis/convert.dto';
 import call from '@/shared/api';
 
 /** Converts the dragged clip into the folder under the drop; rejects when no drop is pending. */
@@ -54,4 +61,9 @@ export async function cancelEngineDownload(engine: EngineId) {
 
 export async function removeEngine(engine: EngineId) {
   return call<void>('remove_engine', { engine });
+}
+
+/** Finds LibreOffice and asks its version (up to 10 s); call again to re-check. */
+export async function getLibreOffice() {
+  return call<LibreOffice>('get_libreoffice');
 }

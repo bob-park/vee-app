@@ -8,6 +8,7 @@ pub mod engines;
 pub mod front_app;
 pub mod i18n;
 pub mod ocr;
+pub mod office;
 pub mod retention;
 pub mod shortcut;
 pub mod sound;

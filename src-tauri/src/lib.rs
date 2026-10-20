@@ -2,7 +2,7 @@ mod app;
 mod domain;
 mod shared;
 
-use app::{autostart, convert, disk_access, drop_target, engines, ocr, retention, shortcut, state::AppState, tray, updater, watcher, window};
+use app::{autostart, convert, disk_access, drop_target, engines, ocr, office, retention, shortcut, state::AppState, tray, updater, watcher, window};
 use domain::{clip, settings, source_app, whats_new};
 use std::sync::atomic::Ordering;
 use tauri::{Manager, RunEvent, WindowEvent};
@@ -111,6 +111,7 @@ pub fn run() {
             engines::commands::download_engine,
             engines::commands::cancel_engine_download,
             engines::commands::remove_engine,
+            office::commands::get_libreoffice,
             settings::commands::get_settings,
             settings::commands::set_setting,
             autostart::set_autostart,

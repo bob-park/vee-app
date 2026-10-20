@@ -3,7 +3,7 @@
 use crate::{
     app::{
         drop_target::{self, DropFolder},
-        engines,
+        engines, office,
         state::{AppState, now_ms},
         window::{self, PANEL, Rect, ToastPayload, USES_POINTS},
     },
@@ -137,7 +137,7 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
         heic: cfg!(target_os = "macos"),
         ffmpeg: engines::ffmpeg(app).is_some(),
         rhwp: engines::rhwp(app).is_some(),
-        libreoffice: soffice_path().is_some(),
+        libreoffice: office::soffice().is_some(),
         textutil: cfg!(target_os = "macos"),
     };
     let slices = convert::formats_for(&files, caps);
@@ -156,12 +156,6 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
             std::thread::sleep(Duration::from_millis(KEY_POLL_MS));
         }
     });
-}
-
-/// ponytail: stub until LibreOffice detection lands; checks the default macOS install only.
-fn soffice_path() -> Option<PathBuf> {
-    let path = PathBuf::from("/Applications/LibreOffice.app/Contents/MacOS/soffice");
-    (cfg!(target_os = "macos") && path.exists()).then_some(path)
 }
 
 /// Looks up the folder under the cursor and opens the overlay there, or says why not (once per drag).
@@ -307,7 +301,7 @@ fn work(app: &AppHandle, id: u64) {
         hw,
         cancel: &cancel,
         rhwp: engines::rhwp(app),
-        soffice: soffice_path(),
+        soffice: office::soffice(),
         lo_profile,
         progress: &mut progress,
     };

@@ -10,7 +10,7 @@ mod video;
 use self::image::convert_image;
 pub use model::{Caps, Engine, Format, Job, JobError, JobState, JobView, Quality, Slice, DONE_MS, SHOW_AFTER_MS};
 use model::eta;
-pub use process::command;
+pub use process::{command, output};
 pub use video::{Run, hw_encoder};
 use model::{DocTargets, HWP_TARGETS, IMAGE_TARGETS, PLAIN_TARGETS, SHEET_TARGETS, SLIDE_TARGETS, TEXT_TARGETS, VIDEO_TARGETS};
 

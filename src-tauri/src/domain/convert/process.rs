@@ -30,6 +30,14 @@ pub(super) struct Killed(pub(super) Child);
 
 impl Drop for Killed {
     fn drop(&mut self) {
+        // Windows: `soffice.exe` is a launcher for `soffice.bin`, so a running one is killed with its tree.
+        #[cfg(windows)]
+        {
+            if let Ok(None) = self.0.try_wait() {
+                let pid = self.0.id().to_string();
+                let _ = command(Path::new("taskkill.exe")).args(["/T", "/F", "/PID", &pid]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+            }
+        }
         let _ = self.0.kill();
         let _ = self.0.wait();
     }
@@ -64,6 +72,20 @@ pub(super) fn exec(cmd: &mut Command, timeout: Duration, cancel: &AtomicBool, na
     }
 }
 
+/// Runs `cmd` and returns its stdout once it closes, or `None` on a spawn error, bad UTF-8 or after `timeout`
+/// (the process is killed then). The exit status is not checked.
+pub fn output(cmd: &mut Command, timeout: Duration) -> Option<String> {
+    let mut child = Killed(cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?);
+    let mut stdout = child.0.stdout.take()?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = tx.send(std::io::Read::read_to_string(&mut stdout, &mut s).ok().map(|_| s));
+    });
+    // Dropping `child` kills a process still running at the deadline, which closes the pipe and ends the reader.
+    rx.recv_timeout(timeout).ok().flatten()
+}
+
 /// The error for a failed exit `code`.
 fn exit_error(code: Option<i32>) -> JobError {
     if code == Some(DLL_NOT_FOUND) { JobError::Runtime } else { JobError::Engine }
@@ -83,5 +105,14 @@ mod tests {
         assert_eq!(exit_error(Some(-1073741515)), JobError::Runtime);
         assert_eq!(exit_error(Some(1)), JobError::Engine);
         assert_eq!(exit_error(None), JobError::Engine);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_reads_stdout_and_gives_up_at_the_timeout() {
+        assert_eq!(output(Command::new("/bin/sh").args(["-c", "echo hi"]), Duration::from_secs(5)).as_deref(), Some("hi\n"));
+        let t = std::time::Instant::now();
+        assert_eq!(output(Command::new("/bin/sh").args(["-c", "exec sleep 10"]), Duration::from_millis(300)), None);
+        assert!(t.elapsed() < Duration::from_secs(5));
     }
 }

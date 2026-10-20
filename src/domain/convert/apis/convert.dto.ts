@@ -88,3 +88,6 @@ export interface EngineStatusEvent {
   engine: EngineId;
   status: EngineStatus;
 }
+
+/** The user's installed LibreOffice; mirrors Rust `LibreOffice`. `null` when it isn't found. */
+export type LibreOffice = { version: string } | null;
