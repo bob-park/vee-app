@@ -2,7 +2,7 @@ mod app;
 mod domain;
 mod shared;
 
-use app::{autostart, convert, disk_access, drop_target, ocr, retention, shortcut, state::AppState, tray, updater, watcher, window};
+use app::{autostart, convert, disk_access, drop_target, engines, ocr, retention, shortcut, state::AppState, tray, updater, watcher, window};
 use domain::{clip, settings, source_app, whats_new};
 use std::sync::atomic::Ordering;
 use tauri::{Manager, WindowEvent};
@@ -40,6 +40,7 @@ pub fn run() {
                 }
             };
             app.manage(AppState::new(conn, images_dir));
+            engines::manage(app.handle(), &data_dir);
             convert::spawn(app.handle());
             // Windows are `create: false` so no webview can call a command before AppState exists.
             for config in app.config().app.windows.clone() {
@@ -105,6 +106,10 @@ pub fn run() {
             convert::commands::list_convert_jobs,
             convert::commands::retry_convert,
             convert::commands::dismiss_convert,
+            engines::commands::get_ffmpeg_status,
+            engines::commands::download_ffmpeg,
+            engines::commands::cancel_ffmpeg_download,
+            engines::commands::remove_ffmpeg,
             settings::commands::get_settings,
             settings::commands::set_setting,
             autostart::set_autostart,

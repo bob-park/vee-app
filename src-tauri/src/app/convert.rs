@@ -3,6 +3,7 @@
 use crate::{
     app::{
         drop_target::{self, DropFolder},
+        engines,
         state::{AppState, now_ms},
         window::{self, PANEL, Rect, ToastPayload, USES_POINTS},
     },
@@ -122,7 +123,7 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
         *c.session.lock().unwrap() = None;
         return;
     };
-    let slices = convert::formats_for(&files, Caps { heic: cfg!(target_os = "macos"), ffmpeg: ffmpeg_installed(app) });
+    let slices = convert::formats_for(&files, Caps { heic: cfg!(target_os = "macos"), ffmpeg: engines::ffmpeg(app).is_some() });
     *c.session.lock().unwrap() = Some(Session { generation, clip_id, files, slices, dir: None, noted: false, dropped: false });
     let app = app.clone();
     std::thread::spawn(move || {
@@ -138,11 +139,6 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
             std::thread::sleep(Duration::from_millis(KEY_POLL_MS));
         }
     });
-}
-
-// ponytail: stub until the FFmpeg installer lands (Task 3 replaces it with `engines::ffmpeg`).
-fn ffmpeg_installed(_: &AppHandle) -> bool {
-    false
 }
 
 /// Looks up the folder under the cursor and opens the overlay there, or says why not (once per drag).
@@ -276,10 +272,11 @@ fn work(app: &AppHandle, id: u64) {
     let Some((files, format, dir, start)) = picked else { return };
     publish(app);
     let tmp = std::env::temp_dir().join("vee-convert");
-    // ponytail: no FFmpeg or cancel until Task 4 wires them; video jobs fail with `Engine` meanwhile.
+    // ponytail: no cancel until Task 4 wires it.
     let cancel = AtomicBool::new(false);
     let quality = Quality::parse(&settings::get(&app.state::<AppState>().db.lock().unwrap(), "videoQuality"));
-    let mut ctx = Run { ffmpeg: None, quality, cancel: &cancel, progress: &mut |_| {} };
+    let engine = engines::ffmpeg(app);
+    let mut ctx = Run { ffmpeg: engine.as_ref().map(|(f, p)| (f.as_path(), p.as_path())), quality, cancel: &cancel, progress: &mut |_| {} };
     let mut failed: Option<(JobError, &Path)> = None;
     // A retried job resumes at the file that failed; the ones before it are already saved.
     for (i, src) in files.iter().enumerate().skip(start) {

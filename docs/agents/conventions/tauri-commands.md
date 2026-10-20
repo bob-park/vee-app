@@ -32,7 +32,7 @@ pub fn set_setting(app: AppHandle, state: State<AppState>, key: String, value: S
 - **Lock scope:** keep the `MutexGuard` inside one expression. Don't hold the DB lock across `await` or while calling code that locks again (`tray::refresh`, `retention::prune_now` read the DB).
 - **Registration:** add every command to `tauri::generate_handler![…]` in `lib.rs`. An unregistered command fails at runtime, not at compile time.
 - **Async:** use an `async` command only for real async work (`updater::check_update`).
-- **Where:** domain commands in `domain/<name>/commands.rs`; panel/window commands in `app/window.rs` → `commands`; updater, autostart, disk-access, convert (`convert::commands`), drop-target commands in their `app/` file.
+- **Where:** domain commands in `domain/<name>/commands.rs`; panel/window commands in `app/window.rs` → `commands`; updater, autostart, disk-access, convert (`convert::commands`), engines (`engines::commands`), drop-target commands in their `app/` file.
 
 ## Frontend side
 
@@ -62,6 +62,7 @@ export async function setSetting(key: SettingKey, value: string) {
 | `convert://open` | `{ formats, name }` | `app/convert.rs` (to `convert` only) | `ConvertApp` |
 | `convert://close` | — | `app/convert.rs` (to `convert` only) | `ConvertApp` |
 | `convert://jobs` | `ConvertJob[]` | `app/convert.rs` (to `panel` only) | `useConvertJobs` (`domain/convert/queries`) |
+| `engines://ffmpeg` | `FfmpegStatus` | `app/engines.rs` (every status change, download progress every 250 ms) | Settings Convert tab |
 | `update://status` | `UpdateStatus` | `updater::set_status` | `useUpdateStatus` |
 
 - Name new events `<domain>://<event>` in kebab-case. Use `emit_to(<label>, …)` when only one window cares.

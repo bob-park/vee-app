@@ -6,7 +6,7 @@ mod video;
 
 use self::image::convert_image;
 pub use model::{Caps, Engine, Format, Job, JobError, JobState, JobView, Quality, Slice, DONE_MS, SHOW_AFTER_MS};
-pub use video::Run;
+pub use video::{Run, command};
 use model::{IMAGE_TARGETS, VIDEO_TARGETS};
 
 use std::path::{Path, PathBuf};

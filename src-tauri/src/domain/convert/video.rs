@@ -162,7 +162,7 @@ fn probe_duration(ffprobe: &Path, src: &Path) -> Option<f64> {
 }
 
 /// A command that opens no console window on Windows.
-fn command(program: &Path) -> Command {
+pub fn command(program: &Path) -> Command {
     #[allow(unused_mut)]
     let mut c = Command::new(program);
     #[cfg(windows)]
