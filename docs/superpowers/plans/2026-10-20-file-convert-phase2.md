@@ -4,20 +4,21 @@
 
 **Goal:** Video files dragged out of the panel convert through the donut (MP4, WEBM, MOV, GIF, MP3, 720p), using an FFmpeg the user downloads from the Settings "Convert" tab, with percent + remaining time on the card and a cancel button.
 
-**Architecture:** `domain/convert` learns video sources and FFmpeg argument building, progress parsing and a cancellable run (no `tauri`). A new shell module `app/engines.rs` downloads, verifies (SHA-256), unpacks and removes FFmpeg under the app data dir with `curl` and the OS unzip tool, publishing `engines://ffmpeg` status. The donut gets per-slice availability (`needs`), dimming video slices while FFmpeg is missing. Jobs gain `percent`/`eta` and a cancel flag.
+**Architecture:** `domain/convert` learns video sources and FFmpeg argument building, progress parsing and a cancellable run (no `tauri`). A new shell module `app/engines.rs` downloads, verifies (SHA-256), installs and removes FFmpeg under the app data dir with `curl` (raw executables, no unpack), publishing `engines://ffmpeg` status. The donut gets per-slice availability (`needs`), dimming video slices while FFmpeg is missing. Jobs gain `percent`/`eta` and a cancel flag.
 
-**Tech Stack:** Rust (Tauri 2.12, existing `sha2`), system `curl`, `ditto` (macOS) / `tar` (Windows 10 1803+), FFmpeg 9.0.2 CLI; React 19 + Tailwind 4/daisyUI 5.
+**Tech Stack:** Rust (Tauri 2.12, existing `sha2`), system `curl` (Windows 10 1803+), FFmpeg 8.1.2 CLI; React 19 + Tailwind 4/daisyUI 5.
 
 **Spec:** `docs/superpowers/specs/2026-10-20-file-convert-design.md` (phase ②). Phase 1 plan: `docs/superpowers/plans/2026-10-20-file-convert-phase1.md` — its Global Constraints still hold.
 
 ## Global Constraints
 
 - Branch `feature/file-convert` (continues phase 1). Commit messages `<prefix>(<scope>): <subject>`.
-- **No dependency changes.** Downloads go through the system `curl` (macOS; `curl.exe` on Windows 10 1803+), unpacking through `ditto -x -k` (macOS) / `tar -xf` (Windows), hashing through the existing `sha2` crate.
-- FFmpeg assets, pinned (version `9.0.2`):
-  - macOS arm64: `https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip` sha256 `c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924` size `28395699`; `…/ffprobe.zip` sha256 `fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6` size `28317701`.
-  - Windows x64: `https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip` sha256 `60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba` size `114768076` (contains `…/bin/ffmpeg.exe`, `…/bin/ffprobe.exe`).
-- Install dir: `<app data dir>/engines/ffmpeg/` holding `ffmpeg`/`ffprobe` (`.exe` on Windows) and `meta.json` `{ "version": "9.0.2", "installedAt": <ms>, "size": <bytes on disk> }`. A dir without both binaries is "missing". Never touch anything outside it; never keep a partial download there (download to `<temp>/vee-ffmpeg-download/`, move in only after verify + unpack).
+- **No dependency changes.** Downloads go through the system `curl` (macOS; `curl.exe` on Windows 10 1803+). The downloads are raw executables, so there is no unpack step (no `ditto`/`tar`). Hashing through the existing `sha2` crate.
+- FFmpeg assets, pinned (version `8.1.2`). This replaced the earlier martin-riedl.de / GyanD zips (one martin-riedl.de edge was very slow); Task 3's unpack step, `Stage::Unpack` / `InstallError::Unpack` and the `unpacking` / `errors.unpack` strings below are gone with them:
+  - Base `https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.1.2-1/` (shaka-project static builds, GPL; downloaded by the user, not bundled). Each file is one raw executable, installed under the name after the arrow.
+  - macOS arm64: `ffmpeg-osx-arm64` sha256 `e7b9fcd97f95f333512d6e8b8ac24d9dbc08f189f36047695499bd7b57214b22` size `34074040` → `ffmpeg`; `ffprobe-osx-arm64` sha256 `ded4c698b8ff38d0bc1fd30fcc5e768dc46f58bc15a8dfd61f98615ba49cde5c` size `33882408` → `ffprobe`.
+  - Windows x64: `ffmpeg-win-x64.exe` sha256 `4044b3924c977ad31229d504c5d5b8685f9553124fbaff6e9c99048b42830341` size `53763072` → `ffmpeg.exe`; `ffprobe-win-x64.exe` sha256 `fc37ca23d31ee08bb8f7e108edf3822f6ef3efc1a8d306bbe0b779190230710b` size `53558272` → `ffprobe.exe`.
+- Install dir: `<app data dir>/engines/ffmpeg/` holding `ffmpeg`/`ffprobe` (`.exe` on Windows) and `meta.json` `{ "version": "8.1.2", "installedAt": <ms>, "size": <bytes on disk> }`. A dir without both binaries is "missing". Never touch anything outside it; never keep a partial download there (download to `<temp>/vee-ffmpeg-download/`, move in only after every hash verifies).
 - Network only when the user presses Download / Update (docs/agents/overview.md must say so).
 - Video sources (case-insensitive): `mp4 m4v mov mkv webm avi wmv flv mpg mpeg mts m2ts 3gp` (`ts` left out: usually TypeScript). Video targets in donut order: `mp4, webm, mov, gif, mp3, 720p`. A source's own container is left out (`mp4`/`m4v` → no `mp4`; `mov` → no `mov`; `webm` → no `webm`); `720p` always stays. Images and videos mixed in one card → unsupported toast (as phase 1).
 - FFmpeg missing → video slices still shown, dimmed, with reason `t.convert.needsFfmpeg`; a drop on them does nothing (Rust rejects too).
