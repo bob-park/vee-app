@@ -112,6 +112,7 @@ pub fn run() {
             engines::commands::cancel_engine_download,
             engines::commands::remove_engine,
             office::commands::get_libreoffice,
+            office::commands::open_libreoffice_download,
             settings::commands::get_settings,
             settings::commands::set_setting,
             autostart::set_autostart,

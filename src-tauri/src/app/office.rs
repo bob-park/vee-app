@@ -6,6 +6,9 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+/// LibreOffice's download page, opened from Settings; fixed so the webview never picks a URL.
+const DOWNLOAD_PAGE: &str = "https://www.libreoffice.org/download/download-libreoffice/";
+
 /// `soffice --version` is given up after this long.
 const VERSION_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -63,13 +66,26 @@ fn parse_version(out: &str) -> Option<String> {
 }
 
 pub mod commands {
-    use super::{LibreOffice, libreoffice_version, soffice};
+    use super::{DOWNLOAD_PAGE, LibreOffice, libreoffice_version, soffice};
+    use crate::domain::convert::command;
+    use crate::shared::error::AppResult;
+    use std::path::Path;
 
     /// The installed LibreOffice and its version (if it says); `None` when it isn't found.
     /// Async so the up-to-10 s `soffice --version` never blocks the main thread.
     #[tauri::command(async)]
     pub fn get_libreoffice() -> Option<LibreOffice> {
         soffice().map(|p| LibreOffice { version: libreoffice_version(&p) })
+    }
+
+    /// Opens LibreOffice's download page in the default browser.
+    #[tauri::command]
+    pub fn open_libreoffice_download() -> AppResult<()> {
+        #[cfg(windows)]
+        command(Path::new("cmd")).args(["/c", "start", "", DOWNLOAD_PAGE]).spawn()?;
+        #[cfg(not(windows))]
+        command(Path::new("open")).arg(DOWNLOAD_PAGE).spawn()?;
+        Ok(())
     }
 }
 

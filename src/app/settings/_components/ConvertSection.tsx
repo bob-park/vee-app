@@ -10,11 +10,13 @@ import {
   cancelEngineDownload,
   downloadEngine,
   openAutomationSettings,
+  openLibreOfficeDownload,
   removeEngine,
   requestFinderAccess,
 } from '@/domain/convert/apis/convert';
+import type { EngineId } from '@/domain/convert/apis/convert.dto';
 import { useFinderAccess } from '@/domain/convert/queries/convert';
-import { useEngineStatus } from '@/domain/convert/queries/engines';
+import { useEngineStatus, useLibreOffice } from '@/domain/convert/queries/engines';
 import type { SettingKey, Settings } from '@/domain/settings/apis/settings.dto';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
@@ -74,12 +76,29 @@ export default function ConvertSection({ settings, run, updateSetting }: Props) 
           </Row>
         )}
       </SettingSection>
-      <FfmpegSection settings={settings} run={run} updateSetting={updateSetting} />
+      <EngineSection engine="ffmpeg" run={run}>
+        <Row label={c.ffmpeg.quality} hint={c.ffmpeg.qualityHint}>
+          <Segmented
+            value={settings.videoQuality}
+            onChange={(v) => updateSetting({ key: 'videoQuality', value: v })}
+            options={QUALITIES.map((q) => ({ value: q, label: c.ffmpeg.qualities[q] }))}
+          />
+        </Row>
+        <Row label={c.ffmpeg.hwAccel} hint={c.ffmpeg.hwAccelHint}>
+          <Switch
+            ariaLabel={c.ffmpeg.hwAccel}
+            checked={settings.videoHwAccel === 'on'}
+            onChange={(checked) => updateSetting({ key: 'videoHwAccel', value: checked ? 'on' : 'off' })}
+          />
+        </Row>
+      </EngineSection>
+      <EngineSection engine="rhwp" run={run} />
+      <LibreOfficeSection run={run} />
     </>
   );
 }
 
-/** Title and hint left, actions right; the top line of every FFmpeg state. */
+/** Title and hint left, actions right; the top line of every engine state. */
 function Head({ title, hint, children }: { title: React.ReactNode; hint?: string; children?: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
@@ -92,7 +111,19 @@ function Head({ title, hint, children }: { title: React.ReactNode; hint?: string
   );
 }
 
-function FfmpegSection({ settings, run, updateSetting }: Props) {
+function Caption({ children }: { children: React.ReactNode }) {
+  return <div className="text-muted mx-0.5 mb-1.5 text-[11px] font-semibold">{children}</div>;
+}
+
+interface EngineSectionProps {
+  engine: EngineId;
+  run: Props['run'];
+  /** Extra rows shown only while the engine is installed. */
+  children?: React.ReactNode;
+}
+
+/** A downloadable engine: download, progress, installed details, remove. */
+function EngineSection({ engine, run, children }: EngineSectionProps) {
   // state
   const [confirmRemove, setConfirmRemove] = useState(false);
 
@@ -100,99 +131,87 @@ function FfmpegSection({ settings, run, updateSetting }: Props) {
   const { t, locale } = useI18n();
 
   // queries
-  const { status: ffmpeg } = useEngineStatus('ffmpeg');
+  const { status } = useEngineStatus(engine);
 
-  if (!ffmpeg) return null;
-  const f = t.settings.convert.ffmpeg;
-  const error = ffmpeg.state !== 'downloading' && ffmpeg.error && (
-    <p className="text-error text-[11px]">{f.errors[ffmpeg.error]}</p>
+  if (!status) return null;
+  const e = t.settings.convert.engine;
+  const f = t.settings.convert[engine];
+  const error = status.state !== 'downloading' && status.error && (
+    <p className="text-error text-[11px]">{e.errors[status.error]}</p>
   );
 
   return (
     <>
-      <div className="text-muted mx-0.5 mb-1.5 text-[11px] font-semibold">{f.caption}</div>
+      <Caption>{f.caption}</Caption>
       <SettingSection>
-        {ffmpeg.state === 'missing' && (
+        {status.state === 'missing' && (
           <Row col>
-            <Head title={f.title} hint={f.missingHint(f.mb(Math.round(ffmpeg.downloadSize / MB)))}>
-              <Button onClick={() => run(downloadEngine('ffmpeg'))}>{f.download}</Button>
+            <Head title={f.title} hint={f.missingHint(Math.round(status.downloadSize / MB))}>
+              <Button onClick={() => run(downloadEngine(engine))}>{e.download}</Button>
             </Head>
             {error}
           </Row>
         )}
-        {ffmpeg.state === 'downloading' && (
+        {status.state === 'downloading' && (
           <Row col>
             <Head
               title={f.title}
               hint={
-                ffmpeg.stage === 'verify'
-                  ? f.verifying
-                  : ffmpeg.stage === 'unpack'
-                    ? f.unpacking
-                    : f.progress(
-                        ffmpeg.total > 0 ? Math.min(100, Math.floor((ffmpeg.received / ffmpeg.total) * 100)) : 0,
-                        (ffmpeg.received / MB).toFixed(1),
-                        (ffmpeg.total / MB).toFixed(1),
-                        (ffmpeg.speed / MB).toFixed(1),
+                status.stage === 'verify'
+                  ? e.verifying
+                  : status.stage === 'unpack'
+                    ? e.unpacking
+                    : e.progress(
+                        status.total > 0 ? Math.min(100, Math.floor((status.received / status.total) * 100)) : 0,
+                        (status.received / MB).toFixed(1),
+                        (status.total / MB).toFixed(1),
+                        (status.speed / MB).toFixed(1),
                       )
               }
             >
-              <Button variant="gray" onClick={() => run(cancelEngineDownload('ffmpeg'))}>
+              <Button variant="gray" onClick={() => run(cancelEngineDownload(engine))}>
                 {t.cancel}
               </Button>
             </Head>
             <div className="bg-subtle h-1.5 overflow-hidden rounded-full">
               <i
                 className="bg-primary block h-full rounded-full"
-                style={{ width: `${ffmpeg.total > 0 ? Math.min(100, (ffmpeg.received / ffmpeg.total) * 100) : 0}%` }}
+                style={{ width: `${status.total > 0 ? Math.min(100, (status.received / status.total) * 100) : 0}%` }}
               />
             </div>
           </Row>
         )}
-        {ffmpeg.state === 'installed' && (
+        {status.state === 'installed' && (
           <>
             <Row col>
               <Head
                 title={
                   <span className="flex items-center gap-1.5">
                     {f.title}
-                    <span className={BADGE}>{f.installed}</span>
+                    <span className={BADGE}>{e.installed}</span>
                   </span>
                 }
               >
-                {ffmpeg.update && (
-                  <Button variant="gray" onClick={() => run(downloadEngine('ffmpeg'))}>
-                    {f.update}
+                {status.update && (
+                  <Button variant="gray" onClick={() => run(downloadEngine(engine))}>
+                    {e.update}
                   </Button>
                 )}
                 <Button variant="danger" onClick={() => setConfirmRemove(true)}>
-                  {f.remove}
+                  {e.remove}
                 </Button>
               </Head>
               <dl className="text-muted [&_dd]:text-base-content grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px] [&_dd]:font-medium">
-                <dt>{f.meta.version}</dt>
-                <dd>{ffmpeg.version}</dd>
-                <dt>{f.meta.size}</dt>
-                <dd>{f.mb(Math.round(ffmpeg.size / MB))}</dd>
-                <dt>{f.meta.installedAt}</dt>
-                <dd>{new Date(ffmpeg.installedAt).toLocaleDateString(locale)}</dd>
+                <dt>{e.meta.version}</dt>
+                <dd>{status.version}</dd>
+                <dt>{e.meta.size}</dt>
+                <dd>{e.mb(Math.round(status.size / MB))}</dd>
+                <dt>{e.meta.installedAt}</dt>
+                <dd>{new Date(status.installedAt).toLocaleDateString(locale)}</dd>
               </dl>
               {error}
             </Row>
-            <Row label={f.quality} hint={f.qualityHint}>
-              <Segmented
-                value={settings.videoQuality}
-                onChange={(v) => updateSetting({ key: 'videoQuality', value: v })}
-                options={QUALITIES.map((q) => ({ value: q, label: f.qualities[q] }))}
-              />
-            </Row>
-            <Row label={f.hwAccel} hint={f.hwAccelHint}>
-              <Switch
-                ariaLabel={f.hwAccel}
-                checked={settings.videoHwAccel === 'on'}
-                onChange={(checked) => updateSetting({ key: 'videoHwAccel', value: checked ? 'on' : 'off' })}
-              />
-            </Row>
+            {children}
           </>
         )}
       </SettingSection>
@@ -200,13 +219,42 @@ function FfmpegSection({ settings, run, updateSetting }: Props) {
         open={confirmRemove}
         title={f.title}
         body={f.removeConfirm}
-        confirmLabel={f.remove}
+        confirmLabel={e.remove}
         onConfirm={() => {
-          run(removeEngine('ffmpeg'));
+          run(removeEngine(engine));
           setConfirmRemove(false);
         }}
         onCancel={() => setConfirmRemove(false)}
       />
+    </>
+  );
+}
+
+/** The user's LibreOffice: found (with its version, when it says) or a link to its download page. */
+function LibreOfficeSection({ run }: { run: Props['run'] }) {
+  // hooks
+  const l = useI18n().t.settings.convert.libreoffice;
+
+  // queries
+  const { libreOffice, isLoading } = useLibreOffice();
+
+  const version = libreOffice?.version;
+
+  return (
+    <>
+      <Caption>{l.caption}</Caption>
+      <SettingSection>
+        <Row label={l.title} hint={!libreOffice ? l.hint : version ? l.version(version) : undefined}>
+          {isLoading ? null : libreOffice ? (
+            <span className={BADGE}>{l.found}</span>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-muted text-[11px]">{l.missing}</span>
+              <Button onClick={() => run(openLibreOfficeDownload())}>{l.install}</Button>
+            </div>
+          )}
+        </Row>
+      </SettingSection>
     </>
   );
 }

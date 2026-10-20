@@ -67,3 +67,8 @@ export async function removeEngine(engine: EngineId) {
 export async function getLibreOffice() {
   return call<LibreOffice>('get_libreoffice');
 }
+
+/** Opens LibreOffice's download page in the browser; the URL is fixed in Rust. */
+export async function openLibreOfficeDownload() {
+  return call<void>('open_libreoffice_download');
+}

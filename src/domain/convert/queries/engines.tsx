@@ -2,8 +2,8 @@ import { useEffect } from 'react';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { getEngineStatus } from '@/domain/convert/apis/convert';
-import type { EngineId, EngineStatus, EngineStatusEvent } from '@/domain/convert/apis/convert.dto';
+import { getEngineStatus, getLibreOffice } from '@/domain/convert/apis/convert';
+import type { EngineId, EngineStatus, EngineStatusEvent, LibreOffice } from '@/domain/convert/apis/convert.dto';
 
 import { listen } from '@tauri-apps/api/event';
 
@@ -28,4 +28,15 @@ export function useEngineStatus(engine: EngineId) {
   }, [queryClient, engine]);
 
   return { status: data ?? null };
+}
+
+/** The user's LibreOffice; `staleTime: 0` re-checks it each time the Convert tab mounts. */
+export function useLibreOffice() {
+  const { data, isLoading } = useQuery<LibreOffice>({
+    queryKey: ['engines', 'libreoffice'],
+    queryFn: getLibreOffice,
+    staleTime: 0,
+  });
+
+  return { libreOffice: data ?? null, isLoading };
 }
