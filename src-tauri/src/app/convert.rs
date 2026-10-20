@@ -133,7 +133,14 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
         *c.session.lock().unwrap() = None;
         return;
     };
-    let slices = convert::formats_for(&files, Caps { heic: cfg!(target_os = "macos"), ffmpeg: engines::ffmpeg(app).is_some() });
+    let caps = Caps {
+        heic: cfg!(target_os = "macos"),
+        ffmpeg: engines::ffmpeg(app).is_some(),
+        rhwp: engines::rhwp(app).is_some(),
+        libreoffice: libreoffice_found(),
+        textutil: cfg!(target_os = "macos"),
+    };
+    let slices = convert::formats_for(&files, caps);
     *c.session.lock().unwrap() = Some(Session { generation, clip_id, files, slices, dir: None, noted: false, dropped: false });
     let app = app.clone();
     std::thread::spawn(move || {
@@ -149,6 +156,11 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
             std::thread::sleep(Duration::from_millis(KEY_POLL_MS));
         }
     });
+}
+
+/// ponytail: stub until LibreOffice detection lands; checks the default macOS install only.
+fn libreoffice_found() -> bool {
+    cfg!(target_os = "macos") && Path::new("/Applications/LibreOffice.app/Contents/MacOS/soffice").exists()
 }
 
 /// Looks up the folder under the cursor and opens the overlay there, or says why not (once per drag).

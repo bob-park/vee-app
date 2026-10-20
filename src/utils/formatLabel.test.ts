@@ -10,4 +10,5 @@ void test('720p keeps its lower-case p', () => {
 void test('other formats are upper case', () => {
   assert.equal(formatLabel('mp4'), 'MP4');
   assert.equal(formatLabel('webp'), 'WEBP');
+  assert.equal(formatLabel('hwpx'), 'HWPX');
 });

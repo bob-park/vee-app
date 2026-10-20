@@ -61,6 +61,11 @@ export default function ConvertApp() {
 
   if (!open) return null;
   const n = open.slices.length;
+  const needsLabel = {
+    ffmpeg: t.convert.needsFfmpeg,
+    rhwp: t.convert.needsRhwp,
+    libreoffice: t.convert.needsLibreOffice,
+  };
   const half = DONUT.size / 2;
   return (
     <div className="relative size-[260px]">
@@ -81,7 +86,7 @@ export default function ConvertApp() {
               </text>
               {needs && (
                 <text x={l.x} y={l.y + 11} textAnchor="middle" className="fill-base-content text-[9px]">
-                  {t.convert.needsFfmpeg}
+                  {needsLabel[needs]}
                 </text>
               )}
             </g>

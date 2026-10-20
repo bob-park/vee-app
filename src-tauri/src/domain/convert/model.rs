@@ -21,6 +21,17 @@ pub enum Format {
     /// MP4 scaled down to at most 720 lines.
     #[serde(rename = "720p")]
     Mp4720,
+    Hwp,
+    Hwpx,
+    Docx,
+    Odt,
+    Rtf,
+    Txt,
+    Html,
+    Xlsx,
+    Ods,
+    Pptx,
+    Odp,
 }
 
 /// Image target formats, in the donut's slice order.
@@ -29,11 +40,25 @@ pub const IMAGE_TARGETS: [Format; 8] =
 /// Video target formats, in the donut's slice order. `Gif` is shared with images.
 pub const VIDEO_TARGETS: [Format; 6] = [Format::Mp4, Format::Webm, Format::Mov, Format::Gif, Format::Mp3, Format::Mp4720];
 
+/// A document family's targets in donut order, each with the engine it runs on.
+/// `None` is macOS `textutil`: never dimmed, and left out where it doesn't exist.
+pub type DocTargets = &'static [(Format, Option<Engine>)];
+const RHWP: Option<Engine> = Some(Engine::Rhwp);
+const LO: Option<Engine> = Some(Engine::LibreOffice);
+pub const HWP_TARGETS: DocTargets = &[(Format::Pdf, RHWP), (Format::Hwpx, RHWP), (Format::Hwp, RHWP)];
+pub const TEXT_TARGETS: DocTargets =
+    &[(Format::Pdf, LO), (Format::Docx, LO), (Format::Odt, LO), (Format::Txt, None), (Format::Rtf, None), (Format::Html, None)];
+pub const PLAIN_TARGETS: DocTargets = &[(Format::Docx, None), (Format::Rtf, None), (Format::Txt, None), (Format::Html, None)];
+pub const SHEET_TARGETS: DocTargets = &[(Format::Pdf, LO), (Format::Xlsx, LO), (Format::Ods, LO)];
+pub const SLIDE_TARGETS: DocTargets = &[(Format::Pdf, LO), (Format::Pptx, LO), (Format::Odp, LO)];
+
 /// A converter that has to be installed before its slices work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Engine {
     Ffmpeg,
+    Rhwp,
+    LibreOffice,
 }
 
 /// One donut slice: a target format, and the engine it still needs (dimmed while `Some`).
@@ -51,6 +76,23 @@ pub struct Caps {
     pub heic: bool,
     /// FFmpeg is installed.
     pub ffmpeg: bool,
+    /// rhwp is installed.
+    pub rhwp: bool,
+    /// LibreOffice is installed.
+    pub libreoffice: bool,
+    /// macOS `textutil` (always there on macOS, never on Windows).
+    pub textutil: bool,
+}
+
+impl Caps {
+    /// Whether `engine` is available now.
+    pub fn has(self, engine: Engine) -> bool {
+        match engine {
+            Engine::Ffmpeg => self.ffmpeg,
+            Engine::Rhwp => self.rhwp,
+            Engine::LibreOffice => self.libreoffice,
+        }
+    }
 }
 
 impl Format {
@@ -68,6 +110,17 @@ impl Format {
             Format::Webm => "webm",
             Format::Mov => "mov",
             Format::Mp3 => "mp3",
+            Format::Hwp => "hwp",
+            Format::Hwpx => "hwpx",
+            Format::Docx => "docx",
+            Format::Odt => "odt",
+            Format::Rtf => "rtf",
+            Format::Txt => "txt",
+            Format::Html => "html",
+            Format::Xlsx => "xlsx",
+            Format::Ods => "ods",
+            Format::Pptx => "pptx",
+            Format::Odp => "odp",
         }
     }
 

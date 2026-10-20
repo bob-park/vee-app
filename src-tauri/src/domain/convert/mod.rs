@@ -1,4 +1,4 @@
-//! Convert domain: which image or video formats a dragged card can become, and where the output goes.
+//! Convert domain: which image, video or document formats a dragged card can become, and where the output goes.
 
 mod image;
 mod model;
@@ -8,18 +8,29 @@ use self::image::convert_image;
 pub use model::{Caps, Engine, Format, Job, JobError, JobState, JobView, Quality, Slice, DONE_MS, SHOW_AFTER_MS};
 use model::eta;
 pub use video::{Run, command, hw_encoder};
-use model::{IMAGE_TARGETS, VIDEO_TARGETS};
+use model::{DocTargets, HWP_TARGETS, IMAGE_TARGETS, PLAIN_TARGETS, SHEET_TARGETS, SLIDE_TARGETS, TEXT_TARGETS, VIDEO_TARGETS};
 
 use std::path::{Path, PathBuf};
 
 /// Slices every source can become, in target order, minus each source's own format.
-/// All images or all videos; empty when `paths` is empty, mixes the two, or holds anything else.
-/// Video slices need FFmpeg while `caps.ffmpeg` is false; image slices never need anything.
+/// All images, all videos, or all one document family; empty when `paths` is empty, mixes families,
+/// or holds anything else. A slice needs its engine while `caps` lacks it; image and textutil slices never do.
 pub fn formats_for(paths: &[PathBuf], caps: Caps) -> Vec<Slice> {
     if !paths.is_empty() && paths.iter().all(|p| is_video(p)) {
         let own: Vec<Format> = paths.iter().filter_map(|p| ext_of(p).and_then(video_container)).collect();
         let needs = (!caps.ffmpeg).then_some(Engine::Ffmpeg);
         return VIDEO_TARGETS.into_iter().filter(|f| !own.contains(f)).map(|format| Slice { format, needs }).collect();
+    }
+    if let Some((first, _)) = paths.first().and_then(|p| doc_source(p)) {
+        let sources: Option<Vec<Option<Format>>> =
+            paths.iter().map(|p| doc_source(p).filter(|(t, _)| *t == first).map(|(_, own)| own)).collect();
+        let Some(own) = sources else { return Vec::new() };
+        return first
+            .iter()
+            // Without textutil (Windows) its slices are gone, and plain text has none left.
+            .filter(|(f, engine)| (engine.is_some() || caps.textutil) && !own.contains(&Some(*f)))
+            .map(|&(format, engine)| Slice { format, needs: engine.filter(|e| !caps.has(*e)) })
+            .collect();
     }
     let sources: Option<Vec<Format>> = paths.iter().map(|p| ext_of(p).and_then(Format::from_ext)).collect();
     match sources {
@@ -39,6 +50,27 @@ pub fn is_video(path: &Path) -> bool {
     const EXTS: [&str; 13] =
         ["mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "flv", "mpg", "mpeg", "mts", "m2ts", "3gp"];
     ext_of(path).is_some_and(|e| EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
+/// A document source's family targets and the target format it already is (`None` for `doc`, `xls`, `ppt`).
+fn doc_source(path: &Path) -> Option<(DocTargets, Option<Format>)> {
+    Some(match ext_of(path)?.to_ascii_lowercase().as_str() {
+        "hwp" => (HWP_TARGETS, Some(Format::Hwp)),
+        "hwpx" => (HWP_TARGETS, Some(Format::Hwpx)),
+        "docx" => (TEXT_TARGETS, Some(Format::Docx)),
+        "doc" => (TEXT_TARGETS, None),
+        "odt" => (TEXT_TARGETS, Some(Format::Odt)),
+        "rtf" => (TEXT_TARGETS, Some(Format::Rtf)),
+        "txt" => (PLAIN_TARGETS, Some(Format::Txt)),
+        "html" | "htm" => (PLAIN_TARGETS, Some(Format::Html)),
+        "xlsx" => (SHEET_TARGETS, Some(Format::Xlsx)),
+        "xls" => (SHEET_TARGETS, None),
+        "ods" => (SHEET_TARGETS, Some(Format::Ods)),
+        "pptx" => (SLIDE_TARGETS, Some(Format::Pptx)),
+        "ppt" => (SLIDE_TARGETS, None),
+        "odp" => (SLIDE_TARGETS, Some(Format::Odp)),
+        _ => return None,
+    })
 }
 
 /// The video target a source already is, so the donut leaves it out. `720p` always stays.
@@ -77,6 +109,9 @@ pub fn run(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path, ctx: &mut
             Some((ffmpeg, ffprobe)) => video::convert(src, to, &staged, ffmpeg, ffprobe, ctx),
             None => Err(JobError::Engine),
         }
+    } else if doc_source(src).is_some() {
+        // No document runner yet: rhwp, LibreOffice and textutil come next.
+        Err(JobError::Engine)
     } else {
         convert_image(src, to, &staged)
     };
@@ -168,6 +203,96 @@ mod tests {
     use super::image::tests::tiny_png;
     use std::sync::atomic::AtomicBool;
 
+    /// macOS with every engine installed.
+    const ALL: Caps = Caps { heic: true, ffmpeg: true, rhwp: true, libreoffice: true, textutil: true };
+
+    /// Formats and needs for `paths` under `caps`.
+    fn doc_slices(paths: &[&str], caps: Caps) -> Vec<(Format, Option<Engine>)> {
+        let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+        formats_for(&paths, caps).into_iter().map(|s| (s.format, s.needs)).collect()
+    }
+
+    fn doc_formats(paths: &[&str], caps: Caps) -> Vec<Format> {
+        doc_slices(paths, caps).into_iter().map(|(f, _)| f).collect()
+    }
+
+    #[test]
+    fn hwp_becomes_hwpx_and_hwpx_becomes_hwp() {
+        use Format::*;
+        assert_eq!(doc_formats(&["a.HWP"], ALL), [Pdf, Hwpx]);
+        assert_eq!(doc_formats(&["a.hwpx"], ALL), [Pdf, Hwp]);
+        assert_eq!(doc_formats(&["a.hwp", "b.hwpx"], ALL), [Pdf]);
+        let missing = doc_slices(&["a.hwp"], Caps { rhwp: false, ..ALL });
+        assert!(missing.iter().all(|(_, n)| *n == Some(Engine::Rhwp)));
+    }
+
+    #[test]
+    fn text_documents_leave_out_their_own_format() {
+        use Format::*;
+        assert_eq!(doc_formats(&["a.docx"], ALL), [Pdf, Odt, Txt, Rtf, Html]);
+        assert_eq!(doc_formats(&["a.doc"], ALL), [Pdf, Docx, Odt, Txt, Rtf, Html]);
+        assert_eq!(doc_formats(&["a.rtf", "b.odt"], ALL), [Pdf, Docx, Txt, Html]);
+    }
+
+    #[test]
+    fn textutil_slices_are_never_dimmed_but_libreoffice_ones_are_when_missing() {
+        use Format::*;
+        let s = doc_slices(&["a.doc"], Caps { libreoffice: false, ..ALL });
+        let lo = Some(Engine::LibreOffice);
+        assert_eq!(s, [(Pdf, lo), (Docx, lo), (Odt, lo), (Txt, None), (Rtf, None), (Html, None)]);
+        assert!(doc_slices(&["a.doc"], ALL).iter().all(|(_, n)| n.is_none()));
+        let plain = doc_slices(&["a.txt"], Caps { libreoffice: false, ..ALL });
+        assert_eq!(plain, [(Docx, None), (Rtf, None), (Html, None)]);
+    }
+
+    #[test]
+    fn plain_text_follows_textutil() {
+        use Format::*;
+        assert_eq!(doc_formats(&["a.htm"], ALL), [Docx, Rtf, Txt]);
+        // Windows: no textutil, so plain text is unsupported (a toast, not a dimmed donut).
+        let windows = Caps { heic: false, textutil: false, ..ALL };
+        assert!(doc_slices(&["a.txt"], windows).is_empty());
+        assert!(doc_slices(&["a.html"], Caps { libreoffice: false, ..windows }).is_empty());
+        // ...and text documents keep only their LibreOffice slices.
+        assert_eq!(doc_formats(&["a.docx"], windows), [Pdf, Odt]);
+    }
+
+    #[test]
+    fn spreadsheets_and_presentations_need_libreoffice() {
+        use Format::*;
+        assert_eq!(doc_formats(&["a.xls"], ALL), [Pdf, Xlsx, Ods]);
+        assert_eq!(doc_formats(&["a.ODS"], ALL), [Pdf, Xlsx]);
+        assert_eq!(doc_formats(&["a.pptx", "b.ppt"], ALL), [Pdf, Odp]);
+        let s = doc_slices(&["a.odp"], Caps { libreoffice: false, ..ALL });
+        assert_eq!(s, [(Pdf, Some(Engine::LibreOffice)), (Pptx, Some(Engine::LibreOffice))]);
+    }
+
+    #[test]
+    fn mixed_families_are_unsupported() {
+        for mix in [["a.docx", "b.xlsx"], ["a.hwp", "b.docx"], ["a.txt", "b.rtf"], ["a.pptx", "b.png"], ["a.pdf", "b.docx"]] {
+            assert!(doc_slices(&mix, ALL).is_empty(), "{mix:?}");
+        }
+        assert!(doc_slices(&["a.png", "b.docx"], ALL).is_empty());
+        assert!(doc_slices(&["a.docx", "b.mp4"], ALL).is_empty());
+    }
+
+    #[test]
+    fn document_ids_are_their_extensions() {
+        for f in [Format::Hwp, Format::Hwpx, Format::Docx, Format::Html, Format::Odp] {
+            assert_eq!(serde_json::to_value(f).unwrap(), f.ext());
+        }
+        assert_eq!(serde_json::to_value(Engine::LibreOffice).unwrap(), "libreoffice");
+        assert_eq!(serde_json::to_value(Engine::Rhwp).unwrap(), "rhwp");
+    }
+
+    #[test]
+    fn documents_have_no_runner_yet() {
+        let d = tempfile::tempdir().unwrap();
+        let src = d.path().join("a.hwp");
+        std::fs::write(&src, b"x").unwrap();
+        assert_eq!(run_image(&src, "a", Format::Pdf, d.path(), d.path()), Err(JobError::Engine));
+    }
+
     /// `run` for an image source: no FFmpeg, never cancelled.
     fn run_image(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path) -> Result<PathBuf, JobError> {
         let cancel = AtomicBool::new(false);
@@ -176,20 +301,20 @@ mod tests {
 
     #[test]
     fn typescript_files_are_not_videos() {
-        assert!(formats_for(&[PathBuf::from("a.ts")], Caps { heic: true, ffmpeg: true }).is_empty());
+        assert!(formats_for(&[PathBuf::from("a.ts")], ALL).is_empty());
         assert!(is_video(Path::new("a.MTS")) && is_video(Path::new("a.m2ts")));
     }
 
     /// Image-rule formats, with FFmpeg missing (image slices never need it).
     fn formats(paths: &[PathBuf], heic: bool) -> Vec<Format> {
-        let s = formats_for(paths, Caps { heic, ffmpeg: false });
+        let s = formats_for(paths, Caps { heic, ffmpeg: false, ..ALL });
         assert!(s.iter().all(|s| s.needs.is_none()));
         s.iter().map(|s| s.format).collect()
     }
 
     #[test]
     fn video_sources_get_video_slices_without_their_own_container() {
-        let s = formats_for(&[PathBuf::from("a.MOV")], Caps { heic: true, ffmpeg: true });
+        let s = formats_for(&[PathBuf::from("a.MOV")], ALL);
         let f: Vec<Format> = s.iter().map(|s| s.format).collect();
         assert_eq!(f, vec![Format::Mp4, Format::Webm, Format::Gif, Format::Mp3, Format::Mp4720]);
         assert!(s.iter().all(|s| s.needs.is_none()));
@@ -198,19 +323,19 @@ mod tests {
     #[test]
     fn mp4_keeps_720p() {
         let f: Vec<Format> =
-            formats_for(&[PathBuf::from("a.m4v")], Caps { heic: true, ffmpeg: true }).iter().map(|s| s.format).collect();
+            formats_for(&[PathBuf::from("a.m4v")], ALL).iter().map(|s| s.format).collect();
         assert!(!f.contains(&Format::Mp4) && f.contains(&Format::Mp4720));
     }
 
     #[test]
     fn video_slices_need_ffmpeg_when_missing() {
-        let s = formats_for(&[PathBuf::from("a.mkv")], Caps { heic: true, ffmpeg: false });
+        let s = formats_for(&[PathBuf::from("a.mkv")], Caps { ffmpeg: false, ..ALL });
         assert!(!s.is_empty() && s.iter().all(|s| s.needs == Some(Engine::Ffmpeg)));
     }
 
     #[test]
     fn images_and_videos_together_are_unsupported() {
-        assert!(formats_for(&[PathBuf::from("a.png"), PathBuf::from("b.mp4")], Caps { heic: true, ffmpeg: true }).is_empty());
+        assert!(formats_for(&[PathBuf::from("a.png"), PathBuf::from("b.mp4")], ALL).is_empty());
     }
 
     #[test]

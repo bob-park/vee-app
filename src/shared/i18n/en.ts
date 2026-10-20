@@ -35,6 +35,8 @@ export const en = {
   whatsNew: { title: "What's new in Vee", ok: 'OK' },
   convert: {
     needsFfmpeg: 'Needs FFmpeg',
+    needsRhwp: 'Needs rhwp',
+    needsLibreOffice: 'Needs LibreOffice',
     remaining: (s: number) => (s >= 60 ? `About ${Math.round(s / 60)} min left` : `About ${s}s left`),
     cancel: 'Cancel',
     dropHint: 'Drop on a format',

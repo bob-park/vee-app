@@ -1,11 +1,34 @@
 /** Target formats; mirrors Rust `Format` (serde names). */
 export type Format =
-  'png' | 'jpg' | 'webp' | 'heic' | 'tiff' | 'gif' | 'bmp' | 'pdf' | 'mp4' | 'webm' | 'mov' | 'mp3' | '720p';
+  | 'png'
+  | 'jpg'
+  | 'webp'
+  | 'heic'
+  | 'tiff'
+  | 'gif'
+  | 'bmp'
+  | 'pdf'
+  | 'mp4'
+  | 'webm'
+  | 'mov'
+  | 'mp3'
+  | '720p'
+  | 'hwp'
+  | 'hwpx'
+  | 'docx'
+  | 'odt'
+  | 'rtf'
+  | 'txt'
+  | 'html'
+  | 'xlsx'
+  | 'ods'
+  | 'pptx'
+  | 'odp';
 
 /** One donut slice; mirrors Rust `Slice`. `needs` names the engine still missing for it. */
 export interface Slice {
   format: Format;
-  needs: 'ffmpeg' | null;
+  needs: 'ffmpeg' | 'rhwp' | 'libreoffice' | null;
 }
 
 /** Why a conversion failed; mirrors Rust `JobError`. */

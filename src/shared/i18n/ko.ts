@@ -37,6 +37,8 @@ export const ko: Dict = {
   whatsNew: { title: '새로워진 Vee', ok: '확인' },
   convert: {
     needsFfmpeg: 'FFmpeg 필요',
+    needsRhwp: 'rhwp 필요',
+    needsLibreOffice: 'LibreOffice 필요',
     remaining: (s: number) => (s >= 60 ? `남은 시간 약 ${Math.round(s / 60)}분` : `남은 시간 약 ${s}초`),
     cancel: '취소',
     dropHint: '놓을 포맷 선택',

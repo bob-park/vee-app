@@ -468,7 +468,6 @@ pub fn ffmpeg(app: &AppHandle) -> Option<(PathBuf, PathBuf)> {
 }
 
 /// The rhwp CLI when installed.
-#[expect(dead_code, reason = "the HWP converter is not wired yet")]
 pub fn rhwp(app: &AppHandle) -> Option<PathBuf> {
     engine_bin(app, EngineId::Rhwp)?.pop()
 }
