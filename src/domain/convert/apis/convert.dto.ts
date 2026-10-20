@@ -40,13 +40,16 @@ export interface ConvertJob {
 /** Apple Events permission for Finder; mirrors `get_finder_access`. */
 export type FinderAccess = 'granted' | 'denied' | 'unknown';
 
-/** Why the last FFmpeg download failed; mirrors Rust `InstallError`. */
-export type InstallError = 'network' | 'checksum' | 'disk';
+/** A downloadable engine; mirrors Rust `EngineId`. */
+export type EngineId = 'ffmpeg' | 'rhwp';
 
-/** The downloaded FFmpeg; mirrors Rust `FfmpegStatus`. `error` is the last failed download, if any. */
-export type FfmpegStatus =
+/** Why the last engine download failed; mirrors Rust `InstallError`. */
+export type InstallError = 'network' | 'checksum' | 'unpack' | 'disk';
+
+/** A downloaded engine; mirrors Rust `EngineStatus`. `error` is the last failed download, if any. */
+export type EngineStatus =
   | { state: 'missing'; error: InstallError | null; downloadSize: number }
-  | { state: 'downloading'; received: number; total: number; speed: number; stage: 'download' | 'verify' }
+  | { state: 'downloading'; received: number; total: number; speed: number; stage: 'download' | 'verify' | 'unpack' }
   | {
       state: 'installed';
       version: string;
@@ -56,3 +59,9 @@ export type FfmpegStatus =
       update: boolean;
       error: InstallError | null;
     };
+
+/** The `engines://status` payload; mirrors Rust `StatusEvent`. */
+export interface EngineStatusEvent {
+  engine: EngineId;
+  status: EngineStatus;
+}

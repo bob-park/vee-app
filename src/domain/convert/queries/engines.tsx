@@ -2,28 +2,30 @@ import { useEffect } from 'react';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { getFfmpegStatus } from '@/domain/convert/apis/convert';
-import type { FfmpegStatus } from '@/domain/convert/apis/convert.dto';
+import { getEngineStatus } from '@/domain/convert/apis/convert';
+import type { EngineId, EngineStatus, EngineStatusEvent } from '@/domain/convert/apis/convert.dto';
 
 import { listen } from '@tauri-apps/api/event';
 
-const FFMPEG_QUERY_KEY = ['engines', 'ffmpeg'];
+const engineQueryKey = (engine: EngineId) => ['engines', engine];
 
-/** The downloaded FFmpeg; seeded on mount, then replaced by every `engines://ffmpeg` payload. */
-export function useFfmpegStatus() {
+/** A downloaded engine; seeded on mount, then replaced by every `engines://status` payload for it. */
+export function useEngineStatus(engine: EngineId) {
   const queryClient = useQueryClient();
 
-  const { data } = useQuery<FfmpegStatus>({
-    queryKey: FFMPEG_QUERY_KEY,
-    queryFn: getFfmpegStatus,
+  const { data } = useQuery<EngineStatus>({
+    queryKey: engineQueryKey(engine),
+    queryFn: () => getEngineStatus(engine),
     staleTime: 0,
   });
 
   useEffect(() => {
-    const off = listen<FfmpegStatus>('engines://ffmpeg', (e) => queryClient.setQueryData(FFMPEG_QUERY_KEY, e.payload));
+    const off = listen<EngineStatusEvent>('engines://status', (e) => {
+      if (e.payload.engine === engine) queryClient.setQueryData(engineQueryKey(engine), e.payload.status);
+    });
 
     return () => void off.then((fn) => fn());
-  }, [queryClient]);
+  }, [queryClient, engine]);
 
-  return { ffmpeg: data ?? null };
+  return { status: data ?? null };
 }

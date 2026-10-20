@@ -7,14 +7,14 @@ import Segmented from '@/app/settings/_components/Segmented';
 import SettingSection from '@/app/settings/_components/SettingSection';
 import Switch from '@/app/settings/_components/Switch';
 import {
-  cancelFfmpegDownload,
-  downloadFfmpeg,
+  cancelEngineDownload,
+  downloadEngine,
   openAutomationSettings,
-  removeFfmpeg,
+  removeEngine,
   requestFinderAccess,
 } from '@/domain/convert/apis/convert';
 import { useFinderAccess } from '@/domain/convert/queries/convert';
-import { useFfmpegStatus } from '@/domain/convert/queries/engines';
+import { useEngineStatus } from '@/domain/convert/queries/engines';
 import type { SettingKey, Settings } from '@/domain/settings/apis/settings.dto';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
@@ -100,7 +100,7 @@ function FfmpegSection({ settings, run, updateSetting }: Props) {
   const { t, locale } = useI18n();
 
   // queries
-  const { ffmpeg } = useFfmpegStatus();
+  const { status: ffmpeg } = useEngineStatus('ffmpeg');
 
   if (!ffmpeg) return null;
   const f = t.settings.convert.ffmpeg;
@@ -115,7 +115,7 @@ function FfmpegSection({ settings, run, updateSetting }: Props) {
         {ffmpeg.state === 'missing' && (
           <Row col>
             <Head title={f.title} hint={f.missingHint(f.mb(Math.round(ffmpeg.downloadSize / MB)))}>
-              <Button onClick={() => run(downloadFfmpeg())}>{f.download}</Button>
+              <Button onClick={() => run(downloadEngine('ffmpeg'))}>{f.download}</Button>
             </Head>
             {error}
           </Row>
@@ -127,15 +127,17 @@ function FfmpegSection({ settings, run, updateSetting }: Props) {
               hint={
                 ffmpeg.stage === 'verify'
                   ? f.verifying
-                  : f.progress(
-                      ffmpeg.total > 0 ? Math.min(100, Math.floor((ffmpeg.received / ffmpeg.total) * 100)) : 0,
-                      (ffmpeg.received / MB).toFixed(1),
-                      (ffmpeg.total / MB).toFixed(1),
-                      (ffmpeg.speed / MB).toFixed(1),
-                    )
+                  : ffmpeg.stage === 'unpack'
+                    ? f.unpacking
+                    : f.progress(
+                        ffmpeg.total > 0 ? Math.min(100, Math.floor((ffmpeg.received / ffmpeg.total) * 100)) : 0,
+                        (ffmpeg.received / MB).toFixed(1),
+                        (ffmpeg.total / MB).toFixed(1),
+                        (ffmpeg.speed / MB).toFixed(1),
+                      )
               }
             >
-              <Button variant="gray" onClick={() => run(cancelFfmpegDownload())}>
+              <Button variant="gray" onClick={() => run(cancelEngineDownload('ffmpeg'))}>
                 {t.cancel}
               </Button>
             </Head>
@@ -159,7 +161,7 @@ function FfmpegSection({ settings, run, updateSetting }: Props) {
                 }
               >
                 {ffmpeg.update && (
-                  <Button variant="gray" onClick={() => run(downloadFfmpeg())}>
+                  <Button variant="gray" onClick={() => run(downloadEngine('ffmpeg'))}>
                     {f.update}
                   </Button>
                 )}
@@ -200,7 +202,7 @@ function FfmpegSection({ settings, run, updateSetting }: Props) {
         body={f.removeConfirm}
         confirmLabel={f.remove}
         onConfirm={() => {
-          run(removeFfmpeg());
+          run(removeEngine('ffmpeg'));
           setConfirmRemove(false);
         }}
         onCancel={() => setConfirmRemove(false)}

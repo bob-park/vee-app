@@ -1,4 +1,4 @@
-import type { ConvertJob, FfmpegStatus, FinderAccess, Format } from '@/domain/convert/apis/convert.dto';
+import type { ConvertJob, EngineId, EngineStatus, FinderAccess, Format } from '@/domain/convert/apis/convert.dto';
 import call from '@/shared/api';
 
 /** Converts the dragged clip into the folder under the drop; rejects when no drop is pending. */
@@ -39,19 +39,19 @@ export async function openAutomationSettings() {
   return call<void>('open_automation_settings');
 }
 
-export async function getFfmpegStatus() {
-  return call<FfmpegStatus>('get_ffmpeg_status');
+export async function getEngineStatus(engine: EngineId) {
+  return call<EngineStatus>('get_engine_status', { engine });
 }
 
-/** Downloads (or updates) FFmpeg; progress arrives on `engines://ffmpeg`. */
-export async function downloadFfmpeg() {
-  return call<void>('download_ffmpeg');
+/** Downloads (or updates) the engine; progress arrives on `engines://status`. */
+export async function downloadEngine(engine: EngineId) {
+  return call<void>('download_engine', { engine });
 }
 
-export async function cancelFfmpegDownload() {
-  return call<void>('cancel_ffmpeg_download');
+export async function cancelEngineDownload(engine: EngineId) {
+  return call<void>('cancel_engine_download', { engine });
 }
 
-export async function removeFfmpeg() {
-  return call<void>('remove_ffmpeg');
+export async function removeEngine(engine: EngineId) {
+  return call<void>('remove_engine', { engine });
 }
