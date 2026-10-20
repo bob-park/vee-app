@@ -42,9 +42,18 @@ fn contains((x, y, w, h): (f64, f64, f64, f64), (px, py): (f64, f64)) -> bool {
     px >= x && px < x + w && py >= y && py < y + h
 }
 
-/// The front normal-layer window under `point`; none means the desktop.
+/// Vee's own windows below this CG layer (kCGDraggingWindowLevel) block a drop; the drag image sits at or above it.
+const DRAG_LAYER: i64 = 500;
+
+/// Whether `w` can be what a drop at `point` lands on: a normal-layer window, or one of Vee's own
+/// (always-on-top panel and toast sit above layer 0).
+fn counts(w: &WinInfo, point: (f64, f64), own_pid: i32) -> bool {
+    (w.layer == 0 || (w.pid == own_pid && w.layer < DRAG_LAYER)) && contains(w.bounds, point)
+}
+
+/// The front window under `point` that a drop would land on; none means the desktop.
 pub fn pick_hit(windows: &[WinInfo], point: (f64, f64), own_pid: i32) -> Hit {
-    match windows.iter().find(|w| w.layer == 0 && contains(w.bounds, point)) {
+    match windows.iter().find(|w| counts(w, point, own_pid)) {
         None => Hit::Desktop,
         Some(w) if w.pid != own_pid && w.finder => Hit::Finder,
         Some(_) => Hit::Other,
@@ -80,7 +89,6 @@ pub fn key_down(key: &str) -> bool {
 
 #[cfg(target_os = "macos")]
 fn on_screen_windows() -> Vec<WinInfo> {
-    use objc2_app_kit::NSRunningApplication;
     use objc2_core_foundation::{CFDictionary, CFNumber, CFRetained, CFString, CFType, CGRect};
     use objc2_core_graphics::{
         CGRectMakeWithDictionaryRepresentation, CGWindowListCopyWindowInfo, CGWindowListOption, kCGNullWindowID,
@@ -108,11 +116,7 @@ fn on_screen_windows() -> Vec<WinInfo> {
             if !unsafe { CGRectMakeWithDictionaryRepresentation(Some(&dict), &mut r) } {
                 return None;
             }
-            let finder = layer == 0
-                && NSRunningApplication::runningApplicationWithProcessIdentifier(pid)
-                    .and_then(|a| a.bundleIdentifier())
-                    .is_some_and(|b| b.to_string() == "com.apple.finder");
-            Some(WinInfo { pid, layer, bounds: (r.origin.x, r.origin.y, r.size.width, r.size.height), finder })
+            Some(WinInfo { pid, layer, bounds: (r.origin.x, r.origin.y, r.size.width, r.size.height), finder: false })
         })
         .collect()
 }
@@ -130,8 +134,25 @@ const FINDER_WINDOWS_SCRIPT: &str = r#"tell application "Finder"
 end tell"#;
 
 #[cfg(target_os = "macos")]
+fn is_finder(pid: i32) -> bool {
+    use objc2_app_kit::NSRunningApplication;
+    // Called off the main thread, where no pool drains the autoreleased objects.
+    objc2::rc::autoreleasepool(|_| {
+        NSRunningApplication::runningApplicationWithProcessIdentifier(pid)
+            .and_then(|a| a.bundleIdentifier())
+            .is_some_and(|b| b.to_string() == "com.apple.finder")
+    })
+}
+
+#[cfg(target_os = "macos")]
 pub fn folder_at(point: (f64, f64)) -> DropFolder {
-    match pick_hit(&on_screen_windows(), point, std::process::id() as i32) {
+    let own_pid = std::process::id() as i32;
+    let mut windows = on_screen_windows();
+    // Only the window the drop lands on needs its bundle id.
+    if let Some(w) = windows.iter_mut().find(|w| counts(w, point, own_pid)) {
+        w.finder = w.pid != own_pid && is_finder(w.pid);
+    }
+    match pick_hit(&windows, point, own_pid) {
         Hit::Desktop => match std::env::home_dir() {
             Some(home) => DropFolder::Folder(home.join("Desktop")),
             None => DropFolder::NotFolder,
@@ -338,6 +359,18 @@ mod tests {
     fn own_windows_are_not_folders() {
         let ws = [w(1, 0, (0., 0., 100., 100.), false), w(7, 0, (0., 0., 100., 100.), true)];
         assert!(matches!(pick_hit(&ws, (10., 10.), 1), Hit::Other));
+    }
+
+    #[test]
+    fn own_always_on_top_window_is_not_a_folder() {
+        let ws = [w(1, 3, (0., 0., 100., 100.), false), w(7, 0, (0., 0., 100., 100.), true)];
+        assert!(matches!(pick_hit(&ws, (10., 10.), 1), Hit::Other));
+    }
+
+    #[test]
+    fn own_drag_image_is_skipped() {
+        let ws = [w(1, 500, (0., 0., 100., 100.), false), w(7, 0, (0., 0., 100., 100.), true)];
+        assert!(matches!(pick_hit(&ws, (10., 10.), 1), Hit::Finder));
     }
 
     #[test]
