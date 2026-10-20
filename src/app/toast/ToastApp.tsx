@@ -40,7 +40,7 @@ function convertLines(note: ConvertNote, t: Dict): [string, string | null] {
       return [note.count > 1 ? t.convert.savedMany(note.count, fmt) : t.convert.savedOne(fmt), note.folder];
     }
     case 'failed':
-      return [t.convert.failedTitle, note.name];
+      return [t.convert.failedTitle, `${note.name} · ${t.convert.errors[note.error]}`];
     case 'notFolder':
       return [t.convert.notFolder, note.finderBlocked ? t.convert.finderBlockedHint : null];
     case 'unsupported':

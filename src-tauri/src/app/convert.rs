@@ -32,7 +32,7 @@ const TICK_MS: u64 = 500;
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ConvertNote {
     Saved { format: Format, count: usize, folder: String },
-    Failed { name: String },
+    Failed { name: String, error: JobError },
     NotFolder { finder_blocked: bool },
     Unsupported,
 }
@@ -128,7 +128,8 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
     let app = app.clone();
     std::thread::spawn(move || {
         let (c, state) = (app.state::<Convert>(), app.state::<AppState>());
-        let mut held = false;
+        // A key already held when the drag starts waits for a fresh press.
+        let mut held = drop_target::key_down(&key);
         while state.dragging.load(Ordering::SeqCst) && c.drag.load(Ordering::SeqCst) == generation {
             let down = drop_target::key_down(&key);
             if down != held {
@@ -195,12 +196,18 @@ fn show(app: &AppHandle, generation: u64, (x, y): (f64, f64), open: Open) {
         }
         let Some(overlay) = main.get_webview_window(CONVERT) else { return };
         // Positioning units per design point: 1 on macOS, the monitor scale on Windows (as for the toast).
-        let unit = window::cursor_monitor(&main).map_or(1.0, |m| window::work_area(&m).1);
-        let side = SIZE * unit;
-        let _ = window::place(&overlay, Rect { x: x - side / 2.0, y: y - side / 2.0, w: side, h: side });
+        let Some(monitor) = window::cursor_monitor(&main) else { return };
+        let (work, unit) = window::work_area(&monitor);
+        let _ = window::place(&overlay, overlay_rect((x, y), SIZE * unit, work));
         let _ = main.emit_to(CONVERT, "convert://open", open);
         let _ = overlay.show();
     });
+}
+
+/// A `side`-square centred on `point`, shifted as little as needed to stay inside `work`.
+fn overlay_rect((x, y): (f64, f64), side: f64, work: Rect) -> Rect {
+    let fit = |p: f64, start: f64, len: f64| (p - side / 2.0).min(start + len - side).max(start);
+    Rect { x: fit(x, work.x, work.w), y: fit(y, work.y, work.h), w: side, h: side }
 }
 
 fn close(app: &AppHandle) {
@@ -259,14 +266,15 @@ fn work(app: &AppHandle, id: u64) {
     let c = app.state::<Convert>();
     let picked = c.jobs.lock().unwrap().list.iter_mut().find(|j| j.id == id && j.state == JobState::Queued).map(|j| {
         j.state = JobState::Running;
-        (j.files.clone(), j.format, j.dir.clone())
+        (j.files.clone(), j.format, j.dir.clone(), j.done)
     });
     // Dismissed while queued.
-    let Some((files, format, dir)) = picked else { return };
+    let Some((files, format, dir, start)) = picked else { return };
     publish(app);
     let tmp = std::env::temp_dir().join("vee-convert");
     let mut failed: Option<(JobError, &Path)> = None;
-    for (i, src) in files.iter().enumerate() {
+    // A retried job resumes at the file that failed; the ones before it are already saved.
+    for (i, src) in files.iter().enumerate().skip(start) {
         let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Vee".into());
         let result = std::fs::create_dir_all(&tmp)
             .map_err(|_| JobError::Write)
@@ -287,7 +295,7 @@ fn work(app: &AppHandle, id: u64) {
     });
     publish(app);
     let note = match failed {
-        Some((_, src)) => ConvertNote::Failed { name: file_name(src) },
+        Some((error, src)) => ConvertNote::Failed { name: file_name(src), error },
         None => ConvertNote::Saved { format, count: done, folder: file_name(&dir) },
     };
     window::show_toast(app, ToastPayload::convert(note, kind_for(files.len())));
@@ -372,13 +380,12 @@ pub mod commands {
         snapshot(&mut state.jobs.lock().unwrap()).0
     }
 
-    /// Queues a failed job again, same folder and format.
+    /// Queues a failed job again, same folder and format; it resumes at the file that failed.
     #[tauri::command]
     pub fn retry_convert(app: AppHandle, id: u64) -> AppResult<()> {
         let c = app.state::<Convert>();
         let found = c.jobs.lock().unwrap().list.iter_mut().find(|j| j.id == id && matches!(j.state, JobState::Failed(_))).map(|j| {
             j.state = JobState::Queued;
-            j.done = 0;
             j.since = now_ms();
             j.ended = None;
         });
@@ -437,6 +444,17 @@ mod tests {
             noted: false,
             dropped: false,
         })
+    }
+
+    #[test]
+    fn overlay_stays_centred_unless_it_would_leave_the_work_area() {
+        let work = Rect { x: 0.0, y: 25.0, w: 1000.0, h: 800.0 };
+        assert_eq!(overlay_rect((500.0, 400.0), 260.0, work), Rect { x: 370.0, y: 270.0, w: 260.0, h: 260.0 });
+        assert_eq!(overlay_rect((10.0, 30.0), 260.0, work), Rect { x: 0.0, y: 25.0, w: 260.0, h: 260.0 });
+        assert_eq!(overlay_rect((995.0, 820.0), 260.0, work), Rect { x: 740.0, y: 565.0, w: 260.0, h: 260.0 });
+        // A second monitor left of the primary.
+        let left = Rect { x: -1440.0, y: 0.0, w: 1440.0, h: 900.0 };
+        assert_eq!(overlay_rect((-5.0, 450.0), 260.0, left).x, -260.0);
     }
 
     #[test]
