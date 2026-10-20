@@ -31,10 +31,13 @@ pub struct WinInfo {
     pub finder: bool,
 }
 
-#[derive(Debug)]
+type Bounds = (f64, f64, f64, f64);
+
+#[derive(Debug, PartialEq)]
 pub enum Hit {
     Desktop,
-    Finder,
+    /// A Finder window, with its on-screen bounds.
+    Finder(Bounds),
     Other,
 }
 
@@ -55,9 +58,17 @@ fn counts(w: &WinInfo, point: (f64, f64), own_pid: i32) -> bool {
 pub fn pick_hit(windows: &[WinInfo], point: (f64, f64), own_pid: i32) -> Hit {
     match windows.iter().find(|w| counts(w, point, own_pid)) {
         None => Hit::Desktop,
-        Some(w) if w.pid != own_pid && w.finder => Hit::Finder,
+        Some(w) if w.pid != own_pid && w.finder => Hit::Finder(w.bounds),
         Some(_) => Hit::Other,
     }
+}
+
+/// The folder of the Finder window that is the on-screen window `hit`: the one with the same bounds
+/// (within 1 pt), else the first containing `point`. Finder lists windows on other Spaces too.
+pub fn pick_finder_window(windows: Vec<(Bounds, PathBuf)>, hit: Bounds, point: (f64, f64)) -> Option<PathBuf> {
+    let same = |(x, y, w, h): Bounds| [x - hit.0, y - hit.1, w - hit.2, h - hit.3].iter().all(|d| d.abs() <= 1.0);
+    let at = windows.iter().position(|(b, _)| same(*b)).or_else(|| windows.iter().position(|(b, _)| contains(*b, point)))?;
+    windows.into_iter().nth(at).map(|(_, p)| p)
 }
 
 /// Parses `left,top,right,bottom\t/abs/path/` lines from the Finder script into (x, y, w, h) and path.
@@ -126,6 +137,7 @@ const FINDER_WINDOWS_SCRIPT: &str = r#"tell application "Finder"
   set out to ""
   repeat with w in (every Finder window)
     try
+      if collapsed of w then error number -128
       set b to bounds of w
       set out to out & (item 1 of b) & "," & (item 2 of b) & "," & (item 3 of b) & "," & (item 4 of b) & tab & (POSIX path of (target of w as alias)) & linefeed
     end try
@@ -158,7 +170,7 @@ pub fn folder_at(point: (f64, f64)) -> DropFolder {
             None => DropFolder::NotFolder,
         },
         Hit::Other => DropFolder::NotFolder,
-        Hit::Finder => {
+        Hit::Finder(hit) => {
             if finder_access(false) != Some(FinderAccess::Granted) {
                 return DropFolder::FinderBlocked;
             }
@@ -174,10 +186,8 @@ pub fn folder_at(point: (f64, f64)) -> DropFolder {
                     return DropFolder::NotFolder;
                 }
             };
-            parse_finder_windows(&String::from_utf8_lossy(&out.stdout))
-                .into_iter()
-                .find(|(b, _)| contains(*b, point))
-                .map_or(DropFolder::NotFolder, |(_, p)| DropFolder::Folder(p))
+            pick_finder_window(parse_finder_windows(&String::from_utf8_lossy(&out.stdout)), hit, point)
+                .map_or(DropFolder::NotFolder, DropFolder::Folder)
         }
     }
 }
@@ -388,7 +398,7 @@ mod tests {
     #[test]
     fn front_window_wins_and_other_layers_are_ignored() {
         let ws = [w(5, 25, (0., 0., 100., 100.), false), w(7, 0, (0., 0., 100., 100.), true), w(8, 0, (0., 0., 100., 100.), false)];
-        assert!(matches!(pick_hit(&ws, (10., 10.), 1), Hit::Finder));
+        assert_eq!(pick_hit(&ws, (10., 10.), 1), Hit::Finder((0., 0., 100., 100.)));
     }
 
     #[test]
@@ -406,13 +416,26 @@ mod tests {
     #[test]
     fn own_drag_image_is_skipped() {
         let ws = [w(1, 500, (0., 0., 100., 100.), false), w(7, 0, (0., 0., 100., 100.), true)];
-        assert!(matches!(pick_hit(&ws, (10., 10.), 1), Hit::Finder));
+        assert!(matches!(pick_hit(&ws, (10., 10.), 1), Hit::Finder(_)));
     }
 
     #[test]
     fn finder_lines_without_a_path_are_skipped() {
         let out = "10,20,410,320\t/Users/me/Downloads/\n0,0,5,5\t\n0,0,5,5\tmissing value\n";
         assert_eq!(parse_finder_windows(out), vec![((10., 20., 400., 300.), PathBuf::from("/Users/me/Downloads/"))]);
+    }
+
+    #[test]
+    fn finder_window_matching_the_hit_bounds_wins() {
+        // First listed: another Space, overlapping the point; second: the window on screen, 1 pt off.
+        let out = "0,0,800,600\t/Users/me/Other/
+100,100,500,400\t/Users/me/Here/
+";
+        let ws = parse_finder_windows(out);
+        assert_eq!(pick_finder_window(ws.clone(), (100.5, 99., 401., 300.), (200., 200.)), Some(PathBuf::from("/Users/me/Here/")));
+        // No bounds match: the first window containing the point.
+        assert_eq!(pick_finder_window(ws.clone(), (300., 300., 50., 50.), (200., 200.)), Some(PathBuf::from("/Users/me/Other/")));
+        assert_eq!(pick_finder_window(ws, (300., 300., 50., 50.), (900., 900.)), None);
     }
 
     #[cfg(target_os = "macos")]
