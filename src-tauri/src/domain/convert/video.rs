@@ -11,6 +11,8 @@ use std::time::Duration;
 
 /// How often a run checks the cancel flag and the process while FFmpeg prints nothing.
 const POLL: Duration = Duration::from_millis(200);
+/// How long a hardware encoder gets to encode its test frame (Windows probe).
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// What a video run needs besides the files.
 pub struct Run<'a> {
@@ -77,14 +79,26 @@ pub fn hw_encoder(ffmpeg: &Path) -> Option<HwEncoder> {
     static PROBED: OnceLock<Option<HwEncoder>> = OnceLock::new();
     *PROBED.get_or_init(|| {
         let found = [HwEncoder::Nvenc, HwEncoder::Qsv, HwEncoder::Amf].into_iter().find(|e| {
-            command(ffmpeg)
+            let Ok(child) = command(ffmpeg)
                 .args(["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.1"])
                 .args(["-frames:v", "1", "-c:v", e.name(), "-f", "null", "-"])
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
-                .status()
-                .is_ok_and(|s| s.success())
+                .spawn()
+            else {
+                return false;
+            };
+            // A hung GPU driver must not stall the worker: give up on this encoder after a few seconds.
+            let mut child = Killed(child);
+            let deadline = std::time::Instant::now() + PROBE_TIMEOUT;
+            loop {
+                match child.0.try_wait() {
+                    Ok(Some(s)) => return s.success(),
+                    Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(POLL),
+                    _ => return false,
+                }
+            }
         });
         log::info!("convert: hardware H.264 encoder {found:?}");
         found
