@@ -29,6 +29,12 @@ export interface ConvertJob {
   total: number;
   folder: string;
   error: ConvertError | null;
+  /** Overall percent (0–99) of a running job whose current file reports progress. */
+  percent: number | null;
+  /** Seconds left, once past 3 %. */
+  eta: number | null;
+  /** A running video job; `cancelConvert` stops it. */
+  cancellable: boolean;
 }
 
 /** Apple Events permission for Finder; mirrors `get_finder_access`. */

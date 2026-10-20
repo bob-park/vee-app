@@ -15,6 +15,11 @@ export async function retryConvert(id: number) {
   return call<void>('retry_convert', { id });
 }
 
+/** Stops a running video job; it disappears without a toast. */
+export async function cancelConvert(id: number) {
+  return call<void>('cancel_convert', { id });
+}
+
 /** Removes a queued or failed job. */
 export async function dismissConvert(id: number) {
   return call<void>('dismiss_convert', { id });

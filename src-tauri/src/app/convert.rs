@@ -17,7 +17,7 @@ use crate::{
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
@@ -242,18 +242,7 @@ fn drop_on(app: &AppHandle, format: &str) -> AppResult<()> {
         let mut jobs = c.jobs.lock().unwrap();
         jobs.next_id += 1;
         let id = jobs.next_id;
-        jobs.list.push(Job {
-            id,
-            clip_id: s.clip_id,
-            format,
-            files: s.files,
-            dir,
-            done: 0,
-            state: JobState::Queued,
-            since: now_ms(),
-            ended: None,
-            shown: false,
-        });
+        jobs.list.push(Job::new(id, s.clip_id, format, s.files, dir, now_ms()));
         id
     };
     let _ = c.queue.send(id);
@@ -266,17 +255,20 @@ fn work(app: &AppHandle, id: u64) {
     let c = app.state::<Convert>();
     let picked = c.jobs.lock().unwrap().list.iter_mut().find(|j| j.id == id && j.state == JobState::Queued).map(|j| {
         j.state = JobState::Running;
-        (j.files.clone(), j.format, j.dir.clone(), j.done)
+        j.started = Some(now_ms());
+        j.progress = None;
+        (j.files.clone(), j.format, j.dir.clone(), j.done, j.cancel.clone())
     });
     // Dismissed while queued.
-    let Some((files, format, dir, start)) = picked else { return };
+    let Some((files, format, dir, start, cancel)) = picked else { return };
     publish(app);
     let tmp = std::env::temp_dir().join("vee-convert");
-    // ponytail: no cancel until Task 4 wires it.
-    let cancel = AtomicBool::new(false);
     let quality = Quality::parse(&settings::get(&app.state::<AppState>().db.lock().unwrap(), "videoQuality"));
     let engine = engines::ffmpeg(app);
-    let mut ctx = Run { ffmpeg: engine.as_ref().map(|(f, p)| (f.as_path(), p.as_path())), quality, cancel: &cancel, progress: &mut |_| {} };
+    // Stored only; the running tick publishes it, so FFmpeg's chatty output costs no emits.
+    let mut progress = |p: Option<f64>| with_job(&c, id, |j| j.progress = p);
+    let mut ctx =
+        Run { ffmpeg: engine.as_ref().map(|(f, p)| (f.as_path(), p.as_path())), quality, cancel: &cancel, progress: &mut progress };
     let mut failed: Option<(JobError, &Path)> = None;
     // A retried job resumes at the file that failed; the ones before it are already saved.
     for (i, src) in files.iter().enumerate().skip(start) {
@@ -295,7 +287,10 @@ fn work(app: &AppHandle, id: u64) {
             failed = Some((e, src));
             break;
         }
-        with_job(&c, id, |j| j.done = i + 1);
+        with_job(&c, id, |j| {
+            j.done = i + 1;
+            j.progress = None;
+        });
         publish(app);
     }
     let mut done = 0;
@@ -310,6 +305,14 @@ fn work(app: &AppHandle, id: u64) {
         None => ConvertNote::Saved { format, count: done, folder: file_name(&dir) },
     };
     window::show_toast(app, ToastPayload::convert(note, kind_for(files.len())));
+}
+
+/// Stops a running video job; the worker then drops it. Image jobs can't stop mid-file.
+fn cancel(jobs: &Jobs, id: u64) -> AppResult<()> {
+    let job = jobs.list.iter().find(|j| j.id == id && j.state == JobState::Running && j.files.iter().all(|f| convert::is_video(f)));
+    let job = job.ok_or_else(|| AppError::InvalidInput(format!("no running video convert job {id}")))?;
+    job.cancel.store(true, Ordering::SeqCst);
+    Ok(())
 }
 
 fn with_job(c: &Convert, id: u64, f: impl FnOnce(&mut Job)) {
@@ -374,7 +377,7 @@ fn kind_for(files: usize) -> Kind {
 
 /// Convert commands. A submodule so they can share names with the functions above.
 pub mod commands {
-    use super::{Convert, publish, snapshot};
+    use super::{Convert, cancel, publish, snapshot};
     use crate::domain::convert::{JobState, JobView};
     use crate::shared::error::{AppError, AppResult};
     use crate::app::state::now_ms;
@@ -406,6 +409,12 @@ pub mod commands {
         Ok(())
     }
 
+    /// Stops a running video job: FFmpeg is killed, its temp output removed, the job dropped without a toast.
+    #[tauri::command]
+    pub fn cancel_convert(state: State<Convert>, id: u64) -> AppResult<()> {
+        cancel(&state.jobs.lock().unwrap(), id)
+    }
+
     /// Removes a queued or failed job.
     #[tauri::command]
     pub fn dismiss_convert(app: AppHandle, id: u64) -> AppResult<()> {
@@ -431,7 +440,22 @@ mod tests {
 
     fn job(id: u64, state: JobState) -> Job {
         let now = now_ms();
-        Job { id, clip_id: 1, format: Format::Png, files: vec![], dir: PathBuf::new(), done: 0, state, since: now, ended: Some(now), shown: true }
+        Job { state, ended: Some(now), shown: true, ..Job::new(id, 1, Format::Png, vec![], PathBuf::new(), now) }
+    }
+
+    #[test]
+    fn only_running_video_jobs_cancel() {
+        let mut video = job(1, JobState::Running);
+        video.files = vec![PathBuf::from("/a/v.mp4")];
+        let mut image = job(2, JobState::Running);
+        image.files = vec![PathBuf::from("/a/p.png")];
+        let mut queued = job(3, JobState::Queued);
+        queued.files = vec![PathBuf::from("/a/v.mp4")];
+        let jobs = Jobs { list: vec![video, image, queued], ..Default::default() };
+        assert!(cancel(&jobs, 1).is_ok() && jobs.list[0].cancel.load(Ordering::SeqCst));
+        assert!(matches!(cancel(&jobs, 2), Err(AppError::InvalidInput(_))));
+        assert!(matches!(cancel(&jobs, 3), Err(AppError::InvalidInput(_))));
+        assert!(!jobs.list[1].cancel.load(Ordering::SeqCst));
     }
 
     #[test]

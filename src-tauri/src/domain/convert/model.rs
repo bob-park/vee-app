@@ -1,5 +1,7 @@
 use serde::Serialize;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -164,6 +166,37 @@ pub struct Job {
     pub ended: Option<i64>,
     /// Whether the panel has shown it yet.
     pub shown: bool,
+    /// Done share of the file being converted now; `None` for images or an unknown video length.
+    pub progress: Option<f64>,
+    /// Ms when the job last started running.
+    pub started: Option<i64>,
+    /// Set by `cancel_convert` to stop a running video job.
+    pub cancel: Arc<AtomicBool>,
+}
+
+impl Job {
+    pub fn new(id: u64, clip_id: i64, format: Format, files: Vec<PathBuf>, dir: PathBuf, since: i64) -> Job {
+        Job {
+            id,
+            clip_id,
+            format,
+            files,
+            dir,
+            done: 0,
+            state: JobState::Queued,
+            since,
+            ended: None,
+            shown: false,
+            progress: None,
+            started: None,
+            cancel: Arc::default(),
+        }
+    }
+}
+
+/// Seconds left after `elapsed_ms` at done share `p`; `None` below 3 %, where the guess is noise.
+pub fn eta(elapsed_ms: i64, p: f64) -> Option<u32> {
+    (p >= 0.03).then(|| (elapsed_ms.max(0) as f64 / 1000.0 * (1.0 - p) / p).round() as u32)
 }
 
 /// What the panel draws for one job.
@@ -182,4 +215,22 @@ pub struct JobView {
     /// Last path component of the destination folder.
     pub folder: String,
     pub error: Option<JobError>,
+    /// Overall percent (0–99) of a running job whose current file reports progress.
+    pub percent: Option<u8>,
+    /// Seconds left, once `percent` is past 3 %.
+    pub eta: Option<u32>,
+    /// A running video job, which `cancel_convert` can stop.
+    pub cancellable: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eta_scales_elapsed_by_what_is_left() {
+        assert_eq!(eta(10_000, 0.5), Some(10));
+        assert_eq!(eta(1_000, 0.02), None);
+        assert_eq!(eta(3_000, 0.75), Some(1));
+    }
 }

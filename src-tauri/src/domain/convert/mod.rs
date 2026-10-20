@@ -6,6 +6,7 @@ mod video;
 
 use self::image::convert_image;
 pub use model::{Caps, Engine, Format, Job, JobError, JobState, JobView, Quality, Slice, DONE_MS, SHOW_AFTER_MS};
+use model::eta;
 pub use video::{Run, command};
 use model::{IMAGE_TARGETS, VIDEO_TARGETS};
 
@@ -134,6 +135,10 @@ pub fn visible_jobs(jobs: &mut [Job], now: i64) -> Vec<JobView> {
             JobState::Done => ("done", None),
             JobState::Failed(e) => ("failed", Some(e)),
         };
+        let running = job.state == JobState::Running;
+        let total = job.files.len();
+        // Overall share: finished files plus the current one's progress. No progress, no percent.
+        let share = job.progress.filter(|_| running && total > 0).map(|p| ((job.done as f64 + p) / total as f64).clamp(0.0, 0.99));
         views.push(JobView {
             id: job.id,
             clip_id: job.clip_id,
@@ -141,9 +146,12 @@ pub fn visible_jobs(jobs: &mut [Job], now: i64) -> Vec<JobView> {
             state,
             position,
             done: job.done,
-            total: job.files.len(),
+            total,
             folder: job.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
             error,
+            percent: share.map(|p| (p * 100.0) as u8),
+            eta: share.zip(job.started).and_then(|(p, started)| eta(now - started, p)),
+            cancellable: running && !job.files.is_empty() && job.files.iter().all(|f| is_video(f)),
         });
     }
     views
@@ -283,18 +291,31 @@ mod tests {
     }
 
     fn job(id: u64, state: JobState, since: i64) -> Job {
-        Job {
-            id,
-            clip_id: 1,
-            format: Format::Png,
-            files: vec![PathBuf::from("/tmp/out/a.jpg")],
-            dir: PathBuf::from("/tmp/out"),
-            done: 0,
-            state,
-            since,
-            ended: None,
-            shown: false,
-        }
+        Job { state, ..Job::new(id, 1, Format::Png, vec![PathBuf::from("/tmp/out/a.jpg")], PathBuf::from("/tmp/out"), since) }
+    }
+
+    #[test]
+    fn running_videos_show_overall_percent_eta_and_can_cancel() {
+        let mut v = job(1, JobState::Running, 0);
+        v.files = vec![PathBuf::from("/a/1.mov"), PathBuf::from("/a/2.mov")];
+        v.done = 1;
+        v.progress = Some(0.5);
+        v.started = Some(0);
+        let mut jobs = vec![v, job(2, JobState::Running, 0)];
+        let views = visible_jobs(&mut jobs, 10_000);
+        assert_eq!((views[0].percent, views[0].eta, views[0].cancellable), (Some(75), Some(3), true));
+        // An image job: no progress, so the card falls back to done/total; never cancellable.
+        assert_eq!((views[1].percent, views[1].eta, views[1].cancellable), (None, None, false));
+        // Still clamped below 100 until the file is moved into place.
+        jobs[0].progress = Some(1.0);
+        assert_eq!(visible_jobs(&mut jobs, 10_000)[0].percent, Some(99));
+        // Unknown length: no percent, no eta.
+        jobs[0].progress = None;
+        assert_eq!((visible_jobs(&mut jobs, 10_000)[0].percent, visible_jobs(&mut jobs, 10_000)[0].eta), (None, None));
+        // Under 3 %: percent but no eta yet.
+        jobs[0].done = 0;
+        jobs[0].progress = Some(0.04);
+        assert_eq!((visible_jobs(&mut jobs, 10_000)[0].percent, visible_jobs(&mut jobs, 10_000)[0].eta), (Some(2), None));
     }
 
     #[test]

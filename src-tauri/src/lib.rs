@@ -106,6 +106,7 @@ pub fn run() {
             convert::commands::list_convert_jobs,
             convert::commands::retry_convert,
             convert::commands::dismiss_convert,
+            convert::commands::cancel_convert,
             engines::commands::get_ffmpeg_status,
             engines::commands::download_ffmpeg,
             engines::commands::cancel_ffmpeg_download,
