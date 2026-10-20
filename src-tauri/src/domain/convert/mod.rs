@@ -14,7 +14,8 @@ pub fn formats_for(paths: &[PathBuf], heic: bool) -> Vec<Format> {
     let sources: Option<Vec<Format>> =
         paths.iter().map(|p| p.extension().and_then(|e| e.to_str()).and_then(Format::from_ext)).collect();
     match sources {
-        Some(sources) if !sources.is_empty() => {
+        // Without HEIC support (Windows) a HEIC source can't be read either.
+        Some(sources) if !sources.is_empty() && (heic || !sources.contains(&Format::Heic)) => {
             TARGETS.into_iter().filter(|f| (heic || *f != Format::Heic) && !sources.contains(f)).collect()
         }
         _ => Vec::new(),
@@ -126,6 +127,13 @@ mod tests {
     #[test]
     fn heic_target_only_when_supported() {
         assert!(!formats_for(&[PathBuf::from("a.png")], false).contains(&Format::Heic));
+    }
+
+    #[test]
+    fn heic_sources_need_heic_support() {
+        assert!(formats_for(&[PathBuf::from("a.HEIC")], false).is_empty());
+        assert!(formats_for(&[PathBuf::from("a.png"), PathBuf::from("b.heif")], false).is_empty());
+        assert!(formats_for(&[PathBuf::from("a.heic")], true).contains(&Format::Png));
     }
 
     #[test]
