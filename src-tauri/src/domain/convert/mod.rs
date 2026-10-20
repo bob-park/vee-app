@@ -4,7 +4,7 @@ mod image;
 mod model;
 
 use self::image::convert_image;
-pub use model::{Format, JobError, TARGETS};
+pub use model::{Format, Job, JobError, JobState, JobView, DONE_MS, SHOW_AFTER_MS, TARGETS};
 
 use std::path::{Path, PathBuf};
 
@@ -58,6 +58,58 @@ fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
         })?;
         std::fs::remove_file(from)
     })
+}
+
+/// Views of the jobs the panel shows now, in list order. Marks queued/running jobs `shown`
+/// once they have waited `SHOW_AFTER_MS`; failed jobs always show; a done job lingers
+/// `DONE_MS` only if it was shown before it finished.
+pub fn visible_jobs(jobs: &mut [Job], now: i64) -> Vec<JobView> {
+    let mut queued = 0;
+    let mut views = Vec::new();
+    for job in jobs.iter_mut() {
+        let mut position = 0;
+        let visible = match job.state {
+            JobState::Queued | JobState::Running => {
+                if job.state == JobState::Queued {
+                    queued += 1;
+                    position = queued;
+                }
+                job.shown |= now - job.since >= SHOW_AFTER_MS;
+                job.shown
+            }
+            JobState::Failed(_) => {
+                job.shown = true;
+                true
+            }
+            JobState::Done => job.shown && job.ended.is_some_and(|e| now - e < DONE_MS),
+        };
+        if !visible {
+            continue;
+        }
+        let (state, error) = match job.state {
+            JobState::Queued => ("queued", None),
+            JobState::Running => ("running", None),
+            JobState::Done => ("done", None),
+            JobState::Failed(e) => ("failed", Some(e)),
+        };
+        views.push(JobView {
+            id: job.id,
+            clip_id: job.clip_id,
+            format: job.format,
+            state,
+            position,
+            done: job.done,
+            total: job.files.len(),
+            folder: job.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+            error,
+        });
+    }
+    views
+}
+
+/// Drops done jobs the panel no longer shows: never shown, or finished `DONE_MS` ago.
+pub fn prune(jobs: &mut Vec<Job>, now: i64) {
+    jobs.retain(|j| j.state != JobState::Done || (j.shown && j.ended.is_some_and(|e| now - e < DONE_MS)));
 }
 
 #[cfg(test)]
@@ -127,5 +179,65 @@ mod tests {
         let missing_dir = src_dir.path().join("no/such/dir");
         assert_eq!(run(&src, "p", Format::Jpg, &missing_dir, tmp.path()), Err(JobError::Write));
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+    }
+
+    fn job(id: u64, state: JobState, since: i64) -> Job {
+        Job {
+            id,
+            clip_id: 1,
+            format: Format::Png,
+            files: vec![PathBuf::from("/tmp/out/a.jpg")],
+            stem: "a".into(),
+            dir: PathBuf::from("/tmp/out"),
+            done: 0,
+            state,
+            since,
+            ended: None,
+            shown: false,
+        }
+    }
+
+    #[test]
+    fn quick_jobs_never_show() {
+        let mut jobs = vec![job(1, JobState::Running, 0)];
+        assert!(visible_jobs(&mut jobs, 500).is_empty());
+        jobs[0].state = JobState::Done;
+        jobs[0].ended = Some(600);
+        assert!(visible_jobs(&mut jobs, 700).is_empty());
+    }
+
+    #[test]
+    fn slow_jobs_show_then_done_lingers_two_seconds() {
+        let mut jobs = vec![job(1, JobState::Running, 0)];
+        assert_eq!(visible_jobs(&mut jobs, 1000)[0].state, "running");
+        jobs[0].state = JobState::Done;
+        jobs[0].ended = Some(3000);
+        assert_eq!(visible_jobs(&mut jobs, 4000)[0].state, "done");
+        assert!(visible_jobs(&mut jobs, 5000).is_empty());
+    }
+
+    #[test]
+    fn failed_jobs_show_at_once_and_queue_positions_count_from_one() {
+        let mut jobs =
+            vec![job(1, JobState::Failed(JobError::Engine), 0), job(2, JobState::Queued, 0), job(3, JobState::Queued, 0)];
+        let v = visible_jobs(&mut jobs, 1500);
+        assert_eq!(v[0].error, Some(JobError::Engine));
+        assert_eq!((v[1].position, v[2].position), (1, 2));
+        assert_eq!((v[0].folder.as_str(), v[0].total), ("out", 1));
+    }
+
+    #[test]
+    fn prune_drops_stale_and_unseen_done_jobs() {
+        let mut stale = job(1, JobState::Done, 0);
+        stale.shown = true;
+        stale.ended = Some(1000);
+        let mut fresh = job(2, JobState::Done, 0);
+        fresh.shown = true;
+        fresh.ended = Some(2500);
+        let mut unseen = job(3, JobState::Done, 0);
+        unseen.ended = Some(2900);
+        let mut jobs = vec![stale, fresh, unseen, job(4, JobState::Queued, 0), job(5, JobState::Failed(JobError::Write), 0)];
+        prune(&mut jobs, 3000);
+        assert_eq!(jobs.iter().map(|j| j.id).collect::<Vec<_>>(), vec![2, 4, 5]);
     }
 }
