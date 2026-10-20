@@ -127,13 +127,11 @@ function FfmpegSection({ settings, run, updateSetting }: Props) {
               hint={
                 ffmpeg.stage === 'verify'
                   ? f.verifying
-                  : ffmpeg.stage === 'unpack'
-                    ? f.unpacking
-                    : f.progress(
-                        (ffmpeg.received / MB).toFixed(1),
-                        (ffmpeg.total / MB).toFixed(1),
-                        (ffmpeg.speed / MB).toFixed(1),
-                      )
+                  : f.progress(
+                      (ffmpeg.received / MB).toFixed(1),
+                      (ffmpeg.total / MB).toFixed(1),
+                      (ffmpeg.speed / MB).toFixed(1),
+                    )
               }
             >
               <Button variant="gray" onClick={() => run(cancelFfmpegDownload())}>

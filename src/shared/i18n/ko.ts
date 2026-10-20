@@ -138,7 +138,6 @@ export const ko: Dict = {
         download: '다운로드',
         progress: (r: string, t: string, s: string) => `내려받는 중 · ${r} MB / ${t} MB · ${s} MB/s`,
         verifying: '내려받은 파일 확인 중…',
-        unpacking: '압축 푸는 중…',
         installed: '설치됨',
         update: '업데이트',
         remove: '삭제',
@@ -150,7 +149,6 @@ export const ko: Dict = {
         errors: {
           network: '내려받지 못했어요. 연결을 확인해 주세요.',
           checksum: '내려받은 파일이 손상됐어요. 다시 시도해 주세요.',
-          unpack: '압축을 풀지 못했어요.',
           disk: 'FFmpeg를 저장하지 못했어요.',
         },
       },

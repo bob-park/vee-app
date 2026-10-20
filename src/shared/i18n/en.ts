@@ -141,7 +141,6 @@ export const en = {
         download: 'Download',
         progress: (r: string, t: string, s: string) => `Downloading · ${r} MB / ${t} MB · ${s} MB/s`,
         verifying: 'Checking the download…',
-        unpacking: 'Unpacking…',
         installed: 'Installed',
         update: 'Update',
         remove: 'Remove',
@@ -153,7 +152,6 @@ export const en = {
         errors: {
           network: "Couldn't download. Check the connection.",
           checksum: 'The download was damaged. Try again.',
-          unpack: "Couldn't unpack the download.",
           disk: "Couldn't save FFmpeg on this Mac/PC.",
         },
       },
