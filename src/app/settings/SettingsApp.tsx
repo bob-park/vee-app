@@ -5,6 +5,7 @@ import { ConfirmModal } from '@/app/settings/_components/ConfirmModal';
 import ConvertSection from '@/app/settings/_components/ConvertSection';
 import { Dropdown } from '@/app/settings/_components/Dropdown';
 import { HistorySection } from '@/app/settings/_components/HistorySection';
+import PermissionsSection from '@/app/settings/_components/PermissionsSection';
 import Row from '@/app/settings/_components/Row';
 import Segmented from '@/app/settings/_components/Segmented';
 import SettingSection from '@/app/settings/_components/SettingSection';
@@ -12,15 +13,9 @@ import { ShortcutRecorder } from '@/app/settings/_components/ShortcutRecorder';
 import Switch from '@/app/settings/_components/Switch';
 import { type SettingsTab, Tabs } from '@/app/settings/_components/Tabs';
 import { resetPanelHeight } from '@/domain/panel/apis/panel';
-import {
-  openDiskAccessSettings,
-  previewSound,
-  setAutostart,
-  setSetting,
-  setShortcut,
-} from '@/domain/settings/apis/settings';
+import { previewSound, setAutostart, setSetting, setShortcut } from '@/domain/settings/apis/settings';
 import { SOUND_NAMES, type SoundName } from '@/domain/settings/apis/settings.dto';
-import { useDiskAccess, useSettingUpdate, useSettings } from '@/domain/settings/queries/settings';
+import { useSettingUpdate, useSettings } from '@/domain/settings/queries/settings';
 import { checkUpdate, installUpdate } from '@/domain/updater/apis/updater';
 import { useUpdateStatus } from '@/domain/updater/queries/updater';
 import { relativeTime } from '@/shared/i18n';
@@ -64,31 +59,6 @@ function UpdateRow({ version }: { version: string }) {
         </Button>
       )}
     </Row>
-  );
-}
-
-/**
- * macOS only; re-checked on focus so it updates after the user returns from System Settings.
- * Brings its own card so no empty card shows while the state is unknown.
- */
-function DiskAccessRow() {
-  // hooks
-  const s = useI18n().t.settings;
-
-  // queries
-  const { granted } = useDiskAccess();
-
-  if (granted === null) return null;
-  return (
-    <SettingSection>
-      <Row label={s.diskAccess} hint={s.diskAccessHint}>
-        {granted ? (
-          <span className="text-muted font-semibold">{s.diskAccessGranted}</span>
-        ) : (
-          <Button onClick={() => void openDiskAccessSettings()}>{s.diskAccessGrant}</Button>
-        )}
-      </Row>
-    </SettingSection>
   );
 }
 
@@ -249,12 +219,8 @@ export function SettingsApp() {
           </SettingSection>
         )}
         {tab === 'convert' && <ConvertSection settings={settings} run={run} updateSetting={updateSetting} />}
-        {tab === 'history' && (
-          <>
-            <DiskAccessRow />
-            <HistorySection run={run} updateSetting={updateSetting} />
-          </>
-        )}
+        {tab === 'permissions' && <PermissionsSection settings={settings} run={run} />}
+        {tab === 'history' && <HistorySection run={run} updateSetting={updateSetting} />}
       </div>
       <ConfirmModal
         open={confirmReset}

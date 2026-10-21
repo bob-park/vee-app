@@ -63,7 +63,14 @@ export const ko: Dict = {
   },
   settings: {
     title: '설정',
-    tabs: { general: '일반', panel: '패널', shortcuts: '단축키', convert: '변환', history: '기록' },
+    tabs: {
+      general: '일반',
+      panel: '패널',
+      shortcuts: '단축키',
+      convert: '변환',
+      permissions: '권한',
+      history: '기록',
+    },
     theme: '테마',
     language: '언어',
     system: '시스템',

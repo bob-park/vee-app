@@ -61,7 +61,14 @@ export const en = {
   },
   settings: {
     title: 'Settings',
-    tabs: { general: 'General', panel: 'Panel', shortcuts: 'Shortcuts', convert: 'Convert', history: 'History' },
+    tabs: {
+      general: 'General',
+      panel: 'Panel',
+      shortcuts: 'Shortcuts',
+      convert: 'Convert',
+      permissions: 'Permissions',
+      history: 'History',
+    },
     theme: 'Theme',
     language: 'Language',
     system: 'System',
