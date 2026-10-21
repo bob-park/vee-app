@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { dropPoint, sliceAt, slicePath } from './donut.ts';
+import { dropPoint, labelAt, restPath, sliceAt, slicePath } from './donut.ts';
 
 void test('slices run clockwise from the top', () => {
   assert.equal(sliceAt(130, 130 - 80, 6), 0); // straight up
@@ -20,23 +20,45 @@ void test('just left of 12 o’clock is the last slice', () => {
 });
 
 void test('a slice path starts just inside the outer ring, rounds its corners and closes', () => {
-  const d = slicePath(0, 4, 0);
+  const d = slicePath(0, 6, 0);
   assert.match(d, /^M0 -88Q0 -98 /); // outer 98 minus the 10px corner, at 12 o'clock
   assert.equal(d.match(/Q/g)?.length, 4);
   assert.ok(d.endsWith('Z'));
 });
 
+/** Perpendicular distance of `p` from the ray at `deg` clockwise from 12 o'clock. */
+function offRay(p: [number, number], deg: number) {
+  const b = (deg * Math.PI) / 180;
+  return Math.abs(p[0] * Math.cos(b) + p[1] * Math.sin(b));
+}
+
 void test('the gap between slices is the same width at the inner and outer ring', () => {
-  // Slice 0 of 4 starts at 12 o'clock; with a 10px gap its first point (on the radial edge) sits 5px right of the axis.
-  const d = slicePath(0, 4, 10);
-  const [, x0] = d.match(/^M(-?[\d.]+) /)!;
-  assert.ok(Math.abs(Number(x0) - 5) < 0.01);
-  // The inner end of that radial edge (r + k, the path's last point) sits 5px off the same axis.
-  const [, xIn] = d.match(/ (-?[\d.]+) -?[\d.]+Z$/)!;
-  assert.ok(Math.abs(Number(xIn) - 5) < 0.01);
-  // And the `L` point, the inner end of the slice's other edge (3 o'clock), sits 5px above that axis.
-  const [, , yL] = d.match(/L(-?[\d.]+) (-?[\d.]+)/)!;
-  assert.ok(Math.abs(Number(yL) + 5) < 0.01);
+  // Slice 0 of 6 spans 0°–60°; with a 10px gap every point on its radial edges sits 5px off the boundary ray.
+  const d = slicePath(0, 6, 10);
+  const first = d.match(/^M(-?[\d.]+) (-?[\d.]+)/)!;
+  assert.ok(Math.abs(offRay([Number(first[1]), Number(first[2])], 0) - 5) < 0.01);
+  // The path's last point is the inner end of the same edge.
+  const last = d.match(/ (-?[\d.]+) (-?[\d.]+)Z$/)!;
+  assert.ok(Math.abs(offRay([Number(last[1]), Number(last[2])], 0) - 5) < 0.01);
+  // The `L` point is the inner end of the other edge, on the 60° boundary.
+  const l = d.match(/L(-?[\d.]+) (-?[\d.]+)/)!;
+  assert.ok(Math.abs(offRay([Number(l[1]), Number(l[2])], 60) - 5) < 0.01);
+});
+
+void test('fewer than six formats keep 60° slices, centred on 12 o’clock', () => {
+  // Two slices span -60°..0° and 0°..60°.
+  assert.match(slicePath(0, 2, 0), /^M-76\.21 -44Q/); // radius 88 at -60°
+  assert.equal(sliceAt(129, 50, 2), 0); // just left of 12 o'clock
+  assert.equal(sliceAt(131, 50, 2), 1); // just right
+  assert.deepEqual(labelAt(0, 1), { x: 0, y: -76 }); // a lone slice sits on top
+});
+
+void test('the empty rest of a short donut hits nothing and is drawn as one faint arc', () => {
+  assert.equal(sliceAt(130 + 80, 130, 2), null); // 3 o'clock lies past the second slice
+  assert.equal(sliceAt(130, 130 + 80, 5), null); // 6 o'clock is outside five 60° slices
+  assert.equal(sliceAt(130, 130 + 80, 6), 3); // a full donut still covers it
+  assert.ok(restPath(2)?.endsWith('Z'));
+  assert.equal(restPath(6), null);
 });
 
 void test('drop positions are points on macOS and device pixels on Windows', () => {

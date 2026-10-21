@@ -4,7 +4,7 @@ import { convertDrop, hideConvert } from '@/domain/convert/apis/convert';
 import type { Slice } from '@/domain/convert/apis/convert.dto';
 import Aurora from '@/shared/components/Aurora';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
-import { DONUT, dropPoint, labelAt, sliceAt, slicePath } from '@/utils/donut';
+import { DONUT, dropPoint, labelAt, restPath, sliceAt, slicePath } from '@/utils/donut';
 import { formatLabel } from '@/utils/formatLabel';
 
 import { listen } from '@tauri-apps/api/event';
@@ -78,6 +78,7 @@ export default function ConvertApp() {
     libreoffice: t.convert.needsLibreOffice,
   };
   const half = DONUT.size / 2;
+  const rest = restPath(n);
   return (
     <div
       key={play}
@@ -105,6 +106,14 @@ export default function ConvertApp() {
         viewBox={`${-half} ${-half} ${DONUT.size} ${DONUT.size}`}
         aria-hidden
       >
+        {/* Fewer than six formats leave the rest of the ring empty; it is drawn faintly, and hits nothing. */}
+        {rest && (
+          <path
+            d={rest}
+            className={cx('fill-donut-rest', play && 'animate-slice-in motion-reduce:animate-none')}
+            style={{ animationDelay: `${40 + n * 25}ms` }}
+          />
+        )}
         {open.slices.map(({ format, needs }, i) => {
           const l = labelAt(i, n);
           const active = i === hot && !needs;

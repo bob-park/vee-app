@@ -111,6 +111,8 @@
   /* Donut slices on the aurora plate; the plate floats, so it has the one shadow, and a 1px edge. */
   --vee-donut: #ffffff;
   --vee-donut-edge: rgba(16, 17, 20, 0.1);
+  /* The empty rest of a donut with fewer than six formats. */
+  --vee-donut-rest: rgba(16, 17, 20, 0.05);
   --vee-donut-shadow: drop-shadow(0 6px 12px rgba(16, 24, 40, 0.22)) drop-shadow(0 1px 3px rgba(16, 24, 40, 0.12));
   --vee-slice-lit: drop-shadow(0 2px 4px rgba(16, 17, 20, 0.1));
   /* Three short layers instead of one long blur, so it all fades out inside the toast window's margin. */
@@ -138,6 +140,7 @@
   --vee-toast-border: #3a3b47;
   --vee-donut: #34364a;
   --vee-donut-edge: rgba(255, 255, 255, 0.24);
+  --vee-donut-rest: rgba(255, 255, 255, 0.05);
   --vee-donut-shadow: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.45)) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.3));
   /* A top highlight and a short drop, so each slice reads as lit on the dark plate. */
   --vee-slice-lit: drop-shadow(0 -1px 0 rgba(255, 255, 255, 0.14)) drop-shadow(0 3px 6px rgba(0, 0, 0, 0.35));
@@ -165,6 +168,7 @@
   --color-toast-border: var(--vee-toast-border);
   --color-donut: var(--vee-donut);
   --color-donut-edge: var(--vee-donut-edge);
+  --color-donut-rest: var(--vee-donut-rest);
   --color-glass: var(--vee-glass);
   --color-glass-edge: var(--vee-glass-edge);
   --color-aurora-1: var(--vee-aurora-1);
