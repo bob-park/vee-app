@@ -73,6 +73,8 @@ export function Tabs({ value, onChange }: { value: SettingsTab; onChange: (tab: 
   // hooks
   const labels = useI18n().t.settings.tabs;
 
+  const index = TABS.findIndex((tab) => tab.value === value);
+
   // handle
 
   // Arrow keys move between tabs (WAI-ARIA tabs pattern, automatic activation).
@@ -80,18 +82,23 @@ export function Tabs({ value, onChange }: { value: SettingsTab; onChange: (tab: 
     const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
     if (!step) return;
     e.preventDefault();
-    const i = TABS.findIndex((tab) => tab.value === value);
-    const next = TABS[(i + step + TABS.length) % TABS.length].value;
+    const next = TABS[(index + step + TABS.length) % TABS.length].value;
     onChange(next);
     document.getElementById(`tab-${next}`)?.focus();
   };
 
   return (
     <div
-      className="border-divider flex shrink-0 justify-center gap-1 border-b pt-2 pb-[10px]"
+      className="glass relative z-1 mt-1.5 mb-3.5 flex shrink-0 gap-1 self-center rounded-[14px] p-1"
       role="tablist"
       onKeyDown={onKeyDown}
     >
+      {/* The sliding pill: one 72px tab plus the 4px gap per step, indexed in the filtered TABS. */}
+      <span
+        className="bg-accent-subtle ease-spring absolute top-1 left-1 h-[calc(100%-8px)] w-[72px] rounded-[10px] transition-transform duration-450"
+        style={{ transform: `translateX(${index * 76}px)` }}
+        aria-hidden
+      />
       {TABS.map((tab) => (
         <button
           key={tab.value}
@@ -101,12 +108,16 @@ export function Tabs({ value, onChange }: { value: SettingsTab; onChange: (tab: 
           aria-controls="settings-panel"
           tabIndex={tab.value === value ? 0 : -1}
           className={cx(
-            'flex w-[72px] flex-col items-center gap-[3px] rounded-[10px] py-1.5 text-[11px]',
-            tab.value === value ? 'bg-accent-subtle text-primary font-semibold' : 'text-muted',
+            'relative flex w-[72px] flex-col items-center gap-[3px] rounded-[10px] py-1.5 text-[11px]',
+            tab.value === value ? 'text-primary font-semibold' : 'text-muted',
           )}
           onClick={() => onChange(tab.value)}
         >
-          {tab.icon}
+          <span
+            className={cx('ease-spring block transition-transform duration-450', { 'scale-110': tab.value === value })}
+          >
+            {tab.icon}
+          </span>
           {labels[tab.value]}
         </button>
       ))}

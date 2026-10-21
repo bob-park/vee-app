@@ -7,11 +7,13 @@ interface RowProps {
   dim?: boolean;
   /** Stacks the control under the label at full width. */
   col?: boolean;
+  /** Id on the label, for a control that names itself by it. */
+  labelId?: string;
   children: React.ReactNode;
 }
 
 /** One settings line: label and hint left, control right. */
-export default function Row({ label, hint, dim, col, children }: RowProps) {
+export default function Row({ label, hint, dim, col, labelId, children }: RowProps) {
   return (
     <div
       className={cx(
@@ -21,7 +23,7 @@ export default function Row({ label, hint, dim, col, children }: RowProps) {
       )}
     >
       {label && (
-        <div>
+        <div id={labelId}>
           {label}
           {hint && <small className="text-muted mt-0.5 block text-[11px]">{hint}</small>}
         </div>

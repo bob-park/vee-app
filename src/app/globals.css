@@ -169,6 +169,9 @@
   --color-aurora-3: var(--vee-aurora-3);
   /* Second stop of the CTA/link gradient (primary → sky); one value reads on both themes. */
   --color-sky: #5fc3ff;
+  /* Theme picker thumbnails: fixed per depicted theme, so they read the same in either app theme. */
+  --color-preview-light: #f6f5fb;
+  --color-preview-dark: #121318;
   --color-danger-subtle: rgba(209, 52, 75, 0.12);
   --color-danger-border: color-mix(in srgb, var(--color-error) 20%, transparent);
   --color-danger-tint: color-mix(in srgb, var(--color-error) 6%, transparent);
@@ -195,6 +198,11 @@
  */
 @utility shadow-seg {
   box-shadow: 0 1px 4px rgba(16, 24, 40, 0.08);
+}
+
+/* Settings sections: a soft lift under the glass. */
+@utility shadow-glass {
+  box-shadow: 0 4px 24px rgba(16, 17, 20, 0.05);
 }
 
 @utility shadow-dropdown {
@@ -472,8 +480,9 @@
     animation: none;
   }
 
-  /* `ease-spring` and arbitrary `[transition:…var(--ease-spring)]` classes alike. */
-  [class*='ease-spring'] {
+  /* `ease-spring` and arbitrary `[transition:…var(--ease-spring)]` classes alike; `::after` for the Switch knob. */
+  [class*='ease-spring'],
+  [class*='ease-spring']::after {
     transition: none;
   }
 }
