@@ -186,7 +186,7 @@ export const ko: Dict = {
         title: 'LibreOffice',
         found: '찾음',
         missing: '찾을 수 없음',
-        hint: 'PDF·DOCX·XLSX·PPTX 변환에 필요해요. 설치하면 자동으로 찾아요.',
+        hint: 'PDF·DOCX·XLSX·PPTX·TXT·HTML 등 문서 변환에 필요해요. 설치하면 자동으로 찾아요.',
         install: '설치 페이지 열기',
         version: (v: string) => `버전 ${v}`,
       },

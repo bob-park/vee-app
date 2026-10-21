@@ -185,7 +185,7 @@ export const en = {
         title: 'LibreOffice',
         found: 'Found',
         missing: 'Not found',
-        hint: "Needed for PDF, DOCX, XLSX and PPTX. Vee finds it once it's installed.",
+        hint: "Needed for document conversions such as PDF, DOCX, XLSX, PPTX, TXT and HTML. Vee finds it once it's installed.",
         install: 'Open download page',
         version: (v: string) => `Version ${v}`,
       },

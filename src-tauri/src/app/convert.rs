@@ -164,7 +164,6 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
         ffmpeg: engines::ffmpeg(app).is_some(),
         rhwp: engines::rhwp(app).is_some(),
         libreoffice: office::soffice().is_some(),
-        textutil: cfg!(target_os = "macos"),
     };
     let slices = convert::formats_for(&files, caps);
     *c.session.lock().unwrap() = Some(Session { generation, clip_id, files, slices, dir: None, noted: false, dropped: false });
