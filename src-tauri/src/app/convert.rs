@@ -9,7 +9,7 @@ use crate::{
     },
     domain::{
         clip::Kind,
-        convert::{self, Caps, Format, Job, JobError, JobState, JobView, Quality, Run, Slice},
+        convert::{self, Caps, Format, HwEncoder, Job, JobError, JobState, JobView, Quality, Run, Slice},
         settings,
     },
     shared::error::{AppError, AppResult},
@@ -113,8 +113,20 @@ struct Jobs {
     ticking: bool,
 }
 
+/// The H.264 encoder video conversions use, for the settings badge.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoEncoder {
+    /// `None` is software (libx264).
+    pub encoder: Option<HwEncoder>,
+    /// The hardware encoder failed on the last H.264 job and it was re-encoded in software.
+    pub fell_back: bool,
+}
+
 pub struct Convert {
     session: Mutex<Option<Session>>,
+    /// What the last H.264 job of this run actually used; `None` until one ran.
+    last_encoder: Mutex<Option<VideoEncoder>>,
     overlay: Mutex<Overlay>,
     /// Bumped by every drag, so an older key watch stops.
     drag: AtomicU64,
@@ -135,7 +147,7 @@ pub fn spawn(app: &AppHandle) {
     if tmp.exists() {
         let _ = std::fs::remove_dir_all(&tmp);
     }
-    app.manage(Convert { session: Mutex::new(None), overlay: Mutex::default(), drag: AtomicU64::new(0), jobs: Mutex::default(), queue, tmp });
+    app.manage(Convert { session: Mutex::new(None), last_encoder: Mutex::new(None), overlay: Mutex::default(), drag: AtomicU64::new(0), jobs: Mutex::default(), queue, tmp });
     let app = app.clone();
     // ponytail: one worker for all images; a second worker if batches feel slow.
     std::thread::spawn(move || {
@@ -344,7 +356,7 @@ fn work(app: &AppHandle, id: u64) {
             tmp.clone()
         })
         .join("lo-profile");
-    let mut ctx = Run {
+    let mut ctx = Run { fell_back: false,
         ffmpeg: engine.as_ref().map(|(f, p)| (f.as_path(), p.as_path())),
         quality,
         hw,
@@ -378,6 +390,10 @@ fn work(app: &AppHandle, id: u64) {
             j.progress = j.progress.map(|_| 0.0);
         });
         publish(app);
+    }
+    if matches!(format, Format::Mp4 | Format::Mov | Format::Mp4720) && ctx.ffmpeg.is_some() {
+        *c.last_encoder.lock().unwrap() = Some(VideoEncoder { encoder: ctx.hw, fell_back: ctx.fell_back });
+        let _ = app.emit("convert://encoder", ());
     }
     let mut done = 0;
     with_job(&c, id, |j| {
@@ -495,6 +511,26 @@ pub mod commands {
     pub fn hide_convert(app: AppHandle, seq: u64) {
         let main = app.clone();
         let _ = app.run_on_main_thread(move || super::hide(&main, seq));
+    }
+
+    /// The H.264 encoder for the settings badge; `None` without FFmpeg. Before the first H.264 job
+    /// this is the probe's pick, which can take a few seconds on Windows the first time.
+    #[tauri::command]
+    pub async fn get_video_encoder(app: AppHandle) -> Option<super::VideoEncoder> {
+        let (ffmpeg, _) = crate::app::engines::ffmpeg(&app)?;
+        let hw_on = {
+            let state = app.state::<crate::app::state::AppState>();
+            let db = state.db.lock().unwrap();
+            crate::domain::settings::get(&db, "videoHwAccel") == "on"
+        };
+        if !hw_on {
+            return Some(super::VideoEncoder { encoder: None, fell_back: false });
+        }
+        if let Some(last) = *app.state::<Convert>().last_encoder.lock().unwrap() {
+            return Some(last);
+        }
+        let encoder = tauri::async_runtime::spawn_blocking(move || crate::domain::convert::hw_encoder(&ffmpeg)).await.ok()?;
+        Some(super::VideoEncoder { encoder, fell_back: false })
     }
 
     /// The overlay's drop on a slice.

@@ -172,6 +172,8 @@ export const ko: Dict = {
         qualityHint: '모든 영상 변환에 쓰여요',
         hwAccel: '하드웨어 가속',
         hwAccelHint: '그래픽 칩으로 MP4·MOV·720p를 더 빠르게 변환해요. 실패하면 소프트웨어로 변환해요.',
+        encoders: { videotoolbox: 'VideoToolbox', nvenc: 'NVENC', qsv: 'Quick Sync', amf: 'AMF', cpu: 'CPU' },
+        encoderFellBack: (hw: string) => `${hw} → CPU`,
         qualities: { small: '작게', normal: '보통', original: '원본' },
       },
       rhwp: {

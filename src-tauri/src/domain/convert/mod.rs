@@ -11,7 +11,7 @@ use self::image::convert_image;
 pub use model::{Caps, Engine, Format, Job, JobError, JobState, JobView, Quality, Slice, DONE_MS, SHOW_AFTER_MS};
 use model::eta;
 pub use process::{command, output};
-pub use video::{Run, hw_encoder};
+pub use video::{HwEncoder, Run, hw_encoder};
 use model::{DocTargets, HWP_TARGETS, IMAGE_TARGETS, SHEET_TARGETS, SLIDE_TARGETS, TEXT_TARGETS, VIDEO_TARGETS};
 
 use std::path::{Path, PathBuf};
@@ -327,7 +327,7 @@ mod tests {
     fn run_doc(src: &Path, to: Format, dir: &Path, tmp: &Path, rhwp: Option<PathBuf>, soffice: Option<PathBuf>) -> Result<PathBuf, JobError> {
         let cancel = AtomicBool::new(false);
         let stem = src.file_stem().unwrap().to_string_lossy().into_owned();
-        let mut ctx = Run { ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, rhwp, soffice, lo_profile: tmp.join("lo"), progress: &mut |_| {} };
+        let mut ctx = Run { fell_back: false, ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, rhwp, soffice, lo_profile: tmp.join("lo"), progress: &mut |_| {} };
         run(src, &stem, to, dir, tmp, &mut ctx)
     }
 
@@ -413,7 +413,7 @@ mod tests {
             std::fs::write(&src, b"doc").unwrap();
             let cancel = AtomicBool::new(false);
             let started = std::time::Instant::now();
-            let mut ctx = Run {
+            let mut ctx = Run { fell_back: false,
                 ffmpeg: None,
                 quality: Quality::Normal,
                 hw: None,
@@ -454,7 +454,7 @@ mod tests {
         // A profile path with a space and Hangul, like `Application Support` and Korean user names.
         let profile = tmp.path().join("lo 프로필");
         let cancel = AtomicBool::new(false);
-        let mut ctx = Run {
+        let mut ctx = Run { fell_back: false,
             ffmpeg: None,
             quality: Quality::Normal,
             hw: None,
@@ -497,7 +497,7 @@ mod tests {
         assert!(soffice.is_file(), "LibreOffice is not installed");
         let (dir, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let cancel = AtomicBool::new(false);
-        let mut ctx = Run {
+        let mut ctx = Run { fell_back: false,
             ffmpeg: None,
             quality: Quality::Normal,
             hw: None,
@@ -530,7 +530,7 @@ mod tests {
     /// `run` for an image source: no FFmpeg, never cancelled.
     fn run_image(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path) -> Result<PathBuf, JobError> {
         let cancel = AtomicBool::new(false);
-        run(src, stem, to, dir, tmp, &mut Run { ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, rhwp: None, soffice: None, lo_profile: PathBuf::new(), progress: &mut |_| {} })
+        run(src, stem, to, dir, tmp, &mut Run { fell_back: false, ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, rhwp: None, soffice: None, lo_profile: PathBuf::new(), progress: &mut |_| {} })
     }
 
     #[test]

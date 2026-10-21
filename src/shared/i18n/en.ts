@@ -171,6 +171,8 @@ export const en = {
         qualityHint: 'Used for every video conversion',
         hwAccel: 'Hardware acceleration',
         hwAccelHint: 'Converts MP4, MOV and 720p faster with the graphics chip. Falls back to software if it fails.',
+        encoders: { videotoolbox: 'VideoToolbox', nvenc: 'NVENC', qsv: 'Quick Sync', amf: 'AMF', cpu: 'CPU' },
+        encoderFellBack: (hw: string) => `${hw} → CPU`,
         qualities: { small: 'Small', normal: 'Normal', original: 'Best' },
       },
       rhwp: {

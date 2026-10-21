@@ -5,6 +5,7 @@ import type {
   FinderAccess,
   Format,
   LibreOffice,
+  VideoEncoder,
 } from '@/domain/convert/apis/convert.dto';
 import call from '@/shared/api';
 
@@ -76,4 +77,9 @@ export async function getLibreOffice() {
 /** Opens LibreOffice's download page in the browser; the URL is fixed in Rust. */
 export async function openLibreOfficeDownload() {
   return call<void>('open_libreoffice_download');
+}
+
+/** The H.264 encoder for the settings badge; null without FFmpeg. May probe the GPU for a few seconds first. */
+export async function getVideoEncoder() {
+  return call<VideoEncoder | null>('get_video_encoder');
 }

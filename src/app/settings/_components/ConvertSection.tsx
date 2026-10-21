@@ -14,7 +14,7 @@ import {
   removeEngine,
 } from '@/domain/convert/apis/convert';
 import type { EngineId } from '@/domain/convert/apis/convert.dto';
-import { useEngineStatus, useLibreOffice } from '@/domain/convert/queries/engines';
+import { useEngineStatus, useLibreOffice, useVideoEncoder } from '@/domain/convert/queries/engines';
 import type { SettingKey, Settings } from '@/domain/settings/apis/settings.dto';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
@@ -35,8 +35,17 @@ export default function ConvertSection({ settings, run, updateSetting }: Props) 
   // hooks
   const s = useI18n().t.settings;
 
+  // queries
+  const { videoEncoder } = useVideoEncoder();
+
   const c = s.convert;
   const off = settings.dragConvert !== 'on';
+  const encoders = c.ffmpeg.encoders;
+  const encoderLabel =
+    videoEncoder &&
+    (videoEncoder.fellBack && videoEncoder.encoder
+      ? c.ffmpeg.encoderFellBack(encoders[videoEncoder.encoder])
+      : encoders[videoEncoder.encoder ?? 'cpu']);
   const labels = isMac ? c.keys.mac : c.keys.win;
 
   return (
@@ -66,11 +75,14 @@ export default function ConvertSection({ settings, run, updateSetting }: Props) 
           />
         </Row>
         <Row label={c.ffmpeg.hwAccel} hint={c.ffmpeg.hwAccelHint}>
-          <Switch
-            ariaLabel={c.ffmpeg.hwAccel}
-            checked={settings.videoHwAccel === 'on'}
-            onChange={(checked) => updateSetting({ key: 'videoHwAccel', value: checked ? 'on' : 'off' })}
-          />
+          <div className="flex items-center gap-2">
+            {encoderLabel && <span className={BADGE}>{encoderLabel}</span>}
+            <Switch
+              ariaLabel={c.ffmpeg.hwAccel}
+              checked={settings.videoHwAccel === 'on'}
+              onChange={(checked) => updateSetting({ key: 'videoHwAccel', value: checked ? 'on' : 'off' })}
+            />
+          </div>
         </Row>
       </EngineSection>
       <EngineSection engine="rhwp" run={run} />
