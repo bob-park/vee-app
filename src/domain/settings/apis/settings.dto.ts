@@ -14,6 +14,9 @@ export type SettingKey =
   | 'panelResize'
   | 'panelPinShortcut'
   | 'resetSearchShortcut'
+  | 'pinnedCopy1Shortcut'
+  | 'pinnedCopy2Shortcut'
+  | 'pinnedCopy3Shortcut'
   | 'ocr'
   | 'dragConvert'
   | 'convertKey'
@@ -27,6 +30,10 @@ export interface Settings {
   /** Toggles panel pinning while the panel has focus; not a global shortcut. */
   panelPinShortcut: string;
   resetSearchShortcut: string;
+  /** Copy the 1st / 2nd / 3rd pinned card while the panel has focus; not global shortcuts. */
+  pinnedCopy1Shortcut: string;
+  pinnedCopy2Shortcut: string;
+  pinnedCopy3Shortcut: string;
   sound: 'on' | 'off';
   soundName: SoundName;
   confirmDelete: 'on' | 'off';

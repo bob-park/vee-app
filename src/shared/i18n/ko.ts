@@ -102,6 +102,8 @@ export const ko: Dict = {
     panelPinShortcutHint: '패널이 열려 있을 때 고정 켜기/끄기',
     resetSearchShortcut: '검색 조건 초기화 단축키',
     resetSearchShortcutHint: '검색어·앱 태그·필터를 한 번에 지웁니다',
+    pinnedCopyShortcut: (n: number) => `고정 카드 ${n} 복사`,
+    pinnedCopyShortcutHint: (n: number) => `패널이 열려 있을 때 ${n}번째 고정 카드를 복사합니다`,
     updates: '업데이트',
     version: (v: string) => `v${v}`,
     notChecked: '아직 확인하지 않음',

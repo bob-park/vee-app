@@ -100,6 +100,8 @@ export const en = {
     panelPinShortcutHint: "Pin or unpin the panel while it's open",
     resetSearchShortcut: 'Reset search shortcut',
     resetSearchShortcutHint: 'Clear the search, app tag and filter at once',
+    pinnedCopyShortcut: (n: number) => `Copy pinned card ${n}`,
+    pinnedCopyShortcutHint: (n: number) => `Copies pinned card ${n} while the panel is open`,
     updates: 'Updates',
     version: (v: string) => `v${v}`,
     notChecked: 'Not checked yet',

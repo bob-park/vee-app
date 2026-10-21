@@ -5,7 +5,7 @@ mod model;
 pub mod repository;
 
 pub use model::{
-    DEFAULT_PANEL_PIN_SHORTCUT, DEFAULT_RESET_SEARCH_SHORTCUT, DEFAULT_SHORTCUT, SILENT, SOUND_NAMES, SettingsDto,
+    DEFAULT_PANEL_PIN_SHORTCUT, DEFAULT_PINNED_COPY_SHORTCUTS, DEFAULT_RESET_SEARCH_SHORTCUT, DEFAULT_SHORTCUT, SILENT, SOUND_NAMES, SettingsDto,
 };
 
 use crate::domain::clip;
@@ -19,6 +19,9 @@ pub fn get(conn: &Connection, key: &str) -> String {
         "shortcut" => DEFAULT_SHORTCUT,
         "panelPinShortcut" => DEFAULT_PANEL_PIN_SHORTCUT,
         "resetSearchShortcut" => DEFAULT_RESET_SEARCH_SHORTCUT,
+        "pinnedCopy1Shortcut" => DEFAULT_PINNED_COPY_SHORTCUTS[0],
+        "pinnedCopy2Shortcut" => DEFAULT_PINNED_COPY_SHORTCUTS[1],
+        "pinnedCopy3Shortcut" => DEFAULT_PINNED_COPY_SHORTCUTS[2],
         "sound" | "ocr" => "on",
         "soundName" => "pop",
         "confirmDelete" => "off",
@@ -82,7 +85,7 @@ fn validate(key: &str, value: &str) -> AppResult<()> {
         "convertKey" => matches!(value, "alt" | "ctrl" | "shift"),
         "videoQuality" => matches!(value, "small" | "normal" | "original"),
         // Modifiers and a key code joined by `+`, as built by the settings recorder.
-        "panelPinShortcut" | "resetSearchShortcut" => {
+        "panelPinShortcut" | "resetSearchShortcut" | "pinnedCopy1Shortcut" | "pinnedCopy2Shortcut" | "pinnedCopy3Shortcut" => {
             value.contains('+') && value.split('+').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric()))
         }
         // `panelHeightRatio` is written only by the resize commands.
@@ -193,6 +196,11 @@ mod tests {
         assert!(validate("panelPinShortcut", "").is_err());
         assert!(validate("resetSearchShortcut", "CommandOrControl+KeyK").is_ok());
         assert!(validate("resetSearchShortcut", "KeyK").is_err());
+        for key in ["pinnedCopy1Shortcut", "pinnedCopy2Shortcut", "pinnedCopy3Shortcut"] {
+            assert!(validate(key, "CommandOrControl+Digit1").is_ok(), "{key}");
+            assert!(validate(key, "Digit1").is_err(), "{key}");
+            assert!(validate(key, "").is_err(), "{key}");
+        }
     }
 
     #[test]
@@ -202,6 +210,9 @@ mod tests {
         assert_eq!(get(&conn, "shortcut"), DEFAULT_SHORTCUT);
         assert_eq!(get(&conn, "panelPinShortcut"), DEFAULT_PANEL_PIN_SHORTCUT);
         assert_eq!(get(&conn, "resetSearchShortcut"), DEFAULT_RESET_SEARCH_SHORTCUT);
+        assert_eq!(get(&conn, "pinnedCopy1Shortcut"), "CommandOrControl+Digit1");
+        assert_eq!(get(&conn, "pinnedCopy2Shortcut"), "CommandOrControl+Digit2");
+        assert_eq!(get(&conn, "pinnedCopy3Shortcut"), "CommandOrControl+Digit3");
         assert_eq!(get(&conn, "panelResize"), "off");
         assert_eq!(get(&conn, "panelHeightRatio"), "");
         set_raw(&conn, "theme", "dark").unwrap();
