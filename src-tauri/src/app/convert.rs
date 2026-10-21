@@ -255,6 +255,7 @@ fn show(app: &AppHandle, generation: u64, (x, y): (f64, f64), open: Open) {
         let _ = window::place(&overlay, overlay_rect((x, y), SIZE * unit, work));
         opened(&mut main.state::<Convert>().overlay.lock().unwrap());
         let _ = main.emit_to(CONVERT, "convert://open", open);
+        let _ = overlay.set_ignore_cursor_events(false);
         let _ = overlay.show();
     });
 }
@@ -268,14 +269,22 @@ fn overlay_rect((x, y): (f64, f64), side: f64, work: Rect) -> Rect {
 /// Asks the webview to clear the donut, then hides the window once that blank frame is painted
 /// (`hide_convert`), or after `HIDE_FALLBACK_MS`. A hidden webview shows its last frame on the next
 /// `show()`, so hiding the drawn donut would flash it when a different kind of file opens next.
+/// Runs on the main thread like `show`, so a key-up polled before a queued show can't be lost.
 fn close(app: &AppHandle) {
-    let Some(seq) = closed(&mut app.state::<Convert>().overlay.lock().unwrap()) else { return };
-    let _ = app.emit_to(CONVERT, "convert://close", Close { seq });
-    let handle = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(HIDE_FALLBACK_MS));
-        let main = handle.clone();
-        let _ = handle.run_on_main_thread(move || hide(&main, seq));
+    let main = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let Some(seq) = closed(&mut main.state::<Convert>().overlay.lock().unwrap()) else { return };
+        // Until the hide lands, drops must fall through the blank window to whatever is under it.
+        if let Some(overlay) = main.get_webview_window(CONVERT) {
+            let _ = overlay.set_ignore_cursor_events(true);
+        }
+        let _ = main.emit_to(CONVERT, "convert://close", Close { seq });
+        let handle = main.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(HIDE_FALLBACK_MS));
+            let main = handle.clone();
+            let _ = handle.run_on_main_thread(move || hide(&main, seq));
+        });
     });
 }
 
@@ -391,7 +400,8 @@ fn work(app: &AppHandle, id: u64) {
         });
         publish(app);
     }
-    if matches!(format, Format::Mp4 | Format::Mov | Format::Mp4720) && ctx.ffmpeg.is_some() {
+    // Only with hardware acceleration on: a software-only job says nothing about the GPU.
+    if hw_on && matches!(format, Format::Mp4 | Format::Mov | Format::Mp4720) && ctx.ffmpeg.is_some() {
         *c.last_encoder.lock().unwrap() = Some(VideoEncoder { encoder: ctx.hw, fell_back: ctx.fell_back });
         let _ = app.emit("convert://encoder", ());
     }

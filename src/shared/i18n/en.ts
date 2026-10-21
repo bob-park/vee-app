@@ -56,7 +56,7 @@ export const en = {
     savedMany: (n: number, f: string) => `Saved ${n} files as ${f}`,
     failedTitle: "Couldn't convert",
     notFolder: 'Convert only over a folder',
-    finderBlockedHint: 'Allow Finder access in Settings → Convert',
+    finderBlockedHint: 'Allow Finder access in Settings → Permissions',
     unsupported: "These files can't be converted",
   },
   settings: {

@@ -58,7 +58,7 @@ export const ko: Dict = {
     savedMany: (n: number, f: string) => `${n}개 파일을 ${f} 파일로 저장했어요`,
     failedTitle: '변환하지 못했어요',
     notFolder: '폴더 위에서만 변환할 수 있어요',
-    finderBlockedHint: '설정 → 변환에서 Finder 접근을 허용해 주세요',
+    finderBlockedHint: '설정 → 권한에서 Finder 접근을 허용해 주세요',
     unsupported: '이 파일은 변환할 수 없어요',
   },
   settings: {
