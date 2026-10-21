@@ -1,5 +1,5 @@
 /** Geometry of the convert window's format donut; the window is `size` CSS px square. */
-export const DONUT = { size: 260, disc: 106, outer: 100, inner: 52, corner: 6 } as const;
+export const DONUT = { size: 260, disc: 106, outer: 98, inner: 54, corner: 10, gap: 10 } as const;
 
 const C = DONUT.size / 2;
 const TAU = 2 * Math.PI;
@@ -24,25 +24,28 @@ function at(r: number, a: number) {
 }
 
 /**
- * Slice `i` of `count` as an SVG path in a `-130..130` viewBox: a ring sector trimmed by `gap`
- * radians each side, its four corners rounded by `DONUT.corner`.
+ * Slice `i` of `count` as an SVG path in a `-130..130` viewBox: a ring sector whose radial edges sit
+ * `gap / 2` px off the boundary, so the space between two slices is `gap` px wide at every radius.
+ * Its four corners are rounded by `DONUT.corner`.
  */
-export function slicePath(i: number, count: number, gap = 0.028): string {
+export function slicePath(i: number, count: number, gap: number = DONUT.gap): string {
   const { outer: R, inner: r, corner: k } = DONUT;
-  const a0 = -Math.PI / 2 + (i * TAU) / count + gap;
-  const a1 = -Math.PI / 2 + ((i + 1) * TAU) / count - gap;
-  const large = a1 - a0 > Math.PI ? 1 : 0;
+  const b0 = -Math.PI / 2 + (i * TAU) / count;
+  const b1 = -Math.PI / 2 + ((i + 1) * TAU) / count;
+  // Angular trim that puts a point at radius `rho` gap/2 px (perpendicular) off the boundary ray.
+  const trim = (rho: number) => Math.asin(Math.min(1, gap / 2 / rho));
   // Each corner: a quadratic curve from the radial edge (k in from the ring) to the arc (k along it).
-  const [o, ii] = [k / R, k / r];
+  const [o, ii] = [k / R + trim(R), k / r + trim(r)];
+  const large = (span: number) => (b1 - b0 - 2 * span > Math.PI ? 1 : 0);
   return [
-    `M${at(R - k, a0)}`,
-    `Q${at(R, a0)} ${at(R, a0 + o)}`,
-    `A${R} ${R} 0 ${large} 1 ${at(R, a1 - o)}`,
-    `Q${at(R, a1)} ${at(R - k, a1)}`,
-    `L${at(r + k, a1)}`,
-    `Q${at(r, a1)} ${at(r, a1 - ii)}`,
-    `A${r} ${r} 0 ${large} 0 ${at(r, a0 + ii)}`,
-    `Q${at(r, a0)} ${at(r + k, a0)}Z`,
+    `M${at(R - k, b0 + trim(R - k))}`,
+    `Q${at(R, b0 + trim(R))} ${at(R, b0 + o)}`,
+    `A${R} ${R} 0 ${large(o)} 1 ${at(R, b1 - o)}`,
+    `Q${at(R, b1 - trim(R))} ${at(R - k, b1 - trim(R - k))}`,
+    `L${at(r + k, b1 - trim(r + k))}`,
+    `Q${at(r, b1 - trim(r))} ${at(r, b1 - ii)}`,
+    `A${r} ${r} 0 ${large(ii)} 0 ${at(r, b0 + ii)}`,
+    `Q${at(r, b0 + trim(r))} ${at(r + k, b0 + trim(r + k))}Z`,
   ].join('');
 }
 

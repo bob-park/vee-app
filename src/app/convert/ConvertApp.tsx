@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { convertDrop, hideConvert } from '@/domain/convert/apis/convert';
 import type { Slice } from '@/domain/convert/apis/convert.dto';
+import Aurora from '@/shared/components/Aurora';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { DONUT, dropPoint, labelAt, sliceAt, slicePath } from '@/utils/donut';
 import { formatLabel } from '@/utils/formatLabel';
@@ -82,12 +83,28 @@ export default function ConvertApp() {
       key={play}
       className={cx(
         'relative size-[260px] motion-reduce:animate-none',
-        play ? 'animate-donut-in' : 'opacity-0 motion-reduce:opacity-100',
+        play ? 'animate-pop' : 'opacity-0 motion-reduce:opacity-100',
       )}
     >
-      <svg width={DONUT.size} height={DONUT.size} viewBox={`${-half} ${-half} ${DONUT.size} ${DONUT.size}`} aria-hidden>
-        {/* The border keeps the white disc readable over a light desktop, as the toast's does. */}
-        <circle r={DONUT.disc} className="fill-card stroke-base-300 shadow-donut" strokeWidth={1} />
+      {/* The halo: disc + 4px, blurred 8px, so it fades out inside the window (see shadow-donut). */}
+      <div
+        className="absolute animate-[spin_8s_linear_infinite] rounded-full bg-[conic-gradient(var(--color-primary),var(--color-sky),var(--color-aurora-3),var(--color-primary))] opacity-50 blur-[8px] motion-reduce:animate-none"
+        style={{ inset: half - DONUT.disc - 4 }}
+      />
+      {/* The plate; its edge and shadow keep it readable over a light or a black desktop alike. */}
+      <div
+        className="bg-base-100 shadow-donut ring-donut-edge absolute overflow-hidden rounded-full ring-1"
+        style={{ inset: half - DONUT.disc }}
+      >
+        <Aurora className="inset-0 opacity-45" />
+      </div>
+      <svg
+        className="relative"
+        width={DONUT.size}
+        height={DONUT.size}
+        viewBox={`${-half} ${-half} ${DONUT.size} ${DONUT.size}`}
+        aria-hidden
+      >
         {open.slices.map(({ format, needs }, i) => {
           const l = labelAt(i, n);
           const active = i === hot && !needs;
@@ -95,13 +112,13 @@ export default function ConvertApp() {
             <g
               key={format}
               className={cx(play && 'animate-slice-in motion-reduce:animate-none', needs && 'opacity-45')}
-              style={{ animationDelay: `${40 + i * 22}ms` }}
+              style={{ animationDelay: `${40 + i * 25}ms` }}
             >
               <path
                 d={slicePath(i, n)}
                 className={cx(
-                  '[transition:fill_180ms_ease,scale_180ms_cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
-                  active ? 'fill-primary scale-[1.045]' : 'fill-donut',
+                  'slice-lit [transition:fill_180ms_ease,scale_350ms_var(--ease-spring)] motion-reduce:transition-none',
+                  active ? 'fill-primary scale-[1.07]' : 'fill-donut',
                 )}
               />
               <text
@@ -124,9 +141,23 @@ export default function ConvertApp() {
           );
         })}
       </svg>
-      {/* Inside the ring's hole (inner 52px); the disc behind it is the card colour already. */}
-      <div className="absolute inset-[82px] flex flex-col items-center justify-center text-center">
-        <b className="max-w-full truncate text-[11px]">{open.name}</b>
+      {/* Inside the ring's hole (inner 54px). */}
+      <div className="absolute inset-[82px] flex flex-col items-center justify-center gap-1 text-center">
+        <span className="bg-accent-subtle text-primary animate-bob grid size-[30px] place-items-center rounded-full">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.8}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M7 2v10M3 8l4 4 4-4" />
+          </svg>
+        </span>
         <small className="text-muted text-[9.5px] leading-tight">{t.convert.dropHint}</small>
       </div>
     </div>

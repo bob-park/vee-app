@@ -21,9 +21,16 @@ void test('just left of 12 o’clock is the last slice', () => {
 
 void test('a slice path starts just inside the outer ring, rounds its corners and closes', () => {
   const d = slicePath(0, 4, 0);
-  assert.match(d, /^M0 -94Q0 -100 /); // outer 100 minus the 6px corner, at 12 o'clock
+  assert.match(d, /^M0 -88Q0 -98 /); // outer 98 minus the 10px corner, at 12 o'clock
   assert.equal(d.match(/Q/g)?.length, 4);
   assert.ok(d.endsWith('Z'));
+});
+
+void test('the gap between slices is the same width at the inner and outer ring', () => {
+  // Slice 0 of 4 starts at 12 o'clock; with a 10px gap its first point (on the radial edge) sits 5px right of the axis.
+  const d = slicePath(0, 4, 10);
+  const [, x0] = d.match(/^M(-?[\d.]+) /)!;
+  assert.ok(Math.abs(Number(x0) - 5) < 0.01);
 });
 
 void test('drop positions are points on macOS and device pixels on Windows', () => {
