@@ -1,38 +1,14 @@
 import { useEffect, useState } from 'react';
 
-import type { Kind, ToastPayload } from '@/domain/clip/apis/clip.dto';
+import type { ToastPayload } from '@/domain/clip/apis/clip.dto';
 import type { ConvertNote } from '@/domain/convert/apis/convert.dto';
+import KindIcon from '@/shared/components/KindIcon';
 import type { Dict } from '@/shared/i18n/en';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { formatLabel } from '@/utils/formatLabel';
 
 import { listen } from '@tauri-apps/api/event';
 import cx from 'classnames';
-
-/** White line icons for what was copied, drawn on the coloured tile. */
-const KIND_ICONS: Record<Kind, string> = {
-  text: 'M5 6h14M5 10h14M5 14h10M5 18h7',
-  link: 'M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1',
-  image: 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15.5 8.5h.01',
-  files: 'M6 3h8l4 4v14H6zM14 3v4h4',
-};
-
-function Icon({ path }: { path: string }) {
-  return (
-    <svg
-      className="size-[22px]"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d={path} />
-    </svg>
-  );
-}
 
 function convertLines(note: ConvertNote, t: Dict): [string, string | null] {
   switch (note.type) {
@@ -99,7 +75,7 @@ export function ToastApp() {
           p.ok ? 'bg-toast-icon' : 'bg-error',
         )}
       >
-        {p.ok ? <Icon path={KIND_ICONS[p.kind]} /> : '!'}
+        {p.ok ? <KindIcon kind={p.kind} className="size-[22px]" /> : '!'}
         {/* Small check badge on the icon's corner, ringed in the card colour. */}
         {p.ok && (
           <span className="animate-toast-check-in border-toast-bg bg-primary absolute -right-[5px] -bottom-[5px] flex size-[18px] items-center justify-center rounded-full border-2 text-[10px] font-extrabold text-white motion-reduce:animate-none">

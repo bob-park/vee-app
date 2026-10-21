@@ -3,11 +3,13 @@ import { useRef } from 'react';
 import type { Clip } from '@/domain/clip/apis/clip.dto';
 import { cancelConvert, dismissConvert, retryConvert } from '@/domain/convert/apis/convert';
 import type { ConvertJob } from '@/domain/convert/apis/convert.dto';
+import KindIcon from '@/shared/components/KindIcon';
 import { relativeTime } from '@/shared/i18n';
 import type { Dict } from '@/shared/i18n/en';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { imageTag } from '@/utils/fileThumb';
 import { formatLabel } from '@/utils/formatLabel';
+import { linkParts } from '@/utils/link';
 
 import cx from 'classnames';
 
@@ -245,16 +247,33 @@ function ProgressRing({ percent, spin }: { percent: number | null; spin: boolean
 function Body({ clip }: { clip: Clip }) {
   if (clip.kind === 'image') return clip.thumb ? <img className={THUMB} src={clip.thumb} alt="" /> : null;
   if (clip.kind === 'files') return <FilesBody clip={clip} />;
+  if (clip.kind === 'link') {
+    const { host, rest } = linkParts(clip.textPreview ?? '');
+    return (
+      <div className="bg-subtle flex h-[calc(100%-8px)] flex-col overflow-hidden rounded-lg">
+        <div className="from-primary/18 to-sky/22 text-primary grid min-h-0 flex-1 place-items-center bg-linear-to-br">
+          <KindIcon kind="link" className="size-[30%] max-h-9" />
+        </div>
+        <div className="border-divider border-t px-2.5 py-1.5">
+          <b className="block truncate text-[12px]">{host}</b>
+          <span className="text-muted block truncate text-[11px]">{rest}</span>
+        </div>
+      </div>
+    );
+  }
   return (
-    // Set apart from the card's header and footer.
-    <p
-      className={cx(
-        'bg-subtle line-clamp-14 h-[calc(100%-8px)] rounded-lg px-2.5 py-2 text-[length:clamp(12px,calc(100vh/26),15px)] leading-[1.45] break-all whitespace-pre-wrap',
-        { 'text-primary': clip.kind === 'link' },
-      )}
-    >
-      {clip.textPreview}
-    </p>
+    // Set apart from the card's header and footer; the wrapper anchors the quote mark.
+    <div className="relative h-[calc(100%-8px)]">
+      <p className="bg-subtle line-clamp-14 h-full rounded-lg px-2.5 py-2 text-[length:clamp(12px,calc(100vh/26),15px)] leading-[1.45] break-all whitespace-pre-wrap">
+        {clip.textPreview}
+      </p>
+      <span
+        className="text-primary pointer-events-none absolute right-2 -bottom-1.5 font-serif text-[44px] leading-none opacity-12"
+        aria-hidden
+      >
+        &rdquo;
+      </span>
+    </div>
   );
 }
 
