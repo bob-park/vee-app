@@ -58,6 +58,8 @@ interface Props {
   suggesting: boolean;
   suggestions: App[];
   suggestIndex: number;
+  /** The pointer moved onto suggestion `index`. */
+  onHoverApp: (index: number) => void;
   onPickApp: (app: App) => void;
   onSettings: () => void;
   /** The panel stays up when focus leaves it. */
@@ -88,6 +90,7 @@ export function Toolbar({
   suggesting,
   suggestions,
   suggestIndex,
+  onHoverApp,
   onPickApp,
   onSettings,
   panelPinned,
@@ -151,6 +154,7 @@ export function Toolbar({
             query={query.slice(1)}
             listRef={listRef}
             className="max-h-[calc(100vh-70px)] w-60"
+            onHover={onHoverApp}
             onPick={onPickApp}
           />
         )}

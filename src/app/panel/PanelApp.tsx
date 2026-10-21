@@ -499,6 +499,7 @@ export function PanelApp() {
         suggesting={suggesting}
         suggestions={suggestions}
         suggestIndex={suggestIndex}
+        onHoverApp={setSuggestIndex}
         onPickApp={pickApp}
         onSettings={() => void openSettings()}
         panelPinned={panelPinned}
