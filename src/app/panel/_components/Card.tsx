@@ -30,6 +30,8 @@ interface Props {
   confirming: boolean;
   onConfirmDelete: () => void;
   onCancelDelete: () => void;
+  /** Position in the open entrance's stagger (capped by the caller). */
+  enterIndex: number;
 }
 
 const DRAG_THRESHOLD = 5;
@@ -268,6 +270,7 @@ export function Card({
   confirming,
   onConfirmDelete,
   onCancelDelete,
+  enterIndex,
 }: Props) {
   // ref
   const press = useRef<{ x: number; y: number } | null>(null);
@@ -279,7 +282,9 @@ export function Card({
     <div
       // `card` is the hook motion.ts finds cards by. `data-slot` (set by motion.ts) marks where a floating card came from.
       className={cx(
-        'card group rounded-box bg-card relative flex w-[calc((100vh-72px)*0.95)] flex-none cursor-default flex-col overflow-hidden',
+        'card group rounded-box glass relative flex w-[calc((100vh-72px)*0.95)] flex-none cursor-default flex-col overflow-hidden',
+        // Lifts on hover, but not the empty slot a dragged card left.
+        'ease-spring transition-[translate,box-shadow] duration-250 not-data-slot:hover:-translate-y-0.5',
         'data-slot:border-accent-subtle data-slot:border-2 data-slot:border-dashed data-slot:bg-transparent data-slot:shadow-none data-slot:*:invisible',
         confirming
           ? 'border-error shadow-card-confirm border-2'
@@ -289,8 +294,11 @@ export function Card({
               ? 'border-success shadow-card border'
               : selected
                 ? 'border-primary shadow-card-selected border'
-                : cx('shadow-card border', clip.pinned ? 'border-pinned-border' : 'border-base-300'),
+                : // Idle keeps the glass hairline.
+                  cx('shadow-card border', clip.pinned && 'border-pinned-border'),
       )}
+      // The open entrance's stagger step, read by `[data-entering] .card` in globals.css.
+      style={{ '--i': enterIndex } as React.CSSProperties}
       data-id={clip.id}
       role="option"
       aria-selected={selected}

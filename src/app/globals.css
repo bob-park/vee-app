@@ -388,6 +388,16 @@
     margin: 0;
     pointer-events: none;
     box-shadow: 0 14px 34px rgba(16, 24, 40, 0.25) !important;
+    /* A clone taken mid-entrance or mid-hover must not replay, lift or stay blurred. */
+    animation: none !important;
+    translate: none !important;
+    filter: none !important;
+  }
+
+  /* The open entrance: each card de-blurs in, staggered by its `--i` (set by Card, capped at 8). */
+  [data-entering] .card {
+    animation: spring-in 650ms var(--ease-spring) both;
+    animation-delay: calc(var(--i, 0) * 25ms);
   }
 
   .glass {
@@ -457,7 +467,8 @@
   .animate-spring-in,
   .animate-pop,
   .animate-ring,
-  .animate-bob {
+  .animate-bob,
+  [data-entering] .card {
     animation: none;
   }
 

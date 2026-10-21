@@ -115,8 +115,8 @@ export function Toolbar({
     listRef.current?.children[suggestIndex]?.scrollIntoView({ block: 'nearest' });
   }, [suggestIndex, suggestions]);
   return (
-    <div className="mb-2.5 flex items-center gap-1.5">
-      <div className="rounded-box bg-subtle text-muted relative flex shrink-0 basis-55 items-center gap-1.5 px-2.5 py-1.5">
+    <div className="relative z-1 mb-2.5 flex items-center gap-1.5">
+      <div className="rounded-box glass text-muted relative flex shrink-0 basis-55 items-center gap-1.5 px-2.5 py-1.5">
         <span aria-hidden>🔍</span>
         {app && (
           <span className="bg-accent-subtle text-primary flex max-w-[120px] flex-none items-center gap-1 rounded-md px-0.5 py-px text-[12px] font-semibold whitespace-nowrap">
@@ -153,15 +153,24 @@ export function Toolbar({
           />
         )}
       </div>
-      <div className="flex gap-1.5" role="tablist">
+      <div className="glass rounded-box relative inline-grid auto-cols-fr grid-flow-col gap-1 p-[3px]" role="tablist">
+        {/* The sliding pill behind the selected tab: one column wide (3px padding, 4px gaps), moved by whole columns. */}
+        <span
+          className="bg-primary ease-spring absolute inset-y-[3px] left-[3px] rounded-[9px] transition-transform duration-450"
+          style={{
+            width: `calc((100% - 6px - ${(FILTERS.length - 1) * 4}px) / ${FILTERS.length})`,
+            transform: `translateX(calc(${FILTERS.indexOf(filter)} * (100% + 4px)))`,
+          }}
+          aria-hidden
+        />
         {FILTERS.map((f) => (
           <button
             key={f}
             role="tab"
             aria-selected={f === filter}
             className={cx(
-              'rounded-box px-2.5 py-1 text-[12px]',
-              f === filter ? 'bg-accent-subtle text-primary font-semibold' : 'bg-subtle',
+              'relative px-2.5 py-1 text-[12px]',
+              f === filter ? 'text-primary-content font-semibold' : 'text-muted',
             )}
             onClick={() => onFilter(f)}
             tabIndex={-1}
@@ -218,7 +227,11 @@ export function Toolbar({
         </div>
       )}
       <button
-        className={cx(ICON_BTN, panelPinned ? 'bg-accent-subtle text-primary' : 'text-muted hover:bg-subtle')}
+        // The transparent border keeps the size of the idle glass button's hairline.
+        className={cx(
+          ICON_BTN,
+          panelPinned ? 'bg-accent-subtle text-primary border border-transparent' : 'glass text-muted',
+        )}
         onClick={onTogglePanelPin}
         aria-pressed={panelPinned}
         aria-label={panelPinned ? t.unpinPanel : t.pinPanel}
@@ -239,12 +252,13 @@ export function Toolbar({
         <Tip label={panelPinned ? t.unpinPanel : t.pinPanel} accel={panelPinShortcut} />
       </button>
       <button
-        className={cx(ICON_BTN, 'text-muted hover:bg-subtle')}
+        className={cx(ICON_BTN, 'glass text-muted')}
         onClick={onSettings}
         aria-label={t.settings.title}
         tabIndex={-1}
       >
-        ⚙︎
+        {/* Its own box so the tip below doesn't turn with the glyph. */}
+        <span className="inline-block transition-transform duration-300 motion-safe:group-hover:rotate-45">⚙︎</span>
         <Tip label={t.settings.title} accel="CommandOrControl+Comma" />
       </button>
     </div>
