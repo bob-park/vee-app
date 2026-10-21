@@ -118,7 +118,7 @@ fn read(ctx: &ClipboardContext) -> clipboard_rs::Result<Option<NewClip>> {
 
 /// How long the clipboard must stay unchanged before it's recorded. Terminals with
 /// copy-on-select rewrite it continuously while a selection is dragged.
-const QUIET: Duration = Duration::from_millis(500);
+const QUIET: Duration = Duration::from_millis(300);
 /// How often clipboard-rs checks the macOS change count (ignored on Windows).
 const POLL: Duration = Duration::from_millis(200);
 
