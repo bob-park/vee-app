@@ -4,7 +4,9 @@ import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
 import cx from 'classnames';
 
-export type SettingsTab = 'general' | 'panel' | 'shortcuts' | 'convert' | 'history';
+export type SettingsTab = 'general' | 'panel' | 'shortcuts' | 'convert' | 'permissions' | 'history';
+
+const isMac = navigator.userAgent.includes('Mac');
 
 const svg = (children: ReactNode) => (
   <svg
@@ -22,7 +24,7 @@ const svg = (children: ReactNode) => (
   </svg>
 );
 
-const TABS: { value: SettingsTab; icon: ReactNode }[] = [
+const ALL_TABS: { value: SettingsTab; icon: ReactNode }[] = [
   {
     value: 'general',
     icon: svg(
@@ -50,6 +52,10 @@ const TABS: { value: SettingsTab; icon: ReactNode }[] = [
     icon: svg(<path d="M4 7h13l-3-3M20 17H7l3 3" />),
   },
   {
+    value: 'permissions',
+    icon: svg(<path d="M12 3l7 3v6c0 4.5-3 8-7 9-4-1-7-4.5-7-9V6l7-3Z" />),
+  },
+  {
     value: 'history',
     icon: svg(
       <>
@@ -59,6 +65,9 @@ const TABS: { value: SettingsTab; icon: ReactNode }[] = [
     ),
   },
 ];
+
+// Both permissions are macOS-only, so Windows would get an empty tab.
+const TABS = ALL_TABS.filter((tab) => isMac || tab.value !== 'permissions');
 
 export function Tabs({ value, onChange }: { value: SettingsTab; onChange: (tab: SettingsTab) => void }) {
   // hooks

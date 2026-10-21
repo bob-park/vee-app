@@ -5,6 +5,7 @@ import { ConfirmModal } from '@/app/settings/_components/ConfirmModal';
 import ConvertSection from '@/app/settings/_components/ConvertSection';
 import { Dropdown } from '@/app/settings/_components/Dropdown';
 import { HistorySection } from '@/app/settings/_components/HistorySection';
+import PermissionsSection from '@/app/settings/_components/PermissionsSection';
 import Row from '@/app/settings/_components/Row';
 import Segmented from '@/app/settings/_components/Segmented';
 import SettingSection from '@/app/settings/_components/SettingSection';
@@ -12,18 +13,12 @@ import { ShortcutRecorder } from '@/app/settings/_components/ShortcutRecorder';
 import Switch from '@/app/settings/_components/Switch';
 import { type SettingsTab, Tabs } from '@/app/settings/_components/Tabs';
 import { resetPanelHeight } from '@/domain/panel/apis/panel';
-import {
-  openDiskAccessSettings,
-  previewSound,
-  setAutostart,
-  setSetting,
-  setShortcut,
-} from '@/domain/settings/apis/settings';
+import { previewSound, setAutostart, setSetting, setShortcut } from '@/domain/settings/apis/settings';
 import { SOUND_NAMES, type SoundName } from '@/domain/settings/apis/settings.dto';
-import { useDiskAccess, useSettingUpdate, useSettings } from '@/domain/settings/queries/settings';
+import { useSettingUpdate, useSettings } from '@/domain/settings/queries/settings';
 import { checkUpdate, installUpdate } from '@/domain/updater/apis/updater';
 import { useUpdateStatus } from '@/domain/updater/queries/updater';
-import { relativeTime } from '@/shared/i18n';
+import { type Dict, relativeTime } from '@/shared/i18n';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { errorText } from '@/utils/errorText';
 import { PANEL_KEYS } from '@/utils/keys';
@@ -67,29 +62,29 @@ function UpdateRow({ version }: { version: string }) {
   );
 }
 
-/**
- * macOS only; re-checked on focus so it updates after the user returns from System Settings.
- * Brings its own card so no empty card shows while the state is unknown.
- */
-function DiskAccessRow() {
-  // hooks
-  const s = useI18n().t.settings;
+/** Every recorder on the shortcuts tab; each refuses the others' combos. */
+const SHORTCUT_KEYS = [
+  'shortcut',
+  'panelPinShortcut',
+  'resetSearchShortcut',
+  'pinnedCopy1Shortcut',
+  'pinnedCopy2Shortcut',
+  'pinnedCopy3Shortcut',
+] as const;
 
-  // queries
-  const { granted } = useDiskAccess();
-
-  if (granted === null) return null;
-  return (
-    <SettingSection>
-      <Row label={s.diskAccess} hint={s.diskAccessHint}>
-        {granted ? (
-          <span className="text-muted font-semibold">{s.diskAccessGranted}</span>
-        ) : (
-          <Button onClick={() => void openDiskAccessSettings()}>{s.diskAccessGrant}</Button>
-        )}
-      </Row>
-    </SettingSection>
-  );
+function shortcutLabel(s: Dict['settings'], key: (typeof SHORTCUT_KEYS)[number]) {
+  switch (key) {
+    case 'shortcut':
+      return { label: s.shortcut, hint: s.shortcutHint };
+    case 'panelPinShortcut':
+      return { label: s.panelPinShortcut, hint: s.panelPinShortcutHint };
+    case 'resetSearchShortcut':
+      return { label: s.resetSearchShortcut, hint: s.resetSearchShortcutHint };
+    default: {
+      const n = Number(key.charAt('pinnedCopy'.length));
+      return { label: s.pinnedCopyShortcut(n), hint: s.pinnedCopyShortcutHint(n) };
+    }
+  }
 }
 
 export function SettingsApp() {
@@ -225,36 +220,20 @@ export function SettingsApp() {
         )}
         {tab === 'shortcuts' && (
           <SettingSection>
-            <Row label={s.shortcut} hint={s.shortcutHint}>
-              <ShortcutRecorder
-                value={settings.shortcut}
-                onSave={setShortcut}
-                taken={[...PANEL_KEYS, settings.panelPinShortcut, settings.resetSearchShortcut]}
-              />
-            </Row>
-            <Row label={s.panelPinShortcut} hint={s.panelPinShortcutHint}>
-              <ShortcutRecorder
-                value={settings.panelPinShortcut}
-                onSave={(accel) => setSetting('panelPinShortcut', accel)}
-                taken={[...PANEL_KEYS, settings.shortcut, settings.resetSearchShortcut]}
-              />
-            </Row>
-            <Row label={s.resetSearchShortcut} hint={s.resetSearchShortcutHint}>
-              <ShortcutRecorder
-                value={settings.resetSearchShortcut}
-                onSave={(accel) => setSetting('resetSearchShortcut', accel)}
-                taken={[...PANEL_KEYS, settings.shortcut, settings.panelPinShortcut]}
-              />
-            </Row>
+            {SHORTCUT_KEYS.map((key) => (
+              <Row key={key} label={shortcutLabel(s, key).label} hint={shortcutLabel(s, key).hint}>
+                <ShortcutRecorder
+                  value={settings[key]}
+                  onSave={key === 'shortcut' ? setShortcut : (accel) => setSetting(key, accel)}
+                  taken={[...PANEL_KEYS, ...SHORTCUT_KEYS.filter((k) => k !== key).map((k) => settings[k])]}
+                />
+              </Row>
+            ))}
           </SettingSection>
         )}
         {tab === 'convert' && <ConvertSection settings={settings} run={run} updateSetting={updateSetting} />}
-        {tab === 'history' && (
-          <>
-            <DiskAccessRow />
-            <HistorySection run={run} updateSetting={updateSetting} />
-          </>
-        )}
+        {tab === 'permissions' && <PermissionsSection settings={settings} run={run} />}
+        {tab === 'history' && <HistorySection run={run} updateSetting={updateSetting} />}
       </div>
       <ConfirmModal
         open={confirmReset}

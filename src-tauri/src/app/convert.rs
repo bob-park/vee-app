@@ -9,7 +9,7 @@ use crate::{
     },
     domain::{
         clip::Kind,
-        convert::{self, Caps, Format, Job, JobError, JobState, JobView, Quality, Run, Slice},
+        convert::{self, Caps, Format, HwEncoder, Job, JobError, JobState, JobView, Quality, Run, Slice},
         settings,
     },
     shared::error::{AppError, AppResult},
@@ -27,6 +27,8 @@ pub const CONVERT: &str = "convert";
 const SIZE: f64 = 260.0;
 const KEY_POLL_MS: u64 = 30;
 const TICK_MS: u64 = 500;
+/// How long a closed overlay waits for the webview to paint its blank frame before Rust hides it anyway.
+const HIDE_FALLBACK_MS: u64 = 200;
 
 /// What a toast says about converting, alongside `ToastPayload`.
 #[derive(Debug, Clone, Serialize)]
@@ -80,6 +82,29 @@ fn take_drop(slot: &mut Option<Session>, format: &str) -> AppResult<(Session, Fo
     Ok((s, format, dir))
 }
 
+/// Whether the donut is open, and which open the latest close belongs to.
+#[derive(Default)]
+struct Overlay {
+    /// Bumped by every open, so a hide meant for an earlier close leaves a newer donut alone.
+    seq: u64,
+    open: bool,
+}
+
+fn opened(o: &mut Overlay) -> u64 {
+    o.seq += 1;
+    o.open = true;
+    o.seq
+}
+
+/// The seq to hide for, or `None` when it was already closed.
+fn closed(o: &mut Overlay) -> Option<u64> {
+    std::mem::replace(&mut o.open, false).then_some(o.seq)
+}
+
+fn may_hide(o: &Overlay, seq: u64) -> bool {
+    !o.open && o.seq == seq
+}
+
 #[derive(Default)]
 struct Jobs {
     list: Vec<Job>,
@@ -88,8 +113,21 @@ struct Jobs {
     ticking: bool,
 }
 
+/// The H.264 encoder video conversions use, for the settings badge.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoEncoder {
+    /// `None` is software (libx264).
+    pub encoder: Option<HwEncoder>,
+    /// The hardware encoder failed on the last H.264 job and it was re-encoded in software.
+    pub fell_back: bool,
+}
+
 pub struct Convert {
     session: Mutex<Option<Session>>,
+    /// What the last H.264 job of this run actually used; `None` until one ran.
+    last_encoder: Mutex<Option<VideoEncoder>>,
+    overlay: Mutex<Overlay>,
     /// Bumped by every drag, so an older key watch stops.
     drag: AtomicU64,
     jobs: Mutex<Jobs>,
@@ -109,7 +147,7 @@ pub fn spawn(app: &AppHandle) {
     if tmp.exists() {
         let _ = std::fs::remove_dir_all(&tmp);
     }
-    app.manage(Convert { session: Mutex::new(None), drag: AtomicU64::new(0), jobs: Mutex::default(), queue, tmp });
+    app.manage(Convert { session: Mutex::new(None), last_encoder: Mutex::new(None), overlay: Mutex::default(), drag: AtomicU64::new(0), jobs: Mutex::default(), queue, tmp });
     let app = app.clone();
     // ponytail: one worker for all images; a second worker if batches feel slow.
     std::thread::spawn(move || {
@@ -138,7 +176,6 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
         ffmpeg: engines::ffmpeg(app).is_some(),
         rhwp: engines::rhwp(app).is_some(),
         libreoffice: office::soffice().is_some(),
-        textutil: cfg!(target_os = "macos"),
     };
     let slices = convert::formats_for(&files, caps);
     *c.session.lock().unwrap() = Some(Session { generation, clip_id, files, slices, dir: None, noted: false, dropped: false });
@@ -216,7 +253,9 @@ fn show(app: &AppHandle, generation: u64, (x, y): (f64, f64), open: Open) {
         let Some(monitor) = window::cursor_monitor(&main) else { return };
         let (work, unit) = window::work_area(&monitor);
         let _ = window::place(&overlay, overlay_rect((x, y), SIZE * unit, work));
+        opened(&mut main.state::<Convert>().overlay.lock().unwrap());
         let _ = main.emit_to(CONVERT, "convert://open", open);
+        let _ = overlay.set_ignore_cursor_events(false);
         let _ = overlay.show();
     });
 }
@@ -227,8 +266,38 @@ fn overlay_rect((x, y): (f64, f64), side: f64, work: Rect) -> Rect {
     Rect { x: fit(x, work.x, work.w), y: fit(y, work.y, work.h), w: side, h: side }
 }
 
+/// Asks the webview to clear the donut, then hides the window once that blank frame is painted
+/// (`hide_convert`), or after `HIDE_FALLBACK_MS`. A hidden webview shows its last frame on the next
+/// `show()`, so hiding the drawn donut would flash it when a different kind of file opens next.
+/// Runs on the main thread like `show`, so a key-up polled before a queued show can't be lost.
 fn close(app: &AppHandle) {
-    let _ = app.emit_to(CONVERT, "convert://close", ());
+    let main = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let Some(seq) = closed(&mut main.state::<Convert>().overlay.lock().unwrap()) else { return };
+        // Until the hide lands, drops must fall through the blank window to whatever is under it.
+        if let Some(overlay) = main.get_webview_window(CONVERT) {
+            let _ = overlay.set_ignore_cursor_events(true);
+        }
+        let _ = main.emit_to(CONVERT, "convert://close", Close { seq });
+        let handle = main.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(HIDE_FALLBACK_MS));
+            let main = handle.clone();
+            let _ = handle.run_on_main_thread(move || hide(&main, seq));
+        });
+    });
+}
+
+#[derive(Clone, Serialize)]
+struct Close {
+    seq: u64,
+}
+
+/// Hides the overlay for close `seq`, unless the donut has opened again since.
+fn hide(app: &AppHandle, seq: u64) {
+    if !may_hide(&app.state::<Convert>().overlay.lock().unwrap(), seq) {
+        return;
+    }
     if let Some(overlay) = app.get_webview_window(CONVERT) {
         let _ = overlay.hide();
     }
@@ -238,10 +307,11 @@ fn close(app: &AppHandle) {
 /// Keeps the session for the overlay's drop on a hit, and forgets it otherwise.
 pub fn dropped_on_overlay(app: &AppHandle) -> bool {
     let hit = (|| {
-        let overlay = app.get_webview_window(CONVERT)?;
-        if !overlay.is_visible().ok()? {
+        // Not `is_visible()`: a closed overlay stays shown, blank, until its hide lands.
+        if !app.state::<Convert>().overlay.lock().unwrap().open {
             return None;
         }
+        let overlay = app.get_webview_window(CONVERT)?;
         let (p, s, k) = (overlay.outer_position().ok()?, overlay.outer_size().ok()?, overlay.scale_factor().ok()?);
         Some(window::rect_from((p.x, p.y), (s.width, s.height), k, USES_POINTS).contains(window::cursor_at(app)?))
     })()
@@ -295,7 +365,7 @@ fn work(app: &AppHandle, id: u64) {
             tmp.clone()
         })
         .join("lo-profile");
-    let mut ctx = Run {
+    let mut ctx = Run { fell_back: false,
         ffmpeg: engine.as_ref().map(|(f, p)| (f.as_path(), p.as_path())),
         quality,
         hw,
@@ -329,6 +399,11 @@ fn work(app: &AppHandle, id: u64) {
             j.progress = j.progress.map(|_| 0.0);
         });
         publish(app);
+    }
+    // Only with hardware acceleration on: a software-only job says nothing about the GPU.
+    if hw_on && matches!(format, Format::Mp4 | Format::Mov | Format::Mp4720) && ctx.ffmpeg.is_some() {
+        *c.last_encoder.lock().unwrap() = Some(VideoEncoder { encoder: ctx.hw, fell_back: ctx.fell_back });
+        let _ = app.emit("convert://encoder", ());
     }
     let mut done = 0;
     with_job(&c, id, |j| {
@@ -441,6 +516,33 @@ pub mod commands {
     use crate::app::state::now_ms;
     use tauri::{AppHandle, Manager, State};
 
+    /// The overlay painted its blank frame after `convert://close` `seq`.
+    #[tauri::command]
+    pub fn hide_convert(app: AppHandle, seq: u64) {
+        let main = app.clone();
+        let _ = app.run_on_main_thread(move || super::hide(&main, seq));
+    }
+
+    /// The H.264 encoder for the settings badge; `None` without FFmpeg. Before the first H.264 job
+    /// this is the probe's pick, which can take a few seconds on Windows the first time.
+    #[tauri::command]
+    pub async fn get_video_encoder(app: AppHandle) -> Option<super::VideoEncoder> {
+        let (ffmpeg, _) = crate::app::engines::ffmpeg(&app)?;
+        let hw_on = {
+            let state = app.state::<crate::app::state::AppState>();
+            let db = state.db.lock().unwrap();
+            crate::domain::settings::get(&db, "videoHwAccel") == "on"
+        };
+        if !hw_on {
+            return Some(super::VideoEncoder { encoder: None, fell_back: false });
+        }
+        if let Some(last) = *app.state::<Convert>().last_encoder.lock().unwrap() {
+            return Some(last);
+        }
+        let encoder = tauri::async_runtime::spawn_blocking(move || crate::domain::convert::hw_encoder(&ffmpeg)).await.ok()?;
+        Some(super::VideoEncoder { encoder, fell_back: false })
+    }
+
     /// The overlay's drop on a slice.
     #[tauri::command]
     pub fn convert_drop(app: AppHandle, format: String) -> AppResult<()> {
@@ -499,6 +601,33 @@ mod tests {
     fn job(id: u64, state: JobState) -> Job {
         let now = now_ms();
         Job { state, ended: Some(now), shown: true, ..Job::new(id, 1, Format::Png, vec![], PathBuf::new(), now) }
+    }
+
+    #[test]
+    fn stale_hide_is_ignored() {
+        let mut o = Overlay::default();
+        opened(&mut o);
+        assert_eq!(closed(&mut o), Some(1));
+        opened(&mut o);
+        assert!(!may_hide(&o, 1));
+    }
+
+    #[test]
+    fn hide_after_close_is_allowed() {
+        let mut o = Overlay::default();
+        opened(&mut o);
+        assert_eq!(closed(&mut o), Some(1));
+        assert!(may_hide(&o, 1));
+        assert_eq!(closed(&mut o), None);
+    }
+
+    #[test]
+    fn closed_overlay_is_not_a_drop_target() {
+        let mut o = Overlay::default();
+        opened(&mut o);
+        assert!(o.open);
+        closed(&mut o);
+        assert!(!o.open);
     }
 
     #[test]

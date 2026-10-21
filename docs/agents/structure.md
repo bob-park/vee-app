@@ -57,7 +57,7 @@ src-tauri/
     │   ├── clip/             # mod.rs · model.rs · repository.rs · commands.rs
     │   ├── source_app/       # mod.rs · model.rs · repository.rs · commands.rs
     │   ├── settings/         # mod.rs · model.rs · repository.rs · commands.rs
-    │   ├── convert/          # mod.rs · model.rs · image.rs · video.rs · hwp.rs · office.rs · process.rs (formats, output naming, jobs; image/FFmpeg/rhwp/LibreOffice/textutil runners; no table, no commands.rs)
+    │   ├── convert/          # mod.rs · model.rs · image.rs · video.rs · hwp.rs · office.rs · process.rs (formats, output naming, jobs; image/FFmpeg/rhwp/LibreOffice runners; no table, no commands.rs)
     │   └── whats_new/        # mod.rs · commands.rs (stores two keys through the settings API; no table of its own)
     └── shared/               # db.rs, error.rs, png.rs, migrations/000N_*.sql
 ```

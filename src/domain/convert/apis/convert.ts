@@ -5,12 +5,18 @@ import type {
   FinderAccess,
   Format,
   LibreOffice,
+  VideoEncoder,
 } from '@/domain/convert/apis/convert.dto';
 import call from '@/shared/api';
 
 /** Converts the dragged clip into the folder under the drop; rejects when no drop is pending. */
 export async function convertDrop(format: Format) {
   return call<void>('convert_drop', { format });
+}
+
+/** The donut painted its blank frame after `convert://close`; Rust hides the window unless it reopened. */
+export async function hideConvert(seq: number) {
+  return call<void>('hide_convert', { seq });
 }
 
 export async function listConvertJobs() {
@@ -71,4 +77,9 @@ export async function getLibreOffice() {
 /** Opens LibreOffice's download page in the browser; the URL is fixed in Rust. */
 export async function openLibreOfficeDownload() {
   return call<void>('open_libreoffice_download');
+}
+
+/** The H.264 encoder for the settings badge; null without FFmpeg. May probe the GPU for a few seconds first. */
+export async function getVideoEncoder() {
+  return call<VideoEncoder | null>('get_video_encoder');
 }

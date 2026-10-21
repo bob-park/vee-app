@@ -21,7 +21,7 @@ related:
   - `toast`: the "Copied" notice (also convert results). Never takes focus.
   - `convert`: the format donut shown at the cursor while a card is dragged out with the convert key held (default Option on macOS, Ctrl on Windows). Dropping on a format converts the image(s) or video(s) into the folder under the cursor instead of copying. Never takes focus.
   - `whats-new`: release notes of the update just installed, shown once.
-- **Rust side:** clipboard watcher, global shortcuts, the frontmost app (source app name and icon), copy sounds, retention pruning, drag-to-convert (folder under the cursor, image conversion via `sips` on macOS / the `image` crate, video conversion via a downloaded FFmpeg, HWP/HWPX via a downloaded rhwp, office documents via the user's own LibreOffice, and on macOS `textutil` for text formats), auto-update, launch at login, macOS Full Disk Access prompt.
+- **Rust side:** clipboard watcher, global shortcuts, the frontmost app (source app name and icon), copy sounds, retention pruning, drag-to-convert (folder under the cursor, image conversion via `sips` on macOS / the `image` crate, video conversion via a downloaded FFmpeg, HWP/HWPX via a downloaded rhwp, office and text documents via the user's own LibreOffice), auto-update, launch at login, macOS Full Disk Access prompt.
 - All data stays on the machine. The network is used only for update checks and, when the user presses Download / Update in the Convert tab, to fetch the pinned FFmpeg (shaka-project's GPL static builds from GitHub) or rhwp (its GitHub release) into `<app data>/engines/<engine>/` (`app/engines.rs`). Neither is bundled, and LibreOffice is never downloaded.
 
 ## What it is not

@@ -91,3 +91,14 @@ export interface EngineStatusEvent {
 
 /** The user's installed LibreOffice; mirrors Rust `LibreOffice`. `null` when it isn't found; `version` is `null` when it won't say. */
 export type LibreOffice = { version: string | null } | null;
+
+/** FFmpeg's H.264 encoder ids from Rust `HwEncoder`. */
+export type HwEncoder = 'videotoolbox' | 'nvenc' | 'qsv' | 'amf';
+
+/** Which encoder MP4 / MOV / 720p conversions use; mirrors Rust `VideoEncoder`. */
+export interface VideoEncoder {
+  /** `null` is software (CPU). */
+  encoder: HwEncoder | null;
+  /** The hardware encoder failed on the last job and it was re-encoded in software. */
+  fellBack: boolean;
+}

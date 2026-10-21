@@ -110,6 +110,8 @@ pub fn run() {
             settings::commands::preview_sound,
             window::commands::open_settings,
             convert::commands::convert_drop,
+            convert::commands::hide_convert,
+            convert::commands::get_video_encoder,
             convert::commands::list_convert_jobs,
             convert::commands::retry_convert,
             convert::commands::dismiss_convert,

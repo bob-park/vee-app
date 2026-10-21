@@ -1,6 +1,7 @@
 export type KeyAction =
   | { type: 'move'; delta: 1 | -1 }
   | { type: 'copy'; plain: boolean }
+  | { type: 'copyPinned'; index: PinnedSlot }
   | { type: 'togglePin' }
   | { type: 'togglePanelPin' }
   | { type: 'resetSearch' }
@@ -15,6 +16,9 @@ export type KeyAction =
   | { type: 'suggestClose' }
   | { type: 'clearTag' }
   | null;
+
+/** Which of the (at most three) pinned cards, left to right. */
+export type PinnedSlot = 0 | 1 | 2;
 
 export interface KeyInput {
   key: string;
@@ -38,6 +42,10 @@ export interface KeyInput {
   panelPinCombo: boolean;
   /** The keys match the reset-search shortcut from settings. */
   resetCombo: boolean;
+  /** The pinned card whose copy shortcut from settings the keys match. */
+  pinnedCopy: PinnedSlot | null;
+  /** A card drag was cancelled a moment ago; macOS hands the cancelling Escape to the panel too. */
+  justCancelledDrag: boolean;
 }
 
 const MODIFIERS = ['Shift', 'Meta', 'Control', 'Alt'];
@@ -67,6 +75,7 @@ export function panelKeyAction(e: KeyInput): KeyAction {
   // Before Cmd+P: the default Cmd+Shift+P would otherwise pin the card.
   if (e.panelPinCombo) return e.repeat ? null : { type: 'togglePanelPin' };
   if (e.resetCombo) return e.repeat ? null : { type: 'resetSearch' };
+  if (e.pinnedCopy !== null) return e.repeat ? null : { type: 'copyPinned', index: e.pinnedCopy };
   if (e.metaOrCtrl && e.code === 'KeyP') return e.repeat ? null : { type: 'togglePin' };
   if (e.metaOrCtrl && e.code === 'Comma') return e.repeat ? null : { type: 'openSettings' };
   switch (e.key) {
@@ -77,7 +86,7 @@ export function panelKeyAction(e: KeyInput): KeyAction {
     case 'Enter':
       return { type: 'copy', plain: e.shiftKey };
     case 'Escape':
-      return { type: 'hide' };
+      return e.justCancelledDrag ? null : { type: 'hide' };
     case 'Tab':
       return { type: 'cycleFilter', delta: e.shiftKey ? -1 : 1 };
     // A held key deletes at most one card: holding Backspace is how people clear a field.

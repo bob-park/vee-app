@@ -41,14 +41,13 @@ pub const IMAGE_TARGETS: [Format; 8] =
 pub const VIDEO_TARGETS: [Format; 6] = [Format::Mp4, Format::Webm, Format::Mov, Format::Gif, Format::Mp3, Format::Mp4720];
 
 /// A document family's targets in donut order, each with the engine it runs on.
-/// `None` is macOS `textutil`: never dimmed, and left out where it doesn't exist.
-pub type DocTargets = &'static [(Format, Option<Engine>)];
-const RHWP: Option<Engine> = Some(Engine::Rhwp);
-const LO: Option<Engine> = Some(Engine::LibreOffice);
+pub type DocTargets = &'static [(Format, Engine)];
+const RHWP: Engine = Engine::Rhwp;
+const LO: Engine = Engine::LibreOffice;
 pub const HWP_TARGETS: DocTargets = &[(Format::Pdf, RHWP), (Format::Hwpx, RHWP), (Format::Hwp, RHWP)];
+/// Word-processor documents and plain text / HTML alike: LibreOffice Writer reads them all.
 pub const TEXT_TARGETS: DocTargets =
-    &[(Format::Pdf, LO), (Format::Docx, LO), (Format::Odt, LO), (Format::Txt, None), (Format::Rtf, None), (Format::Html, None)];
-pub const PLAIN_TARGETS: DocTargets = &[(Format::Docx, None), (Format::Rtf, None), (Format::Txt, None), (Format::Html, None)];
+    &[(Format::Pdf, LO), (Format::Docx, LO), (Format::Odt, LO), (Format::Txt, LO), (Format::Rtf, LO), (Format::Html, LO)];
 pub const SHEET_TARGETS: DocTargets = &[(Format::Pdf, LO), (Format::Xlsx, LO), (Format::Ods, LO)];
 pub const SLIDE_TARGETS: DocTargets = &[(Format::Pdf, LO), (Format::Pptx, LO), (Format::Odp, LO)];
 
@@ -80,8 +79,6 @@ pub struct Caps {
     pub rhwp: bool,
     /// LibreOffice is installed.
     pub libreoffice: bool,
-    /// macOS `textutil` (always there on macOS, never on Windows).
-    pub textutil: bool,
 }
 
 impl Caps {

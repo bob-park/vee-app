@@ -6,17 +6,15 @@ import Row from '@/app/settings/_components/Row';
 import Segmented from '@/app/settings/_components/Segmented';
 import SettingSection from '@/app/settings/_components/SettingSection';
 import Switch from '@/app/settings/_components/Switch';
+import { BADGE } from '@/app/settings/_components/badge';
 import {
   cancelEngineDownload,
   downloadEngine,
-  openAutomationSettings,
   openLibreOfficeDownload,
   removeEngine,
-  requestFinderAccess,
 } from '@/domain/convert/apis/convert';
 import type { EngineId } from '@/domain/convert/apis/convert.dto';
-import { useFinderAccess } from '@/domain/convert/queries/convert';
-import { useEngineStatus, useLibreOffice } from '@/domain/convert/queries/engines';
+import { useEngineStatus, useLibreOffice, useVideoEncoder } from '@/domain/convert/queries/engines';
 import type { SettingKey, Settings } from '@/domain/settings/apis/settings.dto';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
@@ -25,8 +23,6 @@ const KEYS: Settings['convertKey'][] = isMac ? ['alt', 'ctrl', 'shift'] : ['ctrl
 const QUALITIES: Settings['videoQuality'][] = ['small', 'normal', 'original'];
 
 const MB = 1024 * 1024;
-
-const BADGE = 'bg-ok-bg text-ok-fg shrink-0 rounded-md px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap';
 
 interface Props {
   settings: Settings;
@@ -40,10 +36,16 @@ export default function ConvertSection({ settings, run, updateSetting }: Props) 
   const s = useI18n().t.settings;
 
   // queries
-  const { access } = useFinderAccess();
+  const { videoEncoder } = useVideoEncoder();
 
   const c = s.convert;
   const off = settings.dragConvert !== 'on';
+  const encoders = c.ffmpeg.encoders;
+  const encoderLabel =
+    videoEncoder &&
+    (videoEncoder.fellBack && videoEncoder.encoder
+      ? c.ffmpeg.encoderFellBack(encoders[videoEncoder.encoder])
+      : encoders[videoEncoder.encoder ?? 'cpu']);
   const labels = isMac ? c.keys.mac : c.keys.win;
 
   return (
@@ -63,18 +65,6 @@ export default function ConvertSection({ settings, run, updateSetting }: Props) 
             options={KEYS.map((k) => ({ value: k, label: labels[k] }))}
           />
         </Row>
-        {/* macOS only; null on Windows. */}
-        {access && (
-          <Row label={c.finderAccess} hint={c.finderAccessHint} dim={off}>
-            {access === 'granted' ? (
-              <span className={BADGE}>{c.allowed}</span>
-            ) : access === 'denied' ? (
-              <Button onClick={() => run(openAutomationSettings())}>{c.openSystemSettings}</Button>
-            ) : (
-              <Button onClick={() => run(requestFinderAccess())}>{c.allow}</Button>
-            )}
-          </Row>
-        )}
       </SettingSection>
       <EngineSection engine="ffmpeg" run={run}>
         <Row label={c.ffmpeg.quality} hint={c.ffmpeg.qualityHint}>
@@ -85,11 +75,14 @@ export default function ConvertSection({ settings, run, updateSetting }: Props) 
           />
         </Row>
         <Row label={c.ffmpeg.hwAccel} hint={c.ffmpeg.hwAccelHint}>
-          <Switch
-            ariaLabel={c.ffmpeg.hwAccel}
-            checked={settings.videoHwAccel === 'on'}
-            onChange={(checked) => updateSetting({ key: 'videoHwAccel', value: checked ? 'on' : 'off' })}
-          />
+          <div className="flex items-center gap-2">
+            {encoderLabel && <span className={BADGE}>{encoderLabel}</span>}
+            <Switch
+              ariaLabel={c.ffmpeg.hwAccel}
+              checked={settings.videoHwAccel === 'on'}
+              onChange={(checked) => updateSetting({ key: 'videoHwAccel', value: checked ? 'on' : 'off' })}
+            />
+          </div>
         </Row>
       </EngineSection>
       <EngineSection engine="rhwp" run={run} />

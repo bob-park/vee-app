@@ -32,7 +32,7 @@ impl AppState {
     }
 
     /// Ignore clipboard changes briefly after we write the clipboard ourselves.
-    /// Covers the watcher's 200ms poll plus its 0.5s debounce, even after a slow write.
+    /// Covers the watcher's 200ms poll plus its 0.3s debounce, even after a slow write.
     pub fn suppress_watcher(&self) {
         *self.suppress_until.lock().unwrap() = Instant::now() + Duration::from_millis(1200);
     }
@@ -52,7 +52,7 @@ mod tests {
 
     #[test]
     fn self_write_suppression_outlasts_a_watcher_poll() {
-        // The watcher polls every 200ms and records after 0.5s of quiet, so the window
+        // The watcher polls every 200ms and records after 0.3s of quiet, so the window
         // must cover both after the write finishes, not just from when it started.
         let state = AppState::new(crate::shared::db::open_in_memory().unwrap(), PathBuf::new());
         state.suppress_watcher();

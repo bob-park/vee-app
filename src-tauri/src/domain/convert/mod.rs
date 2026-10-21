@@ -11,14 +11,14 @@ use self::image::convert_image;
 pub use model::{Caps, Engine, Format, Job, JobError, JobState, JobView, Quality, Slice, DONE_MS, SHOW_AFTER_MS};
 use model::eta;
 pub use process::{command, output};
-pub use video::{Run, hw_encoder};
-use model::{DocTargets, HWP_TARGETS, IMAGE_TARGETS, PLAIN_TARGETS, SHEET_TARGETS, SLIDE_TARGETS, TEXT_TARGETS, VIDEO_TARGETS};
+pub use video::{HwEncoder, Run, hw_encoder};
+use model::{DocTargets, HWP_TARGETS, IMAGE_TARGETS, SHEET_TARGETS, SLIDE_TARGETS, TEXT_TARGETS, VIDEO_TARGETS};
 
 use std::path::{Path, PathBuf};
 
 /// Slices every source can become, in target order, minus each source's own format.
 /// All images, all videos, or all one document family; empty when `paths` is empty, mixes families,
-/// or holds anything else. A slice needs its engine while `caps` lacks it; image and textutil slices never do.
+/// or holds anything else. A slice needs its engine while `caps` lacks it; image slices never do.
 pub fn formats_for(paths: &[PathBuf], caps: Caps) -> Vec<Slice> {
     if !paths.is_empty() && paths.iter().all(|p| is_video(p)) {
         let own: Vec<Format> = paths.iter().filter_map(|p| ext_of(p).and_then(video_container)).collect();
@@ -31,9 +31,8 @@ pub fn formats_for(paths: &[PathBuf], caps: Caps) -> Vec<Slice> {
         let Some(own) = sources else { return Vec::new() };
         return first
             .iter()
-            // Without textutil (Windows) its slices are gone, and plain text has none left.
-            .filter(|(f, engine)| (engine.is_some() || caps.textutil) && !own.contains(&Some(*f)))
-            .map(|&(format, engine)| Slice { format, needs: engine.filter(|e| !caps.has(*e)) })
+            .filter(|(f, _)| !own.contains(&Some(*f)))
+            .map(|&(format, engine)| Slice { format, needs: (!caps.has(engine)).then_some(engine) })
             .collect();
     }
     let sources: Option<Vec<Format>> = paths.iter().map(|p| ext_of(p).and_then(Format::from_ext)).collect();
@@ -65,8 +64,8 @@ fn doc_source(path: &Path) -> Option<(DocTargets, Option<Format>)> {
         "doc" => (TEXT_TARGETS, None),
         "odt" => (TEXT_TARGETS, Some(Format::Odt)),
         "rtf" => (TEXT_TARGETS, Some(Format::Rtf)),
-        "txt" => (PLAIN_TARGETS, Some(Format::Txt)),
-        "html" | "htm" => (PLAIN_TARGETS, Some(Format::Html)),
+        "txt" => (TEXT_TARGETS, Some(Format::Txt)),
+        "html" | "htm" => (TEXT_TARGETS, Some(Format::Html)),
         "xlsx" => (SHEET_TARGETS, Some(Format::Xlsx)),
         "xls" => (SHEET_TARGETS, None),
         "ods" => (SHEET_TARGETS, Some(Format::Ods)),
@@ -131,21 +130,20 @@ pub fn run(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path, ctx: &mut
     result
 }
 
-/// Converts a document with the engine its family uses for `to` (`None` in the table is textutil).
+/// Converts a document with the engine its family uses for `to`.
 /// `Engine` when that engine is missing or `to` isn't one of the family's targets.
 fn convert_doc(src: &Path, to: Format, out: &Path, tmp: &Path, targets: DocTargets, ctx: &Run) -> Result<(), JobError> {
     let Some(&(_, engine)) = targets.iter().find(|(f, _)| *f == to) else { return Err(JobError::Engine) };
     match engine {
-        Some(Engine::Rhwp) => match &ctx.rhwp {
+        Engine::Rhwp => match &ctx.rhwp {
             Some(rhwp) => hwp::convert(src, to, out, rhwp, hwp::RHWP_TIMEOUT, ctx.cancel),
             None => Err(JobError::Engine),
         },
-        Some(Engine::LibreOffice) => match &ctx.soffice {
+        Engine::LibreOffice => match &ctx.soffice {
             Some(soffice) => office::convert_lo(src, to, out, tmp, soffice, &ctx.lo_profile, office::OFFICE_TIMEOUT, ctx.cancel),
             None => Err(JobError::Engine),
         },
-        None if cfg!(target_os = "macos") => office::convert_textutil(src, to, out, office::TEXTUTIL_TIMEOUT, ctx.cancel),
-        _ => Err(JobError::Engine),
+        Engine::Ffmpeg => Err(JobError::Engine),
     }
 }
 
@@ -225,7 +223,7 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     /// macOS with every engine installed.
-    const ALL: Caps = Caps { heic: true, ffmpeg: true, rhwp: true, libreoffice: true, textutil: true };
+    const ALL: Caps = Caps { heic: true, ffmpeg: true, rhwp: true, libreoffice: true };
 
     /// Formats and needs for `paths` under `caps`.
     fn doc_slices(paths: &[&str], caps: Caps) -> Vec<(Format, Option<Engine>)> {
@@ -253,29 +251,25 @@ mod tests {
         assert_eq!(doc_formats(&["a.docx"], ALL), [Pdf, Odt, Txt, Rtf, Html]);
         assert_eq!(doc_formats(&["a.doc"], ALL), [Pdf, Docx, Odt, Txt, Rtf, Html]);
         assert_eq!(doc_formats(&["a.rtf", "b.odt"], ALL), [Pdf, Docx, Txt, Html]);
+        assert_eq!(doc_formats(&["a.txt"], ALL), [Pdf, Docx, Odt, Rtf, Html]);
+        assert_eq!(doc_formats(&["a.htm"], ALL), [Pdf, Docx, Odt, Txt, Rtf]);
     }
 
     #[test]
-    fn textutil_slices_are_never_dimmed_but_libreoffice_ones_are_when_missing() {
-        use Format::*;
-        let s = doc_slices(&["a.doc"], Caps { libreoffice: false, ..ALL });
-        let lo = Some(Engine::LibreOffice);
-        assert_eq!(s, [(Pdf, lo), (Docx, lo), (Odt, lo), (Txt, None), (Rtf, None), (Html, None)]);
-        assert!(doc_slices(&["a.doc"], ALL).iter().all(|(_, n)| n.is_none()));
-        let plain = doc_slices(&["a.txt"], Caps { libreoffice: false, ..ALL });
-        assert_eq!(plain, [(Docx, None), (Rtf, None), (Html, None)]);
+    fn text_slices_need_libreoffice_when_missing() {
+        // Windows included: plain text is no longer left out, only dimmed.
+        let windows = Caps { heic: false, libreoffice: false, ..ALL };
+        for src in ["a.doc", "a.txt", "a.html"] {
+            let s = doc_slices(&[src], windows);
+            assert!(!s.is_empty() && s.iter().all(|(_, n)| *n == Some(Engine::LibreOffice)), "{src}");
+        }
+        assert!(doc_slices(&["a.txt"], ALL).iter().all(|(_, n)| n.is_none()));
     }
 
     #[test]
-    fn plain_text_follows_textutil() {
+    fn plain_and_rich_text_now_share_a_family() {
         use Format::*;
-        assert_eq!(doc_formats(&["a.htm"], ALL), [Docx, Rtf, Txt]);
-        // Windows: no textutil, so plain text is unsupported (a toast, not a dimmed donut).
-        let windows = Caps { heic: false, textutil: false, ..ALL };
-        assert!(doc_slices(&["a.txt"], windows).is_empty());
-        assert!(doc_slices(&["a.html"], Caps { libreoffice: false, ..windows }).is_empty());
-        // ...and text documents keep only their LibreOffice slices.
-        assert_eq!(doc_formats(&["a.docx"], windows), [Pdf, Odt]);
+        assert_eq!(doc_formats(&["a.txt", "b.rtf"], ALL), [Pdf, Docx, Odt, Html]);
     }
 
     #[test]
@@ -290,7 +284,7 @@ mod tests {
 
     #[test]
     fn mixed_families_are_unsupported() {
-        for mix in [["a.docx", "b.xlsx"], ["a.hwp", "b.docx"], ["a.txt", "b.rtf"], ["a.pptx", "b.png"], ["a.pdf", "b.docx"]] {
+        for mix in [["a.docx", "b.xlsx"], ["a.hwp", "b.docx"], ["a.txt", "b.xlsx"], ["a.pptx", "b.png"], ["a.pdf", "b.docx"]] {
             assert!(doc_slices(&mix, ALL).is_empty(), "{mix:?}");
         }
         assert!(doc_slices(&["a.png", "b.docx"], ALL).is_empty());
@@ -333,7 +327,7 @@ mod tests {
     fn run_doc(src: &Path, to: Format, dir: &Path, tmp: &Path, rhwp: Option<PathBuf>, soffice: Option<PathBuf>) -> Result<PathBuf, JobError> {
         let cancel = AtomicBool::new(false);
         let stem = src.file_stem().unwrap().to_string_lossy().into_owned();
-        let mut ctx = Run { ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, rhwp, soffice, lo_profile: tmp.join("lo"), progress: &mut |_| {} };
+        let mut ctx = Run { fell_back: false, ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, rhwp, soffice, lo_profile: tmp.join("lo"), progress: &mut |_| {} };
         run(src, &stem, to, dir, tmp, &mut ctx)
     }
 
@@ -419,7 +413,7 @@ mod tests {
             std::fs::write(&src, b"doc").unwrap();
             let cancel = AtomicBool::new(false);
             let started = std::time::Instant::now();
-            let mut ctx = Run {
+            let mut ctx = Run { fell_back: false,
                 ffmpeg: None,
                 quality: Quality::Normal,
                 hw: None,
@@ -443,18 +437,8 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn textutil_converts_plain_text() {
-        let (src, [_s, dst, tmp, _b]) = doc_dirs("a.b.txt");
-        let out = run_doc(&src, Format::Html, dst.path(), tmp.path(), None, None).unwrap();
-        assert_eq!(out, dst.path().join("a.b.html"));
-        assert!(std::fs::read_to_string(&out).unwrap().contains("doc"));
-        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
-    }
-
     /// HWPX → PDF/HWP → HWPX/PDF with rhwp, then DOCX → PDF/ODT and ODT → DOCX with LibreOffice
-    /// at its default path, and TXT → DOCX with textutil:
+    /// at its default path, and TXT → DOCX with LibreOffice too:
     /// `VEE_RHWP_DIR=… VEE_HWP_SAMPLE=…/a.hwpx cargo test --lib converts_documents -- --ignored --nocapture`
     #[cfg(target_os = "macos")]
     #[test]
@@ -470,7 +454,7 @@ mod tests {
         // A profile path with a space and Hangul, like `Application Support` and Korean user names.
         let profile = tmp.path().join("lo 프로필");
         let cancel = AtomicBool::new(false);
-        let mut ctx = Run {
+        let mut ctx = Run { fell_back: false,
             ffmpeg: None,
             quality: Quality::Normal,
             hw: None,
@@ -503,10 +487,50 @@ mod tests {
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().filter(|e| e.as_ref().unwrap().path() != profile).count(), 0);
     }
 
+    /// Every TXT / HTML / RTF / DOCX slice with LibreOffice at its default path, checking each
+    /// output is non-empty: `cargo test --lib converts_text_with_libreoffice -- --ignored --nocapture`
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore]
+    fn converts_text_with_libreoffice() {
+        let soffice = PathBuf::from("/Applications/LibreOffice.app/Contents/MacOS/soffice");
+        assert!(soffice.is_file(), "LibreOffice is not installed");
+        let (dir, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let cancel = AtomicBool::new(false);
+        let mut ctx = Run { fell_back: false,
+            ffmpeg: None,
+            quality: Quality::Normal,
+            hw: None,
+            cancel: &cancel,
+            rhwp: None,
+            soffice: Some(soffice),
+            lo_profile: tmp.path().join("lo-profile"),
+            progress: &mut |_| {},
+        };
+        let txt = dir.path().join("note.txt");
+        std::fs::write(&txt, "Vee 문서 변환 테스트\nSecond line.\n").unwrap();
+        let html = dir.path().join("page.html");
+        std::fs::write(&html, "<html><body><h1>Vee 변환</h1><p>Second line.</p></body></html>").unwrap();
+        let mut sources = vec![txt, html];
+        let rtf = run(&sources[0], "from-txt", Format::Rtf, dir.path(), tmp.path(), &mut ctx).unwrap();
+        let docx = run(&sources[0], "from-txt", Format::Docx, dir.path(), tmp.path(), &mut ctx).unwrap();
+        sources.extend([rtf, docx]);
+        for src in &sources {
+            for slice in formats_for(std::slice::from_ref(src), Caps { heic: true, ffmpeg: false, rhwp: false, libreoffice: true }) {
+                let stem = format!("{}-to", src.file_name().unwrap().to_string_lossy());
+                let out = run(src, &stem, slice.format, dir.path(), tmp.path(), &mut ctx)
+                    .unwrap_or_else(|e| panic!("{} → {}: {e:?}", src.display(), slice.format.id()));
+                let len = std::fs::metadata(&out).unwrap().len();
+                println!("{} → {}: {len} bytes", src.display(), out.display());
+                assert!(len > 0, "{}", out.display());
+            }
+        }
+    }
+
     /// `run` for an image source: no FFmpeg, never cancelled.
     fn run_image(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path) -> Result<PathBuf, JobError> {
         let cancel = AtomicBool::new(false);
-        run(src, stem, to, dir, tmp, &mut Run { ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, rhwp: None, soffice: None, lo_profile: PathBuf::new(), progress: &mut |_| {} })
+        run(src, stem, to, dir, tmp, &mut Run { fell_back: false, ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, rhwp: None, soffice: None, lo_profile: PathBuf::new(), progress: &mut |_| {} })
     }
 
     #[test]

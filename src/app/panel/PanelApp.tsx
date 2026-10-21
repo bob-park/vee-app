@@ -27,7 +27,7 @@ import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { useStore } from '@/shared/store/rootStore';
 import { acceleratorFromEvent } from '@/utils/accelerator';
 import { dragFileName } from '@/utils/fileThumb';
-import { panelKeyAction } from '@/utils/keys';
+import { type PinnedSlot, panelKeyAction } from '@/utils/keys';
 import {
   type Point,
   clampSelection,
@@ -42,6 +42,8 @@ import cx from 'classnames';
 
 const PAGE = 50;
 const isMac = navigator.userAgent.includes('Mac');
+/** How long after a cancelled drag an Escape is taken as the one that cancelled it (logged at ~36 ms). */
+const DRAG_CANCEL_ESC_MS = 300;
 
 export function PanelApp() {
   // ref
@@ -61,6 +63,7 @@ export function PanelApp() {
    * where the cursor really is.
    */
   const lastPointer = useRef<Point | null>(null);
+  const dragCancelledAt = useRef(0);
   /** Whether the current mousemove is a real pointer move, set before the card sees the event. */
   const pointerMovedNow = useRef(false);
   /** The next selection change came from hovering: the card is already under the cursor, don't scroll. */
@@ -197,7 +200,10 @@ export function PanelApp() {
       setDragging(false);
       resetView();
     });
-    const offDragCancelled = listen('panel://drag-cancelled', () => setDragging(false));
+    const offDragCancelled = listen('panel://drag-cancelled', () => {
+      dragCancelledAt.current = Date.now();
+      setDragging(false);
+    });
     // A pinned panel never closed, so the shortcut or tray only hands focus back; start fresh like an open.
     const offRefocused = listen('panel://refocused', () => {
       hoverSelected.current = false;
@@ -302,6 +308,11 @@ export function PanelApp() {
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
+    const accel = acceleratorFromEvent(e, isMac);
+    const pinnedCopy =
+      settings && accel
+        ? [settings.pinnedCopy1Shortcut, settings.pinnedCopy2Shortcut, settings.pinnedCopy3Shortcut].indexOf(accel)
+        : -1;
     const action = panelKeyAction({
       key: e.key,
       shiftKey: e.shiftKey,
@@ -314,8 +325,10 @@ export function PanelApp() {
       hasTag: app !== null,
       metaOrCtrl: e.metaKey || e.ctrlKey,
       code: e.code,
-      panelPinCombo: acceleratorFromEvent(e, isMac) === settings?.panelPinShortcut,
-      resetCombo: acceleratorFromEvent(e, isMac) === settings?.resetSearchShortcut,
+      panelPinCombo: accel === settings?.panelPinShortcut,
+      resetCombo: accel === settings?.resetSearchShortcut,
+      pinnedCopy: pinnedCopy === -1 ? null : (pinnedCopy as PinnedSlot),
+      justCancelledDrag: Date.now() - dragCancelledAt.current < DRAG_CANCEL_ESC_MS,
     });
     if (!action) return;
     e.preventDefault();
@@ -325,6 +338,10 @@ export function PanelApp() {
         break;
       case 'copy':
         copy(items[selected], action.plain);
+        break;
+      case 'copyPinned':
+        // An empty slot does nothing; the key is still swallowed so no digit lands in the search.
+        if (pinned[action.index]) copy(pinned[action.index], false);
         break;
       case 'togglePin':
         togglePin(items[selected]);

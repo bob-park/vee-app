@@ -17,6 +17,8 @@ const press = (key: string, extra: Partial<KeyInput> = {}) =>
     code: '',
     panelPinCombo: false,
     resetCombo: false,
+    pinnedCopy: null,
+    justCancelledDrag: false,
     ...extra,
   });
 
@@ -141,4 +143,32 @@ void test('the reset shortcut clears the search once per press', () => {
   assert.equal(press('k', { ...combo, repeat: true }), null);
   assert.equal(press('k', { ...combo, isComposing: true }), null);
   assert.deepEqual(press('k', { ...combo, suggesting: true }), { type: 'resetSearch' });
+});
+
+void test('a pinned-copy shortcut copies that pinned card once per press', () => {
+  const combo = { metaOrCtrl: true, code: 'Digit2', pinnedCopy: 1 as const };
+  assert.deepEqual(press('2', combo), { type: 'copyPinned', index: 1 });
+  assert.equal(press('2', { ...combo, repeat: true }), null);
+});
+
+void test('a pinned-copy shortcut is returned even when no card is pinned there', () => {
+  // keys.ts doesn't know the pin count; returning the action keeps the digit out of the search box.
+  assert.deepEqual(press('3', { metaOrCtrl: true, code: 'Digit3', pinnedCopy: 2 }), { type: 'copyPinned', index: 2 });
+});
+
+void test('a pinned-copy shortcut loses to composition and delete confirmation', () => {
+  const combo = { metaOrCtrl: true, code: 'Digit1', pinnedCopy: 0 as const };
+  assert.equal(press('1', { ...combo, isComposing: true }), null);
+  assert.deepEqual(press('1', { ...combo, confirming: true }), { type: 'cancelDelete' });
+});
+
+void test('a pinned-copy shortcut set to cmd+p beats the fixed card pin combo', () => {
+  assert.deepEqual(press('p', { metaOrCtrl: true, code: 'KeyP', pinnedCopy: 0 }), { type: 'copyPinned', index: 0 });
+});
+
+void test('the escape that cancelled a drag does not also hide the panel', () => {
+  assert.equal(press('Escape', { justCancelledDrag: true }), null);
+  assert.deepEqual(press('Escape'), { type: 'hide' });
+  // Only escape is swallowed; other keys right after a cancel still work.
+  assert.deepEqual(press('Enter', { justCancelledDrag: true }), { type: 'copy', plain: false });
 });
