@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import 'pretendard/dist/web/variable/pretendardvariable.css';
 @plugin 'daisyui' {
   themes: false;
   /*
@@ -16,7 +17,7 @@
 }
 
 /*
- * Colors live here only. Palette and metrics follow vee-app (the reference UI);
+ * Colors live here only. Palette, glass, aurora and motion follow docs/design/aurora-glass.md;
  * brand purple from docs/design/kraken-design.md.
  */
 @plugin 'daisyui/theme' {
@@ -25,7 +26,7 @@
   prefersdark: false;
   color-scheme: light;
 
-  --color-base-100: #ffffff;
+  --color-base-100: #f6f5fb;
   --color-base-200: #f7f7fa;
   --color-base-300: #dedee5;
   --color-base-content: #101114;
@@ -48,7 +49,7 @@
 
   --radius-selector: 0.625rem;
   --radius-field: 0.75rem;
-  --radius-box: 0.75rem;
+  --radius-box: 0.875rem;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;
@@ -62,11 +63,11 @@
   prefersdark: true;
   color-scheme: dark;
 
-  --color-base-100: #16171c;
-  --color-base-200: #1f2027;
-  --color-base-300: #2e2f39;
-  --color-base-content: #ececf1;
-  --color-primary: #9b7bff;
+  --color-base-100: #121318;
+  --color-base-200: #1d1e25;
+  --color-base-300: #2c2e38;
+  --color-base-content: #ececf2;
+  --color-primary: #8b5cff;
   --color-primary-content: #ffffff;
   --color-secondary: #7c6cf0;
   --color-secondary-content: #ffffff;
@@ -85,7 +86,7 @@
 
   --radius-selector: 0.625rem;
   --radius-field: 0.75rem;
-  --radius-box: 0.75rem;
+  --radius-box: 0.875rem;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;
@@ -113,6 +114,12 @@
   /* Three short layers instead of one long blur, so it all fades out inside the toast window's margin. */
   --vee-toast-shadow:
     0 1px 2px rgba(16, 24, 40, 0.06), 0 4px 10px rgba(16, 24, 40, 0.08), 0 10px 24px rgba(16, 24, 40, 0.12);
+  /* Aurora Glass: the .glass fill and hairline, and the three .aurora-blob colours. */
+  --vee-glass: rgba(255, 255, 255, 0.58);
+  --vee-glass-edge: rgba(255, 255, 255, 0.85);
+  --vee-aurora-1: #a98bff;
+  --vee-aurora-2: #7fd4ff;
+  --vee-aurora-3: #ffb3d9;
 }
 
 [data-theme='dark'] {
@@ -131,10 +138,15 @@
   --vee-donut: #2e2f39;
   --vee-donut-shadow: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.45)) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.3));
   --vee-toast-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 10px rgba(0, 0, 0, 0.28), 0 10px 24px rgba(0, 0, 0, 0.35);
+  --vee-glass: rgba(30, 31, 40, 0.55);
+  --vee-glass-edge: rgba(255, 255, 255, 0.08);
+  --vee-aurora-1: #5b3bd6;
+  --vee-aurora-2: #1f6f9e;
+  --vee-aurora-3: #7a2d63;
 }
 
 @theme inline {
-  --font-sans: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: Menlo, Consolas, monospace;
   --color-card: var(--vee-card);
   --color-divider: var(--vee-divider);
@@ -150,6 +162,13 @@
   --color-toast-border: var(--vee-toast-border);
   --color-toast-icon: #149e61;
   --color-donut: var(--vee-donut);
+  --color-glass: var(--vee-glass);
+  --color-glass-edge: var(--vee-glass-edge);
+  --color-aurora-1: var(--vee-aurora-1);
+  --color-aurora-2: var(--vee-aurora-2);
+  --color-aurora-3: var(--vee-aurora-3);
+  /* Second stop of the CTA/link gradient (primary → sky); one value reads on both themes. */
+  --color-sky: #5fc3ff;
   --color-danger-subtle: rgba(209, 52, 75, 0.12);
   --color-danger-border: color-mix(in srgb, var(--color-error) 20%, transparent);
   --color-danger-tint: color-mix(in srgb, var(--color-error) 6%, transparent);
@@ -226,6 +245,55 @@
   /* The donut settles in from 90% with a strong ease-out (no overshoot); each slice follows a beat later. */
   --animate-donut-in: donut-in 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-slice-in: slice-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  /* Aurora Glass: one spring for every enter. Overshoots (1.2), so keep it off moves that a window edge would clip. */
+  --ease-spring: cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  /* Lands sharp: drops in from above, out of a 4px blur. */
+  --animate-spring-in: spring-in 650ms var(--ease-spring) both;
+  --animate-pop: pop 450ms var(--ease-spring) both;
+  /* A one-off ring in --ring-color (primary unless the element sets it). */
+  --animate-ring: ring 900ms ease-out 200ms;
+  --animate-drift: drift 12s ease-in-out infinite alternate;
+  --animate-bob: bob 1.6s ease-in-out infinite;
+
+  @keyframes spring-in {
+    from {
+      opacity: 0;
+      transform: translateY(-16px) scale(0.94);
+      filter: blur(4px);
+    }
+  }
+
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: scale(0.3);
+    }
+  }
+
+  @keyframes ring {
+    from {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--ring-color, var(--color-primary)) 45%, transparent);
+    }
+    to {
+      box-shadow: 0 0 0 14px transparent;
+    }
+  }
+
+  @keyframes drift {
+    33% {
+      transform: translate(30px, 25px) scale(1.12);
+    }
+    66% {
+      transform: translate(-15px, 10px) scale(0.95);
+    }
+  }
+
+  @keyframes bob {
+    50% {
+      transform: translateY(3px);
+    }
+  }
 
   @keyframes donut-in {
     from {
@@ -320,5 +388,81 @@
     margin: 0;
     pointer-events: none;
     box-shadow: 0 14px 34px rgba(16, 24, 40, 0.25) !important;
+  }
+
+  .glass {
+    background-color: var(--color-glass);
+    border: 1px solid var(--color-glass-edge);
+    -webkit-backdrop-filter: blur(18px) saturate(1.4);
+    backdrop-filter: blur(18px) saturate(1.4);
+  }
+
+  /*
+   * The soft aurora: a band of light along the top of its positioned parent (behind a toolbar or
+   * tab bar), never the whole window. The caller sets the height; content after it needs `relative`
+   * to sit above. At most three blobs.
+   */
+  .aurora {
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+    /* Fades out towards the bottom, so the band's clip edge never shows as a line. */
+    mask-image: linear-gradient(#000 40%, transparent);
+  }
+
+  .aurora-blob {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(46px);
+    opacity: 0.4;
+    animation: var(--animate-drift);
+  }
+
+  .aurora-blob:nth-child(1) {
+    top: -110px;
+    left: -60px;
+    width: 230px;
+    height: 200px;
+    background: var(--color-aurora-1);
+  }
+
+  .aurora-blob:nth-child(2) {
+    top: -120px;
+    right: -50px;
+    width: 210px;
+    height: 200px;
+    background: var(--color-aurora-2);
+    animation-delay: -4s;
+  }
+
+  .aurora-blob:nth-child(3) {
+    top: -90px;
+    left: 38%;
+    width: 160px;
+    height: 150px;
+    background: var(--color-aurora-3);
+    animation-delay: -8s;
+  }
+
+  .aurora-blob:nth-child(n + 4) {
+    display: none;
+  }
+}
+
+/* Reduced motion: no drift, spring or ring; elements show their final state (keyframes only animate *from* it). */
+@media (prefers-reduced-motion: reduce) {
+  .aurora-blob,
+  .animate-spring-in,
+  .animate-pop,
+  .animate-ring,
+  .animate-bob {
+    animation: none;
+  }
+
+  /* `ease-spring` and arbitrary `[transition:…var(--ease-spring)]` classes alike. */
+  [class*='ease-spring'] {
+    transition: none;
   }
 }

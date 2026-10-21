@@ -10,12 +10,14 @@ related:
 
 # Design
 
-> **Read [`docs/design/`](../design/) before building or changing any UI.** Colors exist only in `src/app/globals.css`. Components use semantic classes. Check every change in light **and** dark, ko **and** en. A refactor must not change a single pixel.
+> **Read [`docs/design/`](../design/) before building or changing any UI.** Colors exist only in `src/app/globals.css`. Components use semantic classes. Check every change in light **and** dark, ko **and** en. A refactor still must not change a single pixel; visual changes follow [`docs/design/aurora-glass.md`](../design/aurora-glass.md).
 
 ## Sources of truth
 
-1. [`docs/design/`](../design/) — the design system (`kraken-design.md`: purple brand, near-black text, cool gray neutrals, 12px radius, whisper-level shadows).
-2. The existing screens: the settings tab bar, bordered section cards, label-left/control-right rows, segmented radio groups, switches, tinted buttons, the panel cards, Helvetica Neue at 13px.
+1. [`docs/design/`](../design/) — the design system:
+   - `kraken-design.md`: purple brand, near-black text, cool gray neutrals, whisper-level shadows.
+   - `aurora-glass.md`: the Aurora Glass redesign — palette, glass, the soft aurora, motion, per-window layout. Where it and `kraken-design.md` disagree, `aurora-glass.md` wins.
+2. The existing screens: the settings tab bar, bordered section cards, label-left/control-right rows, segmented radio groups, switches, tinted buttons, the panel cards, Pretendard at 13px.
 
 When the two disagree, ask the user. Do not invent a third style.
 
