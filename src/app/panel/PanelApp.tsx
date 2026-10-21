@@ -522,7 +522,7 @@ export function PanelApp() {
       <div className="relative z-1 flex min-h-0 flex-1" ref={bodyRef}>
         {pinned.length > 0 && (
           <>
-            <div className="relative flex flex-none gap-2.5 p-1" role="listbox">
+            <div className="relative flex flex-none gap-2.5 p-1 pt-1.5" role="listbox">
               {pinned.map((clip, i) => renderCard(clip, i))}
               {pinNotice && (
                 <div
@@ -542,7 +542,7 @@ export function PanelApp() {
           </div>
         ) : (
           <div
-            className="flex min-w-0 flex-1 [scrollbar-width:none] gap-2.5 overflow-x-auto overflow-y-hidden p-1 [&::-webkit-scrollbar]:hidden"
+            className="flex min-w-0 flex-1 [scrollbar-width:none] gap-2.5 overflow-x-auto overflow-y-hidden p-1 pt-1.5 [&::-webkit-scrollbar]:hidden"
             ref={rowRef}
             role="listbox"
             onWheel={onWheel}

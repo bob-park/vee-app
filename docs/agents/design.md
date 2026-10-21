@@ -17,7 +17,7 @@ related:
 1. [`docs/design/`](../design/) — the design system:
    - `kraken-design.md`: purple brand, near-black text, cool gray neutrals, whisper-level shadows.
    - `aurora-glass.md`: the Aurora Glass redesign — palette, glass, the soft aurora, motion, per-window layout. Where it and `kraken-design.md` disagree, `aurora-glass.md` wins.
-2. The existing screens: the settings tab bar, bordered section cards, label-left/control-right rows, segmented radio groups, switches, tinted buttons, the panel cards, Pretendard at 13px.
+2. The existing screens: the settings tab bar, glass section cards, label-left/control-right rows, segmented radio groups, switches, tinted buttons, the panel cards, Pretendard at 13px.
 
 When the two disagree, ask the user. Do not invent a third style.
 
@@ -25,15 +25,16 @@ When the two disagree, ask the user. Do not invent a third style.
 
 - **Colors live only in `src/app/globals.css`.**
   - The `light`/`dark` daisyUI theme blocks hold the core colors.
-  - Tokens daisyUI has no slot for are `--vee-*` variables in the `[data-theme]` blocks, exposed through `@theme inline` (`bg-card`, `text-muted`, `border-divider`, `bg-badge-bg`, `bg-toast-bg`, …).
+  - Tokens daisyUI has no slot for are `--vee-*` variables in the `[data-theme]` blocks, exposed through `@theme inline` (`bg-card`, `text-muted`, `border-divider`, `bg-badge-bg`, `bg-glass`, …).
   - Never write a hex/rgb value in a component.
 - **Use semantic classes:**
   - surfaces: `bg-base-100`, `bg-card`, `bg-subtle`
   - text: `text-base-content`, `text-muted`, `text-primary`
   - borders: `border-base-300`, `border-divider`
 - A new themed token must get a value in **both** the light and dark blocks.
+- **Aurora Glass building blocks** live in `globals.css` ([tailwind-daisyui](./libs/tailwind-daisyui.md#globalscss-layout)): `.glass` surfaces, the `.aurora` band with `.aurora-blob` children, the `ease-spring` easing and `animate-spring-in` / `animate-pop` / `animate-ring` / `animate-drift` / `animate-bob`. A new animation must also stop under the reduced-motion block there.
 - **Reuse the settings building blocks** in `src/app/settings/_components/` before writing new ones:
-  - `SettingSection` (bordered card), `Row` (label/hint left, control right)
+  - `SettingSection` (glass card), `Row` (label/hint left, control right)
   - `Segmented`: for a pick-one choice of 2–4 options, use this instead of a `<select>`
   - `Dropdown`: for longer lists (sounds, retention)
   - `Switch`: for on/off

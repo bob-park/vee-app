@@ -31,6 +31,12 @@ void test('the gap between slices is the same width at the inner and outer ring'
   const d = slicePath(0, 4, 10);
   const [, x0] = d.match(/^M(-?[\d.]+) /)!;
   assert.ok(Math.abs(Number(x0) - 5) < 0.01);
+  // The inner end of that radial edge (r + k, the path's last point) sits 5px off the same axis.
+  const [, xIn] = d.match(/ (-?[\d.]+) -?[\d.]+Z$/)!;
+  assert.ok(Math.abs(Number(xIn) - 5) < 0.01);
+  // And the `L` point, the inner end of the slice's other edge (3 o'clock), sits 5px above that axis.
+  const [, , yL] = d.match(/L(-?[\d.]+) (-?[\d.]+)/)!;
+  assert.ok(Math.abs(Number(yL) + 5) < 0.01);
 });
 
 void test('drop positions are points on macOS and device pixels on Windows', () => {

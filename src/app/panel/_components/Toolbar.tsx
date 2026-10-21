@@ -115,7 +115,9 @@ export function Toolbar({
     listRef.current?.children[suggestIndex]?.scrollIntoView({ block: 'nearest' });
   }, [suggestIndex, suggestions]);
   return (
-    <div className="relative z-1 mb-2.5 flex items-center gap-1.5">
+    // z-2: above the card body (z-1, later in the DOM) so the suggest list, update popover and tips
+    // aren't covered by cards; both stay above the aurora (z-0).
+    <div className="relative z-2 mb-2.5 flex items-center gap-1.5">
       <div className="rounded-box glass text-muted relative flex shrink-0 basis-55 items-center gap-1.5 px-2.5 py-1.5">
         <span aria-hidden>🔍</span>
         {app && (

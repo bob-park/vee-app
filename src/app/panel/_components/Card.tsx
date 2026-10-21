@@ -301,7 +301,10 @@ export function Card({
     <div
       // `card` is the hook motion.ts finds cards by. `data-slot` (set by motion.ts) marks where a floating card came from.
       className={cx(
-        'card group rounded-box glass relative flex w-[calc((100vh-72px)*0.95)] flex-none cursor-default flex-col overflow-hidden',
+        'card group rounded-box glass relative isolate flex w-[calc((100vh-72px)*0.95)] flex-none cursor-default flex-col overflow-hidden backdrop-filter-none',
+        // Only solid panel sits behind a card, so `backdrop-filter-none` drops .glass's blur: dozens of blur
+        // layers would slow the open entrance and the panel slide. `isolate` keeps the stacking context the
+        // blur used to give, so the card's z-indexed layers stay inside it.
         // Lifts on hover, but not the empty slot a dragged card left.
         'ease-spring transition-[translate,box-shadow] duration-250 not-data-slot:hover:-translate-y-0.5',
         'data-slot:border-accent-subtle data-slot:border-2 data-slot:border-dashed data-slot:bg-transparent data-slot:shadow-none data-slot:*:invisible',
