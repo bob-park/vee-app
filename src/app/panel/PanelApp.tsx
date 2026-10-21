@@ -42,6 +42,8 @@ import cx from 'classnames';
 
 const PAGE = 50;
 const isMac = navigator.userAgent.includes('Mac');
+/** How long after a cancelled drag an Escape is taken as the one that cancelled it (logged at ~36 ms). */
+const DRAG_CANCEL_ESC_MS = 300;
 
 export function PanelApp() {
   // ref
@@ -61,6 +63,7 @@ export function PanelApp() {
    * where the cursor really is.
    */
   const lastPointer = useRef<Point | null>(null);
+  const dragCancelledAt = useRef(0);
   /** Whether the current mousemove is a real pointer move, set before the card sees the event. */
   const pointerMovedNow = useRef(false);
   /** The next selection change came from hovering: the card is already under the cursor, don't scroll. */
@@ -197,7 +200,10 @@ export function PanelApp() {
       setDragging(false);
       resetView();
     });
-    const offDragCancelled = listen('panel://drag-cancelled', () => setDragging(false));
+    const offDragCancelled = listen('panel://drag-cancelled', () => {
+      dragCancelledAt.current = Date.now();
+      setDragging(false);
+    });
     // A pinned panel never closed, so the shortcut or tray only hands focus back; start fresh like an open.
     const offRefocused = listen('panel://refocused', () => {
       hoverSelected.current = false;
@@ -322,6 +328,7 @@ export function PanelApp() {
       panelPinCombo: accel === settings?.panelPinShortcut,
       resetCombo: accel === settings?.resetSearchShortcut,
       pinnedCopy: pinnedCopy === -1 ? null : (pinnedCopy as PinnedSlot),
+      justCancelledDrag: Date.now() - dragCancelledAt.current < DRAG_CANCEL_ESC_MS,
     });
     if (!action) return;
     e.preventDefault();

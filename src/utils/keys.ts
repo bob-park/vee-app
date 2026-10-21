@@ -44,6 +44,8 @@ export interface KeyInput {
   resetCombo: boolean;
   /** The pinned card whose copy shortcut from settings the keys match. */
   pinnedCopy: PinnedSlot | null;
+  /** A card drag was cancelled a moment ago; macOS hands the cancelling Escape to the panel too. */
+  justCancelledDrag: boolean;
 }
 
 const MODIFIERS = ['Shift', 'Meta', 'Control', 'Alt'];
@@ -84,7 +86,7 @@ export function panelKeyAction(e: KeyInput): KeyAction {
     case 'Enter':
       return { type: 'copy', plain: e.shiftKey };
     case 'Escape':
-      return { type: 'hide' };
+      return e.justCancelledDrag ? null : { type: 'hide' };
     case 'Tab':
       return { type: 'cycleFilter', delta: e.shiftKey ? -1 : 1 };
     // A held key deletes at most one card: holding Backspace is how people clear a field.

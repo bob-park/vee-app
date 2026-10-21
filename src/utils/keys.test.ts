@@ -18,6 +18,7 @@ const press = (key: string, extra: Partial<KeyInput> = {}) =>
     panelPinCombo: false,
     resetCombo: false,
     pinnedCopy: null,
+    justCancelledDrag: false,
     ...extra,
   });
 
@@ -163,4 +164,11 @@ void test('a pinned-copy shortcut loses to composition and delete confirmation',
 
 void test('a pinned-copy shortcut set to cmd+p beats the fixed card pin combo', () => {
   assert.deepEqual(press('p', { metaOrCtrl: true, code: 'KeyP', pinnedCopy: 0 }), { type: 'copyPinned', index: 0 });
+});
+
+void test('the escape that cancelled a drag does not also hide the panel', () => {
+  assert.equal(press('Escape', { justCancelledDrag: true }), null);
+  assert.deepEqual(press('Escape'), { type: 'hide' });
+  // Only escape is swallowed; other keys right after a cancel still work.
+  assert.deepEqual(press('Enter', { justCancelledDrag: true }), { type: 'copy', plain: false });
 });
