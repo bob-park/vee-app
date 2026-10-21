@@ -12,12 +12,14 @@ import SettingSection from '@/app/settings/_components/SettingSection';
 import { ShortcutRecorder } from '@/app/settings/_components/ShortcutRecorder';
 import Switch from '@/app/settings/_components/Switch';
 import { type SettingsTab, Tabs } from '@/app/settings/_components/Tabs';
+import ThemePicker from '@/app/settings/_components/ThemePicker';
 import { resetPanelHeight } from '@/domain/panel/apis/panel';
 import { previewSound, setAutostart, setSetting, setShortcut } from '@/domain/settings/apis/settings';
 import { SOUND_NAMES, type SoundName } from '@/domain/settings/apis/settings.dto';
 import { useSettingUpdate, useSettings } from '@/domain/settings/queries/settings';
 import { checkUpdate, installUpdate } from '@/domain/updater/apis/updater';
 import { useUpdateStatus } from '@/domain/updater/queries/updater';
+import Aurora from '@/shared/components/Aurora';
 import { type Dict, relativeTime } from '@/shared/i18n';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { errorText } from '@/utils/errorText';
@@ -121,26 +123,25 @@ export function SettingsApp() {
   if (!settings) return null;
 
   return (
-    <main className="flex h-full flex-col">
+    <main className="relative flex h-full flex-col">
+      <Aurora className="inset-x-0 top-0 h-[110px]" />
       <Tabs value={tab} onChange={changeTab} />
       {/* Extra bottom room so the app picker's popup near the end never runs past the window. */}
+      {/* Keyed by tab so its sections remount and spring in again on every switch. */}
       <div
-        className="flex-1 overflow-y-auto px-7 pt-4 pb-32"
+        key={tab}
+        className="relative z-1 flex-1 overflow-y-auto px-7 pt-4 pb-32"
         id="settings-panel"
         role="tabpanel"
         aria-labelledby={`tab-${tab}`}
       >
         {tab === 'general' && (
           <SettingSection>
-            <Row label={s.theme}>
-              <Segmented
+            <Row label={s.theme} labelId="theme-label">
+              <ThemePicker
                 value={settings.theme}
                 onChange={(v) => updateSetting({ key: 'theme', value: v })}
-                options={[
-                  { value: 'system', label: s.system },
-                  { value: 'light', label: s.light },
-                  { value: 'dark', label: s.dark },
-                ]}
+                labelledBy="theme-label"
               />
             </Row>
             <Row label={s.language}>

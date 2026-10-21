@@ -23,6 +23,7 @@ import { useAppSuggestions } from '@/domain/source_app/queries/sourceApp';
 import { installUpdate as installUpdateApi } from '@/domain/updater/apis/updater';
 import { useUpdateStatus } from '@/domain/updater/queries/updater';
 import type { AppError } from '@/shared/api/common.dto';
+import Aurora from '@/shared/components/Aurora';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { useStore } from '@/shared/store/rootStore';
 import { acceleratorFromEvent } from '@/utils/accelerator';
@@ -44,10 +45,13 @@ const PAGE = 50;
 const isMac = navigator.userAgent.includes('Mac');
 /** How long after a cancelled drag an Escape is taken as the one that cancelled it (logged at ~36 ms). */
 const DRAG_CANCEL_ESC_MS = 300;
+/** How long `data-entering` stays on after an open: the last staggered card (8 × 25 ms) plus its 650 ms spring. */
+const ENTER_MS = 900;
 
 export function PanelApp() {
   // ref
   const noticeTimer = useRef<number | undefined>(undefined);
+  const enterTimer = useRef<number | undefined>(undefined);
   const bodyRef = useRef<HTMLDivElement>(null);
   const requestId = useRef(0);
   const loadingMore = useRef(false);
@@ -79,6 +83,8 @@ export function PanelApp() {
   const [selected, setSelected] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [open, setOpen] = useState(false);
+  /** The cards play their open entrance (CSS only, so the keyboard never waits on it). */
+  const [entering, setEntering] = useState(false);
   const [closing, setClosing] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
@@ -184,7 +190,17 @@ export function PanelApp() {
       setClosing(false);
       inputRef.current?.focus();
       // The window is shown transparent; reveal it once the parked frame is on screen, then slide.
-      requestAnimationFrame(() => requestAnimationFrame(() => void revealPanel().finally(() => setOpen(true))));
+      requestAnimationFrame(() =>
+        requestAnimationFrame(
+          () =>
+            void revealPanel().finally(() => {
+              setOpen(true);
+              setEntering(true);
+              window.clearTimeout(enterTimer.current);
+              enterTimer.current = window.setTimeout(() => setEntering(false), ENTER_MS);
+            }),
+        ),
+      );
     });
     const offClosing = listen('panel://closing', () => {
       // A card floating under the cursor lives outside the panel; it must not outlast it.
@@ -196,6 +212,8 @@ export function PanelApp() {
       lastPointer.current = null;
       hoverSelected.current = false;
       setOpen(false);
+      window.clearTimeout(enterTimer.current);
+      setEntering(false);
       setClosing(false);
       setDragging(false);
       resetView();
@@ -434,6 +452,7 @@ export function PanelApp() {
         setConfirmingId(null);
       }}
       onCancelDelete={() => setConfirmingId(null)}
+      enterIndex={Math.min(i, 8)}
     />
   );
 
@@ -441,7 +460,7 @@ export function PanelApp() {
     <div
       className={cx(
         // Thumbnails must not start WebKit's own HTML drag.
-        'bg-base-100 relative flex h-full flex-col overflow-hidden rounded-2xl border px-3 pt-2.5 pb-3 [&_img]:[-webkit-user-drag:none]',
+        'bg-base-100 relative flex h-full flex-col overflow-hidden rounded-[18px] border px-3 pt-2.5 pb-3 [&_img]:[-webkit-user-drag:none]',
         panelPinned ? 'border-primary shadow-panel-pinned' : 'border-base-300',
         /*
          * Entrance: the window appears instantly with the panel parked below its bottom edge (set
@@ -453,6 +472,7 @@ export function PanelApp() {
         open &&
           (closing || dragging ? 'duration-200 ease-[ease-in]' : 'duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]'),
       )}
+      data-entering={entering || undefined}
       onKeyDown={onKeyDown}
       // Capture runs before the card's handler, so the card sees this event's verdict.
       onMouseMoveCapture={(e) => {
@@ -465,6 +485,8 @@ export function PanelApp() {
         if (!(e.target as Element).closest('.update')) cancelUpdate();
       }}
     >
+      {/* The glow sits behind the toolbar only. */}
+      <Aurora className="inset-x-0 top-0 h-[72px]" />
       {!closing && <ResizeHandle />}
       <Toolbar
         query={query}
@@ -477,6 +499,7 @@ export function PanelApp() {
         suggesting={suggesting}
         suggestions={suggestions}
         suggestIndex={suggestIndex}
+        onHoverApp={setSuggestIndex}
         onPickApp={pickApp}
         onSettings={() => void openSettings()}
         panelPinned={panelPinned}
@@ -497,10 +520,10 @@ export function PanelApp() {
         onCancelUpdate={cancelUpdate}
       />
       {/* Pins on the left, history scrolling on the right. */}
-      <div className="flex min-h-0 flex-1" ref={bodyRef}>
+      <div className="relative z-1 flex min-h-0 flex-1" ref={bodyRef}>
         {pinned.length > 0 && (
           <>
-            <div className="relative flex flex-none gap-2.5 p-1" role="listbox">
+            <div className="relative flex flex-none gap-2.5 p-1 pt-1.5" role="listbox">
               {pinned.map((clip, i) => renderCard(clip, i))}
               {pinNotice && (
                 <div
@@ -520,7 +543,7 @@ export function PanelApp() {
           </div>
         ) : (
           <div
-            className="flex min-w-0 flex-1 [scrollbar-width:none] gap-2.5 overflow-x-auto overflow-y-hidden p-1 [&::-webkit-scrollbar]:hidden"
+            className="flex min-w-0 flex-1 [scrollbar-width:none] gap-2.5 overflow-x-auto overflow-y-hidden p-1 pt-1.5 [&::-webkit-scrollbar]:hidden"
             ref={rowRef}
             role="listbox"
             onWheel={onWheel}

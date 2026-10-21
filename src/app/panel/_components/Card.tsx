@@ -3,11 +3,13 @@ import { useRef } from 'react';
 import type { Clip } from '@/domain/clip/apis/clip.dto';
 import { cancelConvert, dismissConvert, retryConvert } from '@/domain/convert/apis/convert';
 import type { ConvertJob } from '@/domain/convert/apis/convert.dto';
+import KindIcon from '@/shared/components/KindIcon';
 import { relativeTime } from '@/shared/i18n';
 import type { Dict } from '@/shared/i18n/en';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { imageTag } from '@/utils/fileThumb';
 import { formatLabel } from '@/utils/formatLabel';
+import { linkParts } from '@/utils/link';
 
 import cx from 'classnames';
 
@@ -30,6 +32,8 @@ interface Props {
   confirming: boolean;
   onConfirmDelete: () => void;
   onCancelDelete: () => void;
+  /** Position in the open entrance's stagger (capped by the caller). */
+  enterIndex: number;
 }
 
 const DRAG_THRESHOLD = 5;
@@ -243,16 +247,33 @@ function ProgressRing({ percent, spin }: { percent: number | null; spin: boolean
 function Body({ clip }: { clip: Clip }) {
   if (clip.kind === 'image') return clip.thumb ? <img className={THUMB} src={clip.thumb} alt="" /> : null;
   if (clip.kind === 'files') return <FilesBody clip={clip} />;
+  if (clip.kind === 'link') {
+    const { host, rest } = linkParts(clip.textPreview ?? '');
+    return (
+      <div className="bg-subtle flex h-[calc(100%-8px)] flex-col overflow-hidden rounded-lg">
+        <div className="from-primary/18 to-sky/22 text-primary grid min-h-0 flex-1 place-items-center bg-linear-to-br">
+          <KindIcon kind="link" className="size-[30%] max-h-9" />
+        </div>
+        <div className="border-divider border-t px-2.5 py-1.5">
+          <b className="block truncate text-[12px]">{host}</b>
+          <span className="text-muted block truncate text-[11px]">{rest}</span>
+        </div>
+      </div>
+    );
+  }
   return (
-    // Set apart from the card's header and footer.
-    <p
-      className={cx(
-        'bg-subtle line-clamp-14 h-[calc(100%-8px)] rounded-lg px-2.5 py-2 text-[length:clamp(12px,calc(100vh/26),15px)] leading-[1.45] break-all whitespace-pre-wrap',
-        { 'text-primary': clip.kind === 'link' },
-      )}
-    >
-      {clip.textPreview}
-    </p>
+    // Set apart from the card's header and footer; the wrapper anchors the quote mark.
+    <div className="relative h-[calc(100%-8px)]">
+      <p className="bg-subtle line-clamp-14 h-full rounded-lg px-2.5 py-2 text-[length:clamp(12px,calc(100vh/26),15px)] leading-[1.45] break-all whitespace-pre-wrap">
+        {clip.textPreview}
+      </p>
+      <span
+        className="text-primary pointer-events-none absolute right-2 -bottom-1.5 font-serif text-[44px] leading-none opacity-12"
+        aria-hidden
+      >
+        &rdquo;
+      </span>
+    </div>
   );
 }
 
@@ -268,6 +289,7 @@ export function Card({
   confirming,
   onConfirmDelete,
   onCancelDelete,
+  enterIndex,
 }: Props) {
   // ref
   const press = useRef<{ x: number; y: number } | null>(null);
@@ -279,7 +301,12 @@ export function Card({
     <div
       // `card` is the hook motion.ts finds cards by. `data-slot` (set by motion.ts) marks where a floating card came from.
       className={cx(
-        'card group rounded-box bg-card relative flex w-[calc((100vh-72px)*0.95)] flex-none cursor-default flex-col overflow-hidden',
+        'card group rounded-box glass relative isolate flex w-[calc((100vh-72px)*0.95)] flex-none cursor-default flex-col overflow-hidden backdrop-filter-none',
+        // Only solid panel sits behind a card, so `backdrop-filter-none` drops .glass's blur: dozens of blur
+        // layers would slow the open entrance and the panel slide. `isolate` keeps the stacking context the
+        // blur used to give, so the card's z-indexed layers stay inside it.
+        // Lifts on hover, but not the empty slot a dragged card left.
+        'ease-spring transition-[translate,box-shadow] duration-250 not-data-slot:hover:-translate-y-0.5',
         'data-slot:border-accent-subtle data-slot:border-2 data-slot:border-dashed data-slot:bg-transparent data-slot:shadow-none data-slot:*:invisible',
         confirming
           ? 'border-error shadow-card-confirm border-2'
@@ -289,8 +316,11 @@ export function Card({
               ? 'border-success shadow-card border'
               : selected
                 ? 'border-primary shadow-card-selected border'
-                : cx('shadow-card border', clip.pinned ? 'border-pinned-border' : 'border-base-300'),
+                : // Idle keeps the glass hairline.
+                  cx('shadow-card border', clip.pinned && 'border-pinned-border'),
       )}
+      // The open entrance's stagger step, read by `[data-entering] .card` in globals.css.
+      style={{ '--i': enterIndex } as React.CSSProperties}
       data-id={clip.id}
       role="option"
       aria-selected={selected}

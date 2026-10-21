@@ -4,6 +4,8 @@ import { cardImage } from './cardImage.ts';
 
 export const EASE_MOVE = 'cubic-bezier(0.32, 0.72, 0, 1)';
 export const EASE_SPRING = 'cubic-bezier(0.34, 1.56, 0.64, 1)';
+/** Aurora Glass's one enter spring, `--ease-spring` in globals.css. */
+export const EASE_SPRING_IN = 'cubic-bezier(0.2, 0.9, 0.3, 1.2)';
 
 export function reducedMotion(): boolean {
   return matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -19,7 +21,7 @@ export function cardLefts(container: HTMLElement | null): Map<number, number> {
 }
 
 /**
- * Slides cards that moved from their old place (FLIP) and pops in cards that are new,
+ * Slides cards that moved from their old place (FLIP) and springs in cards that are new,
  * ringing them once in the accent colour so a copy made elsewhere is easy to spot.
  */
 export function playFlip(container: HTMLElement, before: Map<number, number>): void {
@@ -28,12 +30,12 @@ export function playFlip(container: HTMLElement, before: Map<number, number>): v
     if (prev === undefined) {
       card.animate(
         [
-          { transform: 'scale(0.86)', opacity: 0 },
-          { transform: 'none', opacity: 1 },
+          { transform: 'translateY(-16px) scale(0.94)', filter: 'blur(4px)', opacity: 0 },
+          { transform: 'none', filter: 'none', opacity: 1 },
         ],
         {
-          duration: 360,
-          easing: EASE_MOVE,
+          duration: 650,
+          easing: EASE_SPRING_IN,
         },
       );
       card.animate(

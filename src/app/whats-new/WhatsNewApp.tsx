@@ -2,6 +2,7 @@ import { type ReactNode, useEffect } from 'react';
 
 import { dismissWhatsNew } from '@/domain/whats_new/apis/whatsNew';
 import { useWhatsNew } from '@/domain/whats_new/queries/whatsNew';
+import Aurora from '@/shared/components/Aurora';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { type Block, type Inline, parseNotes } from '@/utils/notes';
 
@@ -23,25 +24,35 @@ function inlines(list: Inline[]) {
   );
 }
 
-/** Blocks as elements; runs of items share one list. */
+/** Blocks as elements; each top-level item and its nested items form one glass card. */
 function render(blocks: Block[]) {
   const out: ReactNode[] = [];
-  let items: ReactNode[] = [];
+  let card: ReactNode[] = [];
+  let cards = 0;
   const flush = () => {
-    if (items.length)
+    if (card.length)
       out.push(
-        <ul key={out.length} className="list-disc pl-4">
-          {items}
+        <ul
+          key={out.length}
+          className="glass rounded-box animate-spring-in my-2 list-none px-3.5 py-3"
+          style={{ animationDelay: `${160 + cards++ * 60}ms` }}
+        >
+          {card}
         </ul>,
       );
-    items = [];
+    card = [];
   };
   blocks.forEach((b, i) => {
     if (b.kind === 'item') {
-      items.push(
-        <li key={i} className="my-1" style={{ marginLeft: b.depth * 16 }}>
-          {inlines(b.inlines)}
-        </li>,
+      if (b.depth === 0) flush();
+      card.push(
+        b.depth === 0 ? (
+          <li key={i}>{inlines(b.inlines)}</li>
+        ) : (
+          <li key={i} className="mt-1 list-disc" style={{ marginLeft: b.depth * 16 }}>
+            {inlines(b.inlines)}
+          </li>
+        ),
       );
       return;
     }
@@ -93,18 +104,23 @@ export function WhatsNewApp() {
 
   if (!data) return null;
   return (
-    <div className="flex h-full flex-col px-6 py-5">
-      <header>
-        <span className="bg-ok-bg text-ok-fg inline-block rounded-md px-2 py-0.5 text-[11px] font-semibold">
+    <div className="relative flex h-full flex-col px-6 py-5">
+      <Aurora className="inset-x-0 top-0 h-[110px]" />
+      <header className="relative z-1">
+        <span className="animate-pop bg-ok-bg text-ok-fg inline-block rounded-md px-2 py-0.5 text-[11px] font-semibold">
           v{data.version}
         </span>
-        <h1 className="mt-2 mb-1 text-[22px] font-bold tracking-[-0.5px]">{t.whatsNew.title}</h1>
+        <h1 className="animate-spring-in mt-2 mb-1 text-[22px] font-bold tracking-[-0.5px] [animation-delay:80ms]">
+          {t.whatsNew.title}
+        </h1>
       </header>
       {/* Only the notes scroll; the title and button stay put. */}
-      <div className="min-h-0 flex-1 overflow-y-auto leading-[1.45] select-text">{render(parseNotes(data.notes))}</div>
-      <footer className="flex justify-end pt-4">
+      <div className="relative z-1 min-h-0 flex-1 overflow-y-auto leading-[1.45] select-text">
+        {render(parseNotes(data.notes))}
+      </div>
+      <footer className="relative z-1 flex justify-end pt-4">
         <button
-          className="rounded-box bg-primary px-4 py-2 font-semibold text-white"
+          className="rounded-box from-primary to-sky bg-linear-to-br px-4 py-2 font-semibold text-white transition-transform duration-150 active:scale-96 motion-reduce:transition-none"
           autoFocus
           onClick={() => void dismissWhatsNew()}
         >

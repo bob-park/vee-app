@@ -66,7 +66,7 @@ export default function ConvertSection({ settings, run, updateSetting }: Props) 
           />
         </Row>
       </SettingSection>
-      <EngineSection engine="ffmpeg" run={run}>
+      <EngineSection engine="ffmpeg" index={1} run={run}>
         <Row label={c.ffmpeg.quality} hint={c.ffmpeg.qualityHint}>
           <Segmented
             value={settings.videoQuality}
@@ -85,8 +85,8 @@ export default function ConvertSection({ settings, run, updateSetting }: Props) 
           </div>
         </Row>
       </EngineSection>
-      <EngineSection engine="rhwp" run={run} />
-      <LibreOfficeSection run={run} />
+      <EngineSection engine="rhwp" index={2} run={run} />
+      <LibreOfficeSection index={3} run={run} />
     </>
   );
 }
@@ -111,12 +111,14 @@ function Caption({ children }: { children: React.ReactNode }) {
 interface EngineSectionProps {
   engine: EngineId;
   run: Props['run'];
+  /** Order on the tab, for the entrance stagger. */
+  index: number;
   /** Extra rows shown only while the engine is installed. */
   children?: React.ReactNode;
 }
 
 /** A downloadable engine: download, progress, installed details, remove. */
-function EngineSection({ engine, run, children }: EngineSectionProps) {
+function EngineSection({ engine, index, run, children }: EngineSectionProps) {
   // state
   const [confirmRemove, setConfirmRemove] = useState(false);
 
@@ -136,7 +138,7 @@ function EngineSection({ engine, run, children }: EngineSectionProps) {
   return (
     <>
       <Caption>{f.caption}</Caption>
-      <SettingSection>
+      <SettingSection index={index}>
         {status.state === 'missing' && (
           <Row col>
             <Head title={f.title} hint={f.missingHint(Math.round(status.downloadSize / MB))}>
@@ -224,7 +226,7 @@ function EngineSection({ engine, run, children }: EngineSectionProps) {
 }
 
 /** The user's LibreOffice: found (with its version, when it says) or a link to its download page. */
-function LibreOfficeSection({ run }: { run: Props['run'] }) {
+function LibreOfficeSection({ index, run }: { index: number; run: Props['run'] }) {
   // hooks
   const l = useI18n().t.settings.convert.libreoffice;
 
@@ -241,7 +243,7 @@ function LibreOfficeSection({ run }: { run: Props['run'] }) {
           {l.beta}
         </span>
       </Caption>
-      <SettingSection>
+      <SettingSection index={index}>
         <Row
           label={l.title}
           hint={isLoading ? undefined : !libreOffice ? l.hint : version ? l.version(version) : undefined}
