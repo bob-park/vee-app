@@ -13,6 +13,11 @@ export async function convertDrop(format: Format) {
   return call<void>('convert_drop', { format });
 }
 
+/** The donut painted its blank frame after `convert://close`; Rust hides the window unless it reopened. */
+export async function hideConvert(seq: number) {
+  return call<void>('hide_convert', { seq });
+}
+
 export async function listConvertJobs() {
   return call<ConvertJob[]>('list_convert_jobs');
 }

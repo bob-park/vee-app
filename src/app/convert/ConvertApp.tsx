@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { convertDrop } from '@/domain/convert/apis/convert';
+import { convertDrop, hideConvert } from '@/domain/convert/apis/convert';
 import type { Slice } from '@/domain/convert/apis/convert.dto';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { DONUT, dropPoint, labelAt, sliceAt, slicePath } from '@/utils/donut';
@@ -42,9 +42,14 @@ export default function ConvertApp() {
       // A hidden window paints no frames, so this waits until Rust has shown it.
       requestAnimationFrame(() => setPlay(Date.now()));
     });
-    // Rust hides the window and sends this before the drop event below arrives, so it must
-    // leave the slices alone; only the next `convert://open` replaces them.
-    const offClose = listen('convert://close', () => setHot(null));
+    // Clears the donut, then lets Rust hide the window once that blank frame is painted: a hidden
+    // window shows its last frame when shown again, which must not be this donut. The drop event
+    // below arrives after this, so `slicesRef` keeps the slices; only the next open replaces them.
+    const offClose = listen<{ seq: number }>('convert://close', (e) => {
+      setOpen(null);
+      setHot(null);
+      requestAnimationFrame(() => requestAnimationFrame(() => void hideConvert(e.payload.seq).catch(() => undefined)));
+    });
     const offDrag = getCurrentWebview().onDragDropEvent((e) => {
       const p = e.payload;
       if (p.type === 'leave') return setHot(null);
