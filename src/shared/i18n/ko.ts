@@ -34,6 +34,7 @@ export const ko: Dict = {
   updateRestartHint: 'Vee가 잠깐 재시작돼요',
   restart: '재시작',
   updateFailed: '업데이트하지 못했어요',
+  updateInstalling: '최신 버전 확인 중…',
   whatsNew: { title: '새로워진 Vee', ok: '확인' },
   convert: {
     needsFfmpeg: 'FFmpeg 필요',

@@ -64,6 +64,8 @@ interface Props {
   onSettings: () => void;
   /** The panel stays up when focus leaves it. */
   panelPinned: boolean;
+  /** Pinning was just switched on: the pin icon drops in. */
+  panelPinPressing: boolean;
   panelPinShortcut: string;
   onTogglePanelPin: () => void;
   /** A search, app tag or filter is set. */
@@ -74,6 +76,8 @@ interface Props {
   updateVersion: string | null;
   updateConfirming: boolean;
   updateFailed: boolean;
+  /** Restart was pressed and the app is fetching the latest version. */
+  updateInstalling: boolean;
   onUpdate: () => void;
   onConfirmUpdate: () => void;
   onCancelUpdate: () => void;
@@ -94,6 +98,7 @@ export function Toolbar({
   onPickApp,
   onSettings,
   panelPinned,
+  panelPinPressing,
   panelPinShortcut,
   searching,
   onResetSearch,
@@ -102,6 +107,7 @@ export function Toolbar({
   updateVersion,
   updateConfirming,
   updateFailed,
+  updateInstalling,
   onUpdate,
   onConfirmUpdate,
   onCancelUpdate,
@@ -217,14 +223,14 @@ export function Toolbar({
               <div>
                 <p className="font-semibold">{t.updateConfirm(updateVersion)}</p>
                 <p className={cx('mt-0.5 text-[12px]', updateFailed ? 'text-error' : 'text-muted')}>
-                  {updateFailed ? t.updateFailed : t.updateRestartHint}
+                  {updateFailed ? t.updateFailed : updateInstalling ? t.updateInstalling : t.updateRestartHint}
                 </p>
               </div>
               <div className="flex justify-end gap-2">
-                <ConfirmButton onClick={onCancelUpdate} tabIndex={-1}>
+                <ConfirmButton onClick={onCancelUpdate} disabled={updateInstalling} tabIndex={-1}>
                   {t.cancel}
                 </ConfirmButton>
-                <ConfirmButton tone="go" onClick={onConfirmUpdate} tabIndex={-1}>
+                <ConfirmButton tone="go" onClick={onConfirmUpdate} disabled={updateInstalling} tabIndex={-1}>
                   {t.restart}
                 </ConfirmButton>
               </div>
@@ -243,8 +249,9 @@ export function Toolbar({
         aria-label={panelPinned ? t.unpinPanel : t.pinPanel}
         tabIndex={-1}
       >
+        {/* Lucide `pin` (ISC); the head fills while pinned. */}
         <svg
-          className="block size-4.5"
+          className={cx('block size-4.5', panelPinPressing && 'animate-pin-drop')}
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -253,7 +260,12 @@ export function Toolbar({
           strokeLinejoin="round"
           aria-hidden
         >
-          <path d="M12 17v5M9 3h6M10 3v7l-4 4v3h12v-3l-4-4V3" />
+          <path d="M12 17v5" />
+          <path
+            className="transition-[fill] duration-200"
+            fill={panelPinned ? 'currentColor' : 'none'}
+            d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"
+          />
         </svg>
         <Tip label={panelPinned ? t.unpinPanel : t.pinPanel} accel={panelPinShortcut} />
       </button>
@@ -263,8 +275,21 @@ export function Toolbar({
         aria-label={t.settings.title}
         tabIndex={-1}
       >
-        {/* Its own box so the tip below doesn't turn with the glyph. */}
-        <span className="inline-block transition-transform duration-300 motion-safe:group-hover:rotate-45">⚙︎</span>
+        {/* An SVG, not the ⚙︎ glyph: font metrics put the glyph off centre, so it wobbled as it turned. 60° is one tooth, so it lands looking as it started.
+            Lucide `settings` (ISC); the tip below is a sibling so it doesn't turn with it. */}
+        <svg
+          className="ease-spring block size-4.5 transition-transform duration-500 motion-safe:group-hover:rotate-60"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
         <Tip label={t.settings.title} accel="CommandOrControl+Comma" />
       </button>
     </div>

@@ -90,7 +90,11 @@ export function PanelApp() {
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const [updateConfirming, setUpdateConfirming] = useState(false);
   const [updateFailed, setUpdateFailed] = useState(false);
+  /** Restart was pressed; the app is re-checking or downloading before it restarts. */
+  const [updateInstalling, setUpdateInstalling] = useState(false);
   const [panelPinned, setPanelPinned] = useState(false);
+  /** Pinning was just switched on; plays the press, then the edge sweep, then shows the pinned border. */
+  const [pinPressing, setPinPressing] = useState(false);
   const [suggestIndex, setSuggestIndex] = useState(0);
 
   // store
@@ -261,6 +265,7 @@ export function PanelApp() {
     setConfirmingId(null);
     setUpdateConfirming(false);
     setUpdateFailed(false);
+    setUpdateInstalling(false);
     setPinNotice(false);
     void reloadRef.current(false);
   };
@@ -312,17 +317,28 @@ export function PanelApp() {
   const togglePanelPin = () => {
     const next = !panelPinned;
     setPanelPinned(next);
+    // Without motion there is no sweep to end the press, so the border shows at once.
+    setPinPressing(next && !reducedMotion());
     void setPanelPinnedApi(next);
   };
 
   const installUpdate = () => {
+    if (updateInstalling) return;
     setUpdateFailed(false);
-    void installUpdateApi().catch(() => setUpdateFailed(true));
+    setUpdateInstalling(true);
+    // Resolves only on failure: success restarts the app.
+    void installUpdateApi().catch(() => {
+      setUpdateFailed(true);
+      setUpdateInstalling(false);
+    });
   };
 
   const cancelUpdate = () => {
+    // Too late once Restart was pressed: the backend restarts when its check ends.
+    if (updateInstalling) return;
     setUpdateConfirming(false);
     setUpdateFailed(false);
+    setUpdateInstalling(false);
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -461,7 +477,9 @@ export function PanelApp() {
       className={cx(
         // Thumbnails must not start WebKit's own HTML drag.
         'bg-base-100 relative flex h-full flex-col overflow-hidden rounded-[18px] border px-3 pt-2.5 pb-3 [&_img]:[-webkit-user-drag:none]',
-        panelPinned ? 'border-primary shadow-panel-pinned' : 'border-base-300',
+        // While pinning plays, the border waits: the sweep's last lap hands over to it.
+        panelPinned && !pinPressing ? 'border-primary shadow-panel-pinned' : 'border-base-300',
+        pinPressing && 'animate-pin-press',
         /*
          * Entrance: the window appears instantly with the panel parked below its bottom edge (set
          * while hidden), then the panel slides up like a sheet. Closing, or dragging a file out so the
@@ -487,6 +505,14 @@ export function PanelApp() {
     >
       {/* The glow sits behind the toolbar only. */}
       <Aurora className="inset-x-0 top-0 h-[72px]" />
+      {pinPressing && (
+        // The sweep ends last: its end shows the pinned border.
+        <span
+          className="animate-pin-sweep pin-sweep pointer-events-none absolute inset-0 z-10 rounded-[inherit] motion-reduce:hidden"
+          onAnimationEnd={() => setPinPressing(false)}
+          aria-hidden
+        />
+      )}
       {!closing && <ResizeHandle />}
       <Toolbar
         query={query}
@@ -503,6 +529,7 @@ export function PanelApp() {
         onPickApp={pickApp}
         onSettings={() => void openSettings()}
         panelPinned={panelPinned}
+        panelPinPressing={pinPressing}
         panelPinShortcut={settings?.panelPinShortcut ?? ''}
         searching={searching}
         onResetSearch={resetSearch}
@@ -511,6 +538,7 @@ export function PanelApp() {
         updateVersion={updateVersion}
         updateConfirming={updateConfirming}
         updateFailed={updateFailed}
+        updateInstalling={updateInstalling}
         onUpdate={() => {
           setConfirmingId(null);
           if (updateConfirming) cancelUpdate();

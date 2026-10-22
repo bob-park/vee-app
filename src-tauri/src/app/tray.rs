@@ -49,9 +49,12 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             "settings" => window::show_settings(app),
             "update" => {
                 if app.state::<UpdateState>().ready_version().is_some() {
-                    if let Err(e) = updater::install_and_restart(app) {
-                        log::error!("update install failed: {e}");
-                    }
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(e) = updater::install_and_restart(&app).await {
+                            log::error!("update install failed: {e}");
+                        }
+                    });
                 } else {
                     let app = app.clone();
                     tauri::async_runtime::spawn(async move {

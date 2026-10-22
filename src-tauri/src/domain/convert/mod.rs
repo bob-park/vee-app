@@ -1,6 +1,7 @@
 //! Convert domain: which image, video or document formats a dragged card can become, and where the output goes.
 
 mod hwp;
+mod icon;
 mod image;
 mod model;
 mod office;
@@ -358,6 +359,11 @@ mod tests {
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
     }
 
+    /// Entries left in `tmp`, minus the LibreOffice profile (`lo`) that `convert_lo` writes settings into.
+    fn leftovers(tmp: &Path) -> usize {
+        std::fs::read_dir(tmp).unwrap().filter(|e| e.as_ref().unwrap().file_name() != "lo").count()
+    }
+
     /// A fake soffice: writes `<outdir>/<src stem>.pdf` (and a decoy beside it), then runs `then`.
     #[cfg(unix)]
     fn fake_soffice(bin: &Path, then: &str) -> PathBuf {
@@ -374,7 +380,7 @@ mod tests {
         let out = run_doc(&src, Format::Pdf, dst.path(), tmp.path(), None, Some(fake_soffice(bin.path(), "exit 0"))).unwrap();
         assert_eq!(out, dst.path().join("a.b.pdf"));
         assert_eq!(std::fs::read_to_string(&out).unwrap(), "right\n");
-        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+        assert_eq!(leftovers(tmp.path()), 0);
     }
 
     #[cfg(unix)]
@@ -386,7 +392,7 @@ mod tests {
         let silent = script(bin.path(), "silent", "exit 0");
         assert_eq!(run_doc(&src, Format::Pdf, dst.path(), tmp.path(), None, Some(silent)), Err(JobError::Engine));
         assert_eq!(std::fs::read_dir(dst.path()).unwrap().count(), 0);
-        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+        assert_eq!(leftovers(tmp.path()), 0);
     }
 
     #[cfg(unix)]
@@ -399,7 +405,7 @@ mod tests {
         let r = office::convert_lo(&src, Format::Pdf, &out, tmp.path(), &soffice, &tmp.path().join("lo"), std::time::Duration::from_secs(1), &AtomicBool::new(false));
         assert_eq!(r, Err(JobError::Engine));
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
-        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+        assert_eq!(leftovers(tmp.path()), 0);
     }
 
     #[cfg(unix)]
@@ -432,7 +438,7 @@ mod tests {
             });
             assert_eq!(r, Err(JobError::Cancelled), "{to:?}");
             assert!(started.elapsed() < std::time::Duration::from_secs(5));
-            assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+            assert_eq!(leftovers(tmp.path()), 0);
             assert_eq!(std::fs::read_dir(dst.path()).unwrap().count(), 0);
         }
     }
@@ -485,6 +491,23 @@ mod tests {
         convert(&odt, Format::Docx, ZIP);
         assert!(profile.is_dir(), "LibreOffice used its own profile");
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().filter(|e| e.as_ref().unwrap().path() != profile).count(), 0);
+    }
+
+    /// Korean text in an MS Korean font comes out in its macOS stand-in, not dropped:
+    /// `cargo test --lib korean_fonts_survive_libreoffice -- --ignored`
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore]
+    fn korean_fonts_survive_libreoffice() {
+        let soffice = PathBuf::from("/Applications/LibreOffice.app/Contents/MacOS/soffice");
+        assert!(soffice.is_file(), "LibreOffice is not installed");
+        let (dir, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let cancel = AtomicBool::new(false);
+        let mut ctx = Run { fell_back: false, ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, rhwp: None, soffice: Some(soffice), lo_profile: tmp.path().join("lo-profile"), progress: &mut |_| {} };
+        let html = dir.path().join("k.html");
+        std::fs::write(&html, "<html><body><p style=\"font-family:'맑은 고딕'\">한글 문서 변환</p></body></html>").unwrap();
+        let pdf = std::fs::read(run(&html, "k", Format::Pdf, dir.path(), tmp.path(), &mut ctx).unwrap()).unwrap();
+        assert!(pdf.windows(16).any(|w| w == b"AppleSDGothicNeo"), "Hangul was not set in Apple SD Gothic Neo");
     }
 
     /// Every TXT / HTML / RTF / DOCX slice with LibreOffice at its default path, checking each
@@ -581,7 +604,7 @@ mod tests {
     #[test]
     fn formats_leave_out_the_source_format() {
         let f = formats(&[PathBuf::from("/a/shot.PNG")], true);
-        assert_eq!(f, vec![Format::Jpg, Format::Webp, Format::Heic, Format::Tiff, Format::Gif, Format::Bmp, Format::Pdf]);
+        assert_eq!(f, vec![Format::Jpg, Format::Webp, Format::Heic, Format::Ico, Format::Icns, Format::Gif, Format::Pdf]);
     }
 
     #[test]
@@ -601,6 +624,13 @@ mod tests {
         let f = formats(&[PathBuf::from("a.jpeg"), PathBuf::from("b.tif")], true);
         assert!(!f.contains(&Format::Jpg) && !f.contains(&Format::Tiff));
         assert!(f.contains(&Format::Png));
+    }
+
+    #[test]
+    fn mixed_images_offer_icons_but_not_bmp_or_tiff() {
+        let f = formats(&[PathBuf::from("a.png"), PathBuf::from("b.jpg"), PathBuf::from("c.bmp")], true);
+        assert!(f.contains(&Format::Ico) && f.contains(&Format::Icns));
+        assert!(!f.contains(&Format::Bmp) && !f.contains(&Format::Tiff));
     }
 
     #[test]

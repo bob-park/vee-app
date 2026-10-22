@@ -28,6 +28,11 @@ import { PANEL_KEYS } from '@/utils/keys';
 import { listen } from '@tauri-apps/api/event';
 
 function UpdateRow({ version }: { version: string }) {
+  // state
+  /** Restart was pressed; the app re-checks and may download a newer version before restarting. */
+  const [installing, setInstalling] = useState(false);
+  const [failed, setFailed] = useState(false);
+
   // hooks
   const { t, locale } = useI18n();
 
@@ -51,10 +56,23 @@ function UpdateRow({ version }: { version: string }) {
     }
   })();
 
+  // handle
+  const install = () => {
+    setFailed(false);
+    setInstalling(true);
+    // Resolves only on failure: success restarts the app.
+    void installUpdate().catch(() => {
+      setFailed(true);
+      setInstalling(false);
+    });
+  };
+
   return (
-    <Row label={s.updates} hint={`${s.version(version)} · ${detail}`}>
+    <Row label={s.updates} hint={`${s.version(version)} · ${failed ? t.updateFailed : detail}`}>
       {status.status === 'ready' ? (
-        <Button onClick={() => void installUpdate()}>{s.restartToUpdate}</Button>
+        <Button disabled={installing} onClick={install}>
+          {installing ? t.updateInstalling : s.restartToUpdate}
+        </Button>
       ) : (
         <Button disabled={status.status === 'checking'} onClick={() => void checkUpdate()}>
           {s.checkNow}

@@ -13,6 +13,8 @@ pub enum Format {
     Tiff,
     Gif,
     Bmp,
+    Ico,
+    Icns,
     Pdf,
     Mp4,
     Webm,
@@ -35,8 +37,9 @@ pub enum Format {
 }
 
 /// Image target formats, in the donut's slice order.
+/// TIFF and BMP stay readable as sources, but are no longer offered as targets.
 pub const IMAGE_TARGETS: [Format; 8] =
-    [Format::Png, Format::Jpg, Format::Webp, Format::Heic, Format::Tiff, Format::Gif, Format::Bmp, Format::Pdf];
+    [Format::Png, Format::Jpg, Format::Webp, Format::Heic, Format::Ico, Format::Icns, Format::Gif, Format::Pdf];
 /// Video target formats, in the donut's slice order. `Gif` is shared with images.
 pub const VIDEO_TARGETS: [Format; 6] = [Format::Mp4, Format::Webm, Format::Mov, Format::Gif, Format::Mp3, Format::Mp4720];
 
@@ -102,6 +105,8 @@ impl Format {
             Format::Tiff => "tiff",
             Format::Gif => "gif",
             Format::Bmp => "bmp",
+            Format::Ico => "ico",
+            Format::Icns => "icns",
             Format::Pdf => "pdf",
             Format::Mp4 | Format::Mp4720 => "mp4",
             Format::Webm => "webm",
