@@ -225,7 +225,8 @@
   box-shadow: inset 0 0 0 0.5px var(--color-primary);
 }
 
-/* After the pin press: light runs once round the panel's inner edge, primary led by sky.
+/* After the pin press: light runs once round the panel's inner edge, primary led by sky, and ends
+   as a full ring the moment the pinned border takes over.
    A 1.5px ring masked out of a conic gradient whose end angle animates (needs `@property`). */
 @property --pin-sweep-angle {
   syntax: '<angle>';
@@ -349,13 +350,9 @@
       --pin-sweep-angle: 0deg;
       --pin-sweep-opacity: 1;
     }
-    85% {
-      --pin-sweep-angle: 360deg;
-      --pin-sweep-opacity: 1;
-    }
     100% {
       --pin-sweep-angle: 360deg;
-      --pin-sweep-opacity: 0;
+      --pin-sweep-opacity: 1;
     }
   }
 

@@ -93,7 +93,7 @@ export function PanelApp() {
   /** Restart was pressed; the app is re-checking or downloading before it restarts. */
   const [updateInstalling, setUpdateInstalling] = useState(false);
   const [panelPinned, setPanelPinned] = useState(false);
-  /** Pinning was just switched on; plays the panel's press and edge sweep once. */
+  /** Pinning was just switched on; plays the press, then the edge sweep, then shows the pinned border. */
   const [pinPressing, setPinPressing] = useState(false);
   const [suggestIndex, setSuggestIndex] = useState(0);
 
@@ -317,7 +317,8 @@ export function PanelApp() {
   const togglePanelPin = () => {
     const next = !panelPinned;
     setPanelPinned(next);
-    setPinPressing(next);
+    // Without motion there is no sweep to end the press, so the border shows at once.
+    setPinPressing(next && !reducedMotion());
     void setPanelPinnedApi(next);
   };
 
@@ -476,7 +477,8 @@ export function PanelApp() {
       className={cx(
         // Thumbnails must not start WebKit's own HTML drag.
         'bg-base-100 relative flex h-full flex-col overflow-hidden rounded-[18px] border px-3 pt-2.5 pb-3 [&_img]:[-webkit-user-drag:none]',
-        panelPinned ? 'border-primary shadow-panel-pinned' : 'border-base-300',
+        // While pinning plays, the border waits: the sweep's last lap hands over to it.
+        panelPinned && !pinPressing ? 'border-primary shadow-panel-pinned' : 'border-base-300',
         pinPressing && 'animate-pin-press',
         /*
          * Entrance: the window appears instantly with the panel parked below its bottom edge (set
@@ -504,7 +506,7 @@ export function PanelApp() {
       {/* The glow sits behind the toolbar only. */}
       <Aurora className="inset-x-0 top-0 h-[72px]" />
       {pinPressing && (
-        // The sweep ends last, so it ends the whole pin animation.
+        // The sweep ends last: its end shows the pinned border.
         <span
           className="animate-pin-sweep pin-sweep pointer-events-none absolute inset-0 z-10 rounded-[inherit] motion-reduce:hidden"
           onAnimationEnd={() => setPinPressing(false)}
