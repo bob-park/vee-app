@@ -30,12 +30,17 @@ pub fn convert_image(src: &Path, to: Format, out: &Path) -> Result<(), JobError>
             let _ = std::fs::remove_file(&jpg);
             result
         }
+        // The macOS `image` build reads PNG only (plus gif/webp/bmp), so every source goes through `sips` first.
+        Format::Ico | Format::Icns => {
+            let png = out.with_extension("vee-tmp.png");
+            let result = sips(src, "png", &[], &png).and_then(|()| super::icon::write_icon(open_upright(&png)?, to, out));
+            let _ = std::fs::remove_file(&png);
+            result
+        }
         Format::Png => sips(src, "png", &[], out),
         Format::Jpg => sips(src, "jpeg", &[], out),
         Format::Heic => sips(src, "heic", &[], out),
-        Format::Tiff => sips(src, "tiff", &[], out),
         Format::Gif => sips(src, "gif", &[], out),
-        Format::Bmp => sips(src, "bmp", &[], out),
         // Video and document targets come only from their own sources, which never reach here.
         _ => Err(JobError::Engine),
     }
@@ -84,10 +89,9 @@ pub fn convert_image(src: &Path, to: Format, out: &Path) -> Result<(), JobError>
         Format::Webp => return write_webp(img, out),
         Format::Jpg => return std::fs::write(out, encode_jpeg(&img)?).map_err(|e| engine_error("write", e)),
         Format::Pdf => return write_pdf(&encode_jpeg(&img)?, out),
+        Format::Ico | Format::Icns => return super::icon::write_icon(img, to, out),
         Format::Png => ImageFormat::Png,
-        Format::Tiff => ImageFormat::Tiff,
         Format::Gif => ImageFormat::Gif,
-        Format::Bmp => ImageFormat::Bmp,
         // HEIC never reaches here; video and document targets come only from their own sources.
         _ => return Err(JobError::Engine),
     };
@@ -132,7 +136,7 @@ fn write_pdf(jpeg: &[u8], out: &Path) -> Result<(), JobError> {
     std::fs::write(out, pdf).map_err(|e| engine_error("write", e))
 }
 
-fn engine_error(step: &str, e: impl std::fmt::Display) -> JobError {
+pub(super) fn engine_error(step: &str, e: impl std::fmt::Display) -> JobError {
     log::warn!("convert: {step} failed: {e}");
     JobError::Engine
 }
@@ -322,9 +326,9 @@ pub(super) mod tests {
         let magic: &[(Format, &[&[u8]])] = &[
             (Format::Jpg, &[b"\xFF\xD8"]),
             (Format::Webp, &[b"RIFF"]),
-            (Format::Tiff, &[b"II", b"MM"]),
+            (Format::Ico, &[b"\0\0\x01\0"]),
+            (Format::Icns, &[b"icns"]),
             (Format::Gif, &[b"GIF8"]),
-            (Format::Bmp, &[b"BM"]),
             (Format::Pdf, &[b"%PDF"]),
         ];
         for (to, heads) in magic {

@@ -1,6 +1,7 @@
 //! Convert domain: which image, video or document formats a dragged card can become, and where the output goes.
 
 mod hwp;
+mod icon;
 mod image;
 mod model;
 mod office;
@@ -581,7 +582,7 @@ mod tests {
     #[test]
     fn formats_leave_out_the_source_format() {
         let f = formats(&[PathBuf::from("/a/shot.PNG")], true);
-        assert_eq!(f, vec![Format::Jpg, Format::Webp, Format::Heic, Format::Tiff, Format::Gif, Format::Bmp, Format::Pdf]);
+        assert_eq!(f, vec![Format::Jpg, Format::Webp, Format::Heic, Format::Ico, Format::Icns, Format::Gif, Format::Pdf]);
     }
 
     #[test]
@@ -601,6 +602,13 @@ mod tests {
         let f = formats(&[PathBuf::from("a.jpeg"), PathBuf::from("b.tif")], true);
         assert!(!f.contains(&Format::Jpg) && !f.contains(&Format::Tiff));
         assert!(f.contains(&Format::Png));
+    }
+
+    #[test]
+    fn mixed_images_offer_icons_but_not_bmp_or_tiff() {
+        let f = formats(&[PathBuf::from("a.png"), PathBuf::from("b.jpg"), PathBuf::from("c.bmp")], true);
+        assert!(f.contains(&Format::Ico) && f.contains(&Format::Icns));
+        assert!(!f.contains(&Format::Bmp) && !f.contains(&Format::Tiff));
     }
 
     #[test]
