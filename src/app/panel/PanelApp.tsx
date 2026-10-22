@@ -93,7 +93,7 @@ export function PanelApp() {
   /** Restart was pressed; the app is re-checking or downloading before it restarts. */
   const [updateInstalling, setUpdateInstalling] = useState(false);
   const [panelPinned, setPanelPinned] = useState(false);
-  /** Pinning was just switched on; plays the panel's press once. */
+  /** Pinning was just switched on; plays the panel's press and edge sweep once. */
   const [pinPressing, setPinPressing] = useState(false);
   const [suggestIndex, setSuggestIndex] = useState(0);
 
@@ -490,10 +490,6 @@ export function PanelApp() {
       )}
       data-entering={entering || undefined}
       onKeyDown={onKeyDown}
-      // Cards animate too and their events bubble here; only the panel's own press ends it.
-      onAnimationEnd={(e) => {
-        if (e.target === e.currentTarget) setPinPressing(false);
-      }}
       // Capture runs before the card's handler, so the card sees this event's verdict.
       onMouseMoveCapture={(e) => {
         pointerMovedNow.current = pointerMoved(lastPointer.current, e.screenX, e.screenY);
@@ -507,6 +503,14 @@ export function PanelApp() {
     >
       {/* The glow sits behind the toolbar only. */}
       <Aurora className="inset-x-0 top-0 h-[72px]" />
+      {pinPressing && (
+        // The sweep ends last, so it ends the whole pin animation.
+        <span
+          className="animate-pin-sweep pin-sweep pointer-events-none absolute inset-0 z-10 rounded-[inherit] motion-reduce:hidden"
+          onAnimationEnd={() => setPinPressing(false)}
+          aria-hidden
+        />
+      )}
       {!closing && <ResizeHandle />}
       <Toolbar
         query={query}
