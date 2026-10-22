@@ -32,6 +32,7 @@ export const en = {
   updateRestartHint: 'Vee will restart briefly',
   restart: 'Restart',
   updateFailed: "Couldn't update",
+  updateInstalling: 'Getting the latest version…',
   whatsNew: { title: "What's new in Vee", ok: 'OK' },
   convert: {
     needsFfmpeg: 'Needs FFmpeg',

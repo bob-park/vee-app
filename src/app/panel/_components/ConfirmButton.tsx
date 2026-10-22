@@ -6,11 +6,13 @@ import cx from 'classnames';
 export function ConfirmButton({
   tone,
   tabIndex,
+  disabled,
   onClick,
   children,
 }: {
   tone?: 'danger' | 'go';
   tabIndex?: number;
+  disabled?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -20,8 +22,10 @@ export function ConfirmButton({
         'bg-subtle': !tone,
         'bg-error text-white': tone === 'danger',
         'bg-ok-fg text-card': tone === 'go',
+        'opacity-60': disabled,
       })}
       onClick={onClick}
+      disabled={disabled}
       tabIndex={tabIndex}
     >
       {children}

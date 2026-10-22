@@ -74,6 +74,8 @@ interface Props {
   updateVersion: string | null;
   updateConfirming: boolean;
   updateFailed: boolean;
+  /** Restart was pressed and the app is fetching the latest version. */
+  updateInstalling: boolean;
   onUpdate: () => void;
   onConfirmUpdate: () => void;
   onCancelUpdate: () => void;
@@ -102,6 +104,7 @@ export function Toolbar({
   updateVersion,
   updateConfirming,
   updateFailed,
+  updateInstalling,
   onUpdate,
   onConfirmUpdate,
   onCancelUpdate,
@@ -217,14 +220,14 @@ export function Toolbar({
               <div>
                 <p className="font-semibold">{t.updateConfirm(updateVersion)}</p>
                 <p className={cx('mt-0.5 text-[12px]', updateFailed ? 'text-error' : 'text-muted')}>
-                  {updateFailed ? t.updateFailed : t.updateRestartHint}
+                  {updateFailed ? t.updateFailed : updateInstalling ? t.updateInstalling : t.updateRestartHint}
                 </p>
               </div>
               <div className="flex justify-end gap-2">
                 <ConfirmButton onClick={onCancelUpdate} tabIndex={-1}>
                   {t.cancel}
                 </ConfirmButton>
-                <ConfirmButton tone="go" onClick={onConfirmUpdate} tabIndex={-1}>
+                <ConfirmButton tone="go" onClick={onConfirmUpdate} disabled={updateInstalling} tabIndex={-1}>
                   {t.restart}
                 </ConfirmButton>
               </div>

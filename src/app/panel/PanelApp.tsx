@@ -90,6 +90,8 @@ export function PanelApp() {
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const [updateConfirming, setUpdateConfirming] = useState(false);
   const [updateFailed, setUpdateFailed] = useState(false);
+  /** Restart was pressed; the app is re-checking or downloading before it restarts. */
+  const [updateInstalling, setUpdateInstalling] = useState(false);
   const [panelPinned, setPanelPinned] = useState(false);
   const [suggestIndex, setSuggestIndex] = useState(0);
 
@@ -261,6 +263,7 @@ export function PanelApp() {
     setConfirmingId(null);
     setUpdateConfirming(false);
     setUpdateFailed(false);
+    setUpdateInstalling(false);
     setPinNotice(false);
     void reloadRef.current(false);
   };
@@ -316,13 +319,20 @@ export function PanelApp() {
   };
 
   const installUpdate = () => {
+    if (updateInstalling) return;
     setUpdateFailed(false);
-    void installUpdateApi().catch(() => setUpdateFailed(true));
+    setUpdateInstalling(true);
+    // Resolves only on failure: success restarts the app.
+    void installUpdateApi().catch(() => {
+      setUpdateFailed(true);
+      setUpdateInstalling(false);
+    });
   };
 
   const cancelUpdate = () => {
     setUpdateConfirming(false);
     setUpdateFailed(false);
+    setUpdateInstalling(false);
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -511,6 +521,7 @@ export function PanelApp() {
         updateVersion={updateVersion}
         updateConfirming={updateConfirming}
         updateFailed={updateFailed}
+        updateInstalling={updateInstalling}
         onUpdate={() => {
           setConfirmingId(null);
           if (updateConfirming) cancelUpdate();
