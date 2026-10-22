@@ -16,6 +16,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+/// A stalled network (captive portal, dead Wi-Fi) gives up after this, so Restart falls back to the download in hand.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(tag = "status", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -79,8 +82,10 @@ async fn fetch(app: &AppHandle, floor: Option<String>) -> tauri_plugin_updater::
             Some(floor) => is_newer(&release.version.to_string(), floor),
             None => release.version > current,
         })
+        .timeout(CHECK_TIMEOUT)
         .build()?;
-    let Some(update) = updater.check().await? else { return Ok(None) };
+    let Some(mut update) = updater.check().await? else { return Ok(None) };
+    update.timeout = Some(DOWNLOAD_TIMEOUT);
     let bytes = update.download(|_, _| {}, || {}).await?;
     Ok(Some((update, bytes)))
 }

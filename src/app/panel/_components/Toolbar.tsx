@@ -224,7 +224,7 @@ export function Toolbar({
                 </p>
               </div>
               <div className="flex justify-end gap-2">
-                <ConfirmButton onClick={onCancelUpdate} tabIndex={-1}>
+                <ConfirmButton onClick={onCancelUpdate} disabled={updateInstalling} tabIndex={-1}>
                   {t.cancel}
                 </ConfirmButton>
                 <ConfirmButton tone="go" onClick={onConfirmUpdate} disabled={updateInstalling} tabIndex={-1}>

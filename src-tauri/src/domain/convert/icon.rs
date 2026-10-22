@@ -33,9 +33,18 @@ pub fn write_icon(img: DynamicImage, to: Format, out: &Path) -> Result<(), JobEr
     std::fs::write(out, bytes).map_err(|e| super::image::engine_error("write", e))
 }
 
-/// `src` centred on a transparent square as wide as its longer side.
+/// The largest icon size; bigger sources are scaled down to it first.
+const MAX_SIDE: u32 = 1024;
+
+/// `src` centred on a transparent square as wide as its longer side, at most `MAX_SIDE`.
 fn square(src: &RgbaImage) -> RgbaImage {
     let (w, h) = src.dimensions();
+    if w.max(h) > MAX_SIDE {
+        // A panorama would otherwise pad to a gigabyte-sized canvas before any resize.
+        let scale = f64::from(MAX_SIDE) / f64::from(w.max(h));
+        let fit = |v: u32| ((f64::from(v) * scale).round() as u32).max(1);
+        return square(&imageops::resize(src, fit(w), fit(h), FilterType::Lanczos3));
+    }
     let side = w.max(h);
     let mut canvas = RgbaImage::new(side, side);
     imageops::overlay(&mut canvas, src, i64::from((side - w) / 2), i64::from((side - h) / 2));
@@ -129,6 +138,14 @@ mod tests {
             at += u32::from_be_bytes(b[at + 4..at + 8].try_into().unwrap()) as usize;
         }
         assert_eq!(types, ["icp4", "icp5", "ic07", "ic08", "ic09", "ic10", "ic11", "ic12", "ic13", "ic14"]);
+    }
+
+    #[test]
+    fn huge_sources_are_scaled_down_before_padding() {
+        let sq = square(&img(4096, 1024));
+        assert_eq!(sq.dimensions(), (1024, 1024));
+        assert_eq!(sq.get_pixel(0, 0)[3], 0);
+        assert_eq!(sq.get_pixel(0, 512)[3], 255);
     }
 
     #[test]

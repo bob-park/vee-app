@@ -330,6 +330,8 @@ export function PanelApp() {
   };
 
   const cancelUpdate = () => {
+    // Too late once Restart was pressed: the backend restarts when its check ends.
+    if (updateInstalling) return;
     setUpdateConfirming(false);
     setUpdateFailed(false);
     setUpdateInstalling(false);

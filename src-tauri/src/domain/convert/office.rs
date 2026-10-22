@@ -43,13 +43,13 @@ const MAC_FONT_PAIRS: [(&str, &str); 12] = [
     ("Gungsuh", "AppleMyungjo"),
 ];
 
-/// The profile's `registrymodifications.xcu`: Korean locale, and on macOS a font replacement
+/// The profile's `registrymodifications.xcu`: Korean as the Asian-text language (not the system
+/// locale, which sets paper size and number formats), and on macOS a font replacement
 /// table applied to output too (`Always`), so Korean documents keep their metrics roughly.
 pub fn registry_xcu(macos: bool) -> String {
     let prop = |name: &str, value: &str| format!(r#"<prop oor:name="{name}" oor:op="fuse"><value>{value}</value></prop>"#);
     let item = |path: &str, body: String| format!(r#"<item oor:path="{path}">{body}</item>"#);
     let mut items = vec![
-        item("/org.openoffice.Setup/L10N", prop("ooSetupSystemLocale", "ko-KR")),
         item("/org.openoffice.Office.Linguistic/General", prop("DefaultLocale_CJK", "ko-KR")),
         item("/org.openoffice.Office.Common/I18N/CJK", prop("CJKFont", "true")),
     ];
@@ -202,6 +202,13 @@ mod tests {
         for f in ["Malgun Gothic", "맑은 고딕", "Gulim", "굴림", "Dotum", "돋움", "Batang", "바탕", "Gungsuh", "궁서"] {
             assert!(x.contains(&format!("<value>{f}</value>")), "{f}");
         }
+    }
+
+    #[test]
+    fn registry_leaves_the_system_locale_alone() {
+        // It picks the default paper size and number formats; ko-KR would turn Letter into A4 for everyone.
+        assert!(!registry_xcu(true).contains("ooSetupSystemLocale"));
+        assert!(!registry_xcu(false).contains("ooSetupSystemLocale"));
     }
 
     #[test]
