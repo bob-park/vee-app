@@ -27,6 +27,82 @@ fn filter(to: Format) -> Option<&'static str> {
     })
 }
 
+/// MS Korean fonts and their stand-ins on macOS, which ships none of them.
+const MAC_FONT_PAIRS: [(&str, &str); 12] = [
+    ("맑은 고딕", "Apple SD Gothic Neo"),
+    ("Malgun Gothic", "Apple SD Gothic Neo"),
+    ("굴림", "Apple SD Gothic Neo"),
+    ("Gulim", "Apple SD Gothic Neo"),
+    ("새굴림", "Apple SD Gothic Neo"),
+    ("New Gulim", "Apple SD Gothic Neo"),
+    ("돋움", "Apple SD Gothic Neo"),
+    ("Dotum", "Apple SD Gothic Neo"),
+    ("바탕", "AppleMyungjo"),
+    ("Batang", "AppleMyungjo"),
+    ("궁서", "AppleMyungjo"),
+    ("Gungsuh", "AppleMyungjo"),
+];
+
+/// The profile's `registrymodifications.xcu`: Korean locale, and on macOS a font replacement
+/// table applied to output too (`Always`), so Korean documents keep their metrics roughly.
+pub fn registry_xcu(macos: bool) -> String {
+    let prop = |name: &str, value: &str| format!(r#"<prop oor:name="{name}" oor:op="fuse"><value>{value}</value></prop>"#);
+    let item = |path: &str, body: String| format!(r#"<item oor:path="{path}">{body}</item>"#);
+    let mut items = vec![
+        item("/org.openoffice.Setup/L10N", prop("ooSetupSystemLocale", "ko-KR")),
+        item("/org.openoffice.Office.Linguistic/General", prop("DefaultLocale_CJK", "ko-KR")),
+        item("/org.openoffice.Office.Common/I18N/CJK", prop("CJKFont", "true")),
+    ];
+    if macos {
+        items.push(item("/org.openoffice.Office.Common/Font/Substitution", prop("Replacement", "true")));
+        for (i, (from, to)) in MAC_FONT_PAIRS.iter().enumerate() {
+            let pair = [prop("Always", "true"), prop("OnScreenOnly", "false"), prop("ReplaceFont", from), prop("SubstituteFont", to)].concat();
+            items.push(item(
+                "/org.openoffice.Office.Common/Font/Substitution/FontPairs",
+                format!(r#"<node oor:name="_{i}" oor:op="replace">{pair}</node>"#),
+            ));
+        }
+    }
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<oor:items xmlns:oor=\"http://openoffice.org/2001/registry\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n{}\n</oor:items>\n",
+        items.join("\n")
+    )
+}
+
+/// A fontconfig file for headless `soffice` on macOS. Headless LibreOffice finds fonts through
+/// fontconfig, whose bundled setup lists only LibreOffice's own fonts, so without this it sees no
+/// system font and drops every Hangul glyph.
+pub fn fonts_conf(soffice: &Path, cache: &Path) -> String {
+    // `<app>/Contents/MacOS/soffice` → `<app>/Contents/Resources/fonts/truetype`.
+    let bundled = soffice.parent().and_then(Path::parent).unwrap_or(Path::new("")).join("Resources/fonts/truetype");
+    let (bundled, cache) = (bundled.display(), cache.display());
+    format!(
+        r#"<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir>/System/Library/Fonts</dir>
+  <dir>/Library/Fonts</dir>
+  <dir>~/Library/Fonts</dir>
+  <dir>{bundled}</dir>
+  <cachedir>{cache}</cachedir>
+  <include ignore_missing="yes">{bundled}/fc_local.conf</include>
+</fontconfig>
+"#
+    )
+}
+
+/// Writes the profile's settings, and on macOS its `fonts.conf`. LibreOffice rewrites the
+/// `.xcu` on exit, so this runs before every conversion rather than once.
+pub fn write_profile(profile: &Path, soffice: &Path, macos: bool) -> std::io::Result<()> {
+    let user = profile.join("user");
+    std::fs::create_dir_all(&user)?;
+    std::fs::write(user.join("registrymodifications.xcu"), registry_xcu(macos))?;
+    if macos {
+        std::fs::write(profile.join("fonts.conf"), fonts_conf(soffice, &profile.join("fc-cache")))?;
+    }
+    Ok(())
+}
+
 /// `soffice` arguments converting `src` to `to` into `outdir`, with its own `profile` dir.
 pub fn soffice_args(src: &Path, to: Format, outdir: &Path, profile: &Path) -> Option<Vec<OsString>> {
     let mut a: Vec<OsString> = ["--headless", "--norestore"].map(OsString::from).into();
@@ -73,7 +149,15 @@ pub fn convert_lo(
     let outdir = unique_path(tmp, "soffice", "out");
     let args = soffice_args(src, to, &outdir, profile).ok_or(JobError::Engine)?;
     std::fs::create_dir(&outdir).map_err(|_| JobError::Write)?;
-    let result = exec(command(soffice).args(args), timeout, cancel, "soffice").and_then(|()| {
+    let macos = cfg!(target_os = "macos");
+    if let Err(e) = write_profile(profile, soffice, macos) {
+        log::warn!("convert: LibreOffice profile settings not written: {e}");
+    }
+    let mut cmd = command(soffice);
+    if macos {
+        cmd.env("FONTCONFIG_FILE", profile.join("fonts.conf"));
+    }
+    let result = exec(cmd.args(args), timeout, cancel, "soffice").and_then(|()| {
         // LibreOffice exits 0 even when it couldn't load the file, so the output is the real check.
         std::fs::rename(lo_output(&outdir, src, to), out).map_err(|e| {
             log::warn!("convert: soffice wrote no {}: {e}", to.ext());
@@ -109,6 +193,49 @@ mod tests {
         assert_eq!(f(Format::Rtf).unwrap(), "rtf:Rich Text Format");
         assert_eq!(f(Format::Html).unwrap(), "html:XHTML Writer File:UTF8");
         assert_eq!(f(Format::Png), None);
+    }
+
+    #[test]
+    fn registry_sets_korean_and_replaces_ms_korean_fonts_on_macos() {
+        let x = registry_xcu(true);
+        assert!(x.contains("ko-KR"));
+        for f in ["Malgun Gothic", "맑은 고딕", "Gulim", "굴림", "Dotum", "돋움", "Batang", "바탕", "Gungsuh", "궁서"] {
+            assert!(x.contains(&format!("<value>{f}</value>")), "{f}");
+        }
+    }
+
+    #[test]
+    fn windows_registry_sets_korean_without_font_pairs() {
+        let x = registry_xcu(false);
+        assert!(x.contains("ko-KR") && !x.contains("FontPairs"));
+    }
+
+    #[test]
+    fn fonts_conf_adds_the_mac_font_dirs_and_libreoffice_aliases() {
+        let x = fonts_conf(Path::new("/Applications/LibreOffice.app/Contents/MacOS/soffice"), Path::new("/p/fc-cache"));
+        for line in [
+            "<dir>/System/Library/Fonts</dir>",
+            "<dir>/Library/Fonts</dir>",
+            "<dir>~/Library/Fonts</dir>",
+            "<dir>/Applications/LibreOffice.app/Contents/Resources/fonts/truetype</dir>",
+            "<cachedir>/p/fc-cache</cachedir>",
+            "<include ignore_missing=\"yes\">/Applications/LibreOffice.app/Contents/Resources/fonts/truetype/fc_local.conf</include>",
+        ] {
+            assert!(x.contains(line), "{line}");
+        }
+    }
+
+    #[test]
+    fn write_profile_overwrites_what_libreoffice_left() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("user/registrymodifications.xcu");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "old").unwrap();
+        let soffice = Path::new("/Applications/LibreOffice.app/Contents/MacOS/soffice");
+        write_profile(dir.path(), soffice, true).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), registry_xcu(true));
+        let conf = std::fs::read_to_string(dir.path().join("fonts.conf")).unwrap();
+        assert_eq!(conf, fonts_conf(soffice, &dir.path().join("fc-cache")));
     }
 
     #[test]
