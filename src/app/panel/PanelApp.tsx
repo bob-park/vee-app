@@ -93,6 +93,8 @@ export function PanelApp() {
   /** Restart was pressed; the app is re-checking or downloading before it restarts. */
   const [updateInstalling, setUpdateInstalling] = useState(false);
   const [panelPinned, setPanelPinned] = useState(false);
+  /** Pinning was just switched on; plays the panel's press once. */
+  const [pinPressing, setPinPressing] = useState(false);
   const [suggestIndex, setSuggestIndex] = useState(0);
 
   // store
@@ -315,6 +317,7 @@ export function PanelApp() {
   const togglePanelPin = () => {
     const next = !panelPinned;
     setPanelPinned(next);
+    setPinPressing(next);
     void setPanelPinnedApi(next);
   };
 
@@ -474,6 +477,7 @@ export function PanelApp() {
         // Thumbnails must not start WebKit's own HTML drag.
         'bg-base-100 relative flex h-full flex-col overflow-hidden rounded-[18px] border px-3 pt-2.5 pb-3 [&_img]:[-webkit-user-drag:none]',
         panelPinned ? 'border-primary shadow-panel-pinned' : 'border-base-300',
+        pinPressing && 'animate-pin-press',
         /*
          * Entrance: the window appears instantly with the panel parked below its bottom edge (set
          * while hidden), then the panel slides up like a sheet. Closing, or dragging a file out so the
@@ -486,6 +490,10 @@ export function PanelApp() {
       )}
       data-entering={entering || undefined}
       onKeyDown={onKeyDown}
+      // Cards animate too and their events bubble here; only the panel's own press ends it.
+      onAnimationEnd={(e) => {
+        if (e.target === e.currentTarget) setPinPressing(false);
+      }}
       // Capture runs before the card's handler, so the card sees this event's verdict.
       onMouseMoveCapture={(e) => {
         pointerMovedNow.current = pointerMoved(lastPointer.current, e.screenX, e.screenY);
@@ -515,6 +523,7 @@ export function PanelApp() {
         onPickApp={pickApp}
         onSettings={() => void openSettings()}
         panelPinned={panelPinned}
+        panelPinPressing={pinPressing}
         panelPinShortcut={settings?.panelPinShortcut ?? ''}
         searching={searching}
         onResetSearch={resetSearch}

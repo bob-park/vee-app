@@ -64,6 +64,8 @@ interface Props {
   onSettings: () => void;
   /** The panel stays up when focus leaves it. */
   panelPinned: boolean;
+  /** Pinning was just switched on: the pin icon drops in. */
+  panelPinPressing: boolean;
   panelPinShortcut: string;
   onTogglePanelPin: () => void;
   /** A search, app tag or filter is set. */
@@ -96,6 +98,7 @@ export function Toolbar({
   onPickApp,
   onSettings,
   panelPinned,
+  panelPinPressing,
   panelPinShortcut,
   searching,
   onResetSearch,
@@ -246,8 +249,9 @@ export function Toolbar({
         aria-label={panelPinned ? t.unpinPanel : t.pinPanel}
         tabIndex={-1}
       >
+        {/* Lucide `pin` (ISC); the head fills while pinned. */}
         <svg
-          className="block size-4.5"
+          className={cx('block size-4.5', panelPinPressing && 'animate-pin-drop')}
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -256,7 +260,12 @@ export function Toolbar({
           strokeLinejoin="round"
           aria-hidden
         >
-          <path d="M12 17v5M9 3h6M10 3v7l-4 4v3h12v-3l-4-4V3" />
+          <path d="M12 17v5" />
+          <path
+            className="transition-[fill] duration-200"
+            fill={panelPinned ? 'currentColor' : 'none'}
+            d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"
+          />
         </svg>
         <Tip label={panelPinned ? t.unpinPanel : t.pinPanel} accel={panelPinShortcut} />
       </button>
@@ -266,10 +275,10 @@ export function Toolbar({
         aria-label={t.settings.title}
         tabIndex={-1}
       >
-        {/* An SVG, not the ⚙︎ glyph: font metrics put the glyph off centre, so it wobbled as it turned.
+        {/* An SVG, not the ⚙︎ glyph: font metrics put the glyph off centre, so it wobbled as it turned. 60° is one tooth, so it lands looking as it started.
             Lucide `settings` (ISC); the tip below is a sibling so it doesn't turn with it. */}
         <svg
-          className="block size-4.5 transition-transform duration-300 motion-safe:group-hover:rotate-45"
+          className="ease-spring block size-4.5 transition-transform duration-500 motion-safe:group-hover:rotate-60"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
