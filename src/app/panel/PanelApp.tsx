@@ -29,6 +29,7 @@ import { useStore } from '@/shared/store/rootStore';
 import { acceleratorFromEvent } from '@/utils/accelerator';
 import { dragFileName } from '@/utils/fileThumb';
 import { type PinnedSlot, panelKeyAction } from '@/utils/keys';
+import { isSide } from '@/utils/panelEdge';
 import {
   type Point,
   clampSelection,
@@ -123,6 +124,7 @@ export function PanelApp() {
 
   // queries
   const { settings } = useSettings();
+  const side = isSide(settings?.panelPosition ?? 'bottom');
   const { suggestions } = useAppSuggestions(query.slice(1), suggesting);
   const { status: updateStatus } = useUpdateStatus();
   const { jobs } = useConvertJobs();
@@ -363,6 +365,7 @@ export function PanelApp() {
       resetCombo: accel === settings?.resetSearchShortcut,
       pinnedCopy: pinnedCopy === -1 ? null : (pinnedCopy as PinnedSlot),
       justCancelledDrag: Date.now() - dragCancelledAt.current < DRAG_CANCEL_ESC_MS,
+      side,
     });
     if (!action) return;
     e.preventDefault();

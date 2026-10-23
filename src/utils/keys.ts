@@ -46,6 +46,8 @@ export interface KeyInput {
   pinnedCopy: PinnedSlot | null;
   /** A card drag was cancelled a moment ago; macOS hands the cancelling Escape to the panel too. */
   justCancelledDrag: boolean;
+  /** The panel is docked left or right: cards stack vertically, so Up/Down move between them too. */
+  side: boolean;
 }
 
 const MODIFIERS = ['Shift', 'Meta', 'Control', 'Alt'];
@@ -83,6 +85,10 @@ export function panelKeyAction(e: KeyInput): KeyAction {
       return { type: 'move', delta: 1 };
     case 'ArrowLeft':
       return { type: 'move', delta: -1 };
+    case 'ArrowDown':
+      return e.side ? { type: 'move', delta: 1 } : null;
+    case 'ArrowUp':
+      return e.side ? { type: 'move', delta: -1 } : null;
     case 'Enter':
       return { type: 'copy', plain: e.shiftKey };
     case 'Escape':
