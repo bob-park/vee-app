@@ -24,6 +24,7 @@ pub fn get(conn: &Connection, key: &str) -> String {
         "pinnedCopy3Shortcut" => DEFAULT_PINNED_COPY_SHORTCUTS[2],
         "sound" | "ocr" => "on",
         "soundName" => "pop",
+        "panelPosition" => "bottom",
         "confirmDelete" => "off",
         "retention" | "panelResize" => "off",
         "dragConvert" => "on",
@@ -80,6 +81,7 @@ fn validate(key: &str, value: &str) -> AppResult<()> {
         "sound" => matches!(value, "on" | "off"),
         "soundName" => value == SILENT || SOUND_NAMES.contains(&value),
         "confirmDelete" => matches!(value, "on" | "off"),
+        "panelPosition" => matches!(value, "bottom" | "top" | "left" | "right"),
         "retention" => matches!(value, "off" | "7" | "30" | "90"),
         "panelResize" | "ocr" | "dragConvert" | "videoHwAccel" => matches!(value, "on" | "off"),
         "convertKey" => matches!(value, "alt" | "ctrl" | "shift"),
@@ -88,7 +90,7 @@ fn validate(key: &str, value: &str) -> AppResult<()> {
         "panelPinShortcut" | "resetSearchShortcut" | "pinnedCopy1Shortcut" | "pinnedCopy2Shortcut" | "pinnedCopy3Shortcut" => {
             value.contains('+') && value.split('+').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric()))
         }
-        // `panelHeightRatio` is written only by the resize commands.
+        // `panelHeightRatio` and `panelWidthRatio` are written only by the resize commands.
         _ => false,
     };
     if ok { Ok(()) } else { Err(AppError::InvalidInput(format!("invalid setting {key}={value}"))) }
@@ -185,6 +187,25 @@ mod tests {
         assert!(validate("panelResize", "on").is_ok());
         assert!(validate("panelResize", "maybe").is_err());
         assert!(validate("panelHeightRatio", "0.4").is_err());
+    }
+
+    #[test]
+    fn panel_position_defaults_to_bottom_and_accepts_four_edges() {
+        let conn = db::open_in_memory().unwrap();
+        assert_eq!(get(&conn, "panelPosition"), "bottom");
+        for v in ["bottom", "top", "left", "right"] {
+            assert!(validate("panelPosition", v).is_ok(), "{v}");
+        }
+        assert!(validate("panelPosition", "center").is_err());
+        assert!(validate("panelWidthRatio", "0.3").is_err()); // command-only
+    }
+
+    #[test]
+    fn each_axis_reads_its_own_ratio_key() {
+        let conn = db::open_in_memory().unwrap();
+        set_raw(&conn, "panelWidthRatio", "0.5000").unwrap();
+        assert_eq!(get(&conn, "panelHeightRatio"), "");
+        assert_eq!(get(&conn, "panelWidthRatio"), "0.5000");
     }
 
     #[test]

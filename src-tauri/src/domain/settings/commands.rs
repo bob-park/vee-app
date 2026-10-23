@@ -37,6 +37,8 @@ pub fn get_settings(app: AppHandle, state: State<AppState>) -> SettingsDto {
         retention: get(&conn, "retention"),
         panel_resize: get(&conn, "panelResize"),
         panel_height_ratio: get(&conn, "panelHeightRatio"),
+        panel_width_ratio: get(&conn, "panelWidthRatio"),
+        panel_position: get(&conn, "panelPosition"),
         ocr: get(&conn, "ocr"),
         drag_convert: get(&conn, "dragConvert"),
         convert_key: get(&conn, "convertKey"),
