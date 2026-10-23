@@ -159,7 +159,7 @@ export function PanelApp() {
       );
       if (!keepSelection) {
         setConfirmingId(null);
-        rowRef.current?.scrollTo({ left: 0 });
+        rowRef.current?.scrollTo({ left: 0, top: 0 });
       }
     },
     [textQuery, filter, appId, side],
