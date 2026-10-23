@@ -26,7 +26,8 @@ export function dragSize(p: PanelPosition, start: DragStart, x: number, y: numbe
   }
 }
 
-const MAX_PINNED = 3;
+/** Mirrors `MAX_PINNED` in `domain/clip/model.rs`. */
+export const MAX_PINNED = 3;
 // ponytail: fixed layout heights measured off the side panel (padding, two-line toolbar, gaps, divider);
 // a toolbar restyle that changes its height needs these updated.
 const CHROME = 116; // panel padding 22 + toolbar 80 + history list padding 14

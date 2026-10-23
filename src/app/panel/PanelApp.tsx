@@ -36,7 +36,7 @@ import { useStore } from '@/shared/store/rootStore';
 import { acceleratorFromEvent } from '@/utils/accelerator';
 import { dragFileName } from '@/utils/fileThumb';
 import { type PinnedSlot, panelKeyAction } from '@/utils/keys';
-import { isSide, pinsThatFit } from '@/utils/panelEdge';
+import { MAX_PINNED, isSide, pinsThatFit } from '@/utils/panelEdge';
 import {
   type Point,
   clampSelection,
@@ -67,10 +67,10 @@ const PARKED: Record<PanelPosition, string> = {
 export function PanelApp() {
   // ref
   const noticeTimer = useRef<number | undefined>(undefined);
-  /** Panel size and pin count the side-pins toast last warned about. */
   /** The edge the panel was last laid out for; a change while open waits for the repaint to reveal it. */
   const lastPosition = useRef<PanelPosition | null>(null);
-  const warnedPins = useRef<string | null>(null);
+  /** Pinned count at the last render, so the side-pins toast fires when it reaches the limit. */
+  const lastPinCount = useRef(0);
   const enterTimer = useRef<number | undefined>(undefined);
   const bodyRef = useRef<HTMLDivElement>(null);
   const requestId = useRef(0);
@@ -205,16 +205,15 @@ export function PanelApp() {
     if (moved && openRef.current) requestAnimationFrame(() => requestAnimationFrame(() => void revealPanel()));
   }, [position]);
 
-  // Square side cards: warn once when the pinned ones leave no room for history on this panel, again only
-  // after another pin, a resize or another monitor changes the picture.
+  // Square side cards: every time pinning reaches the limit on an open side panel too short for that many
+  // pins with history below, say how many fit.
   useEffect(() => {
-    if (!open || !side) return;
+    const reached = lastPinCount.current < MAX_PINNED && pinned.length === MAX_PINNED;
+    lastPinCount.current = pinned.length;
+    if (!reached || !side || !openRef.current) return;
     const fits = pinsThatFit(window.innerWidth, window.innerHeight);
-    const key = `${window.innerWidth}x${window.innerHeight}:${pinned.length}`;
-    if (pinned.length <= fits || warnedPins.current === key) return;
-    warnedPins.current = key;
-    void warnSidePins(fits);
-  }, [open, side, pinned.length]);
+    if (fits < MAX_PINNED) void warnSidePins(fits);
+  }, [pinned.length, side]);
 
   useEffect(() => {
     void reload(false);
