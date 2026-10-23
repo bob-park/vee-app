@@ -5,8 +5,8 @@
 | 도구 | 버전 | 비고 |
 |---|---|---|
 | Rust | stable 1.85 이상 (edition 2024) | [rustup](https://rustup.rs) 으로 설치 |
-| Node.js | 26 | `.mise.toml`에 고정 |
-| Yarn | 4.18.1 | `.mise.toml`·`package.json#packageManager`에 고정, `nodeLinker: node-modules` |
+| Node.js | 26 | `../mise.toml`에 고정 |
+| Yarn | 4.18.1 | `../mise.toml`·`package.json#packageManager`에 고정, `nodeLinker: node-modules` |
 | [mise](https://mise.jdx.dev) | 최신 | 권장. Node/Yarn 버전을 자동으로 맞춤 |
 
 OS별 추가 준비:

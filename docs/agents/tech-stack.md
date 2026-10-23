@@ -9,11 +9,11 @@ related:
 
 # Tech Stack
 
-> Versions are pinned in `.mise.toml` (Node/Yarn), `package.json` (frontend), and `src-tauri/Cargo.toml` (Rust). Ask the user before adding, removing, or bumping a dependency.
+> Versions are pinned in `../../mise.toml` (Node/Yarn), `package.json` (frontend), and `src-tauri/Cargo.toml` (Rust). Ask the user before adding, removing, or bumping a dependency.
 
 | Area | Choice | Pinned in |
 | ---- | ------ | --------- |
-| Toolchain | Node 26, Yarn 4.18.1 (`nodeLinker: node-modules`) via mise | `.mise.toml`, `package.json#packageManager` |
+| Toolchain | Node 26, Yarn 4.18.1 (`nodeLinker: node-modules`) via mise | `../../mise.toml`, `package.json#packageManager` |
 | Rust | stable, edition 2024 | `src-tauri/Cargo.toml` |
 | Desktop shell | Tauri 2 (`tray-icon`, `image-png`, `macos-private-api`) | `src-tauri/Cargo.toml` |
 | Tauri plugins | single-instance, log, dialog, global-shortcut, autostart, updater | `src-tauri/Cargo.toml` |
