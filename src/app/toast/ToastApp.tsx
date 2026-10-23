@@ -93,7 +93,12 @@ export function ToastApp() {
         </span>
         <span className="flex min-w-0 flex-col gap-0.5">
           <b className="text-[16px]">{title}</b>
-          {summary && <span className="truncate text-[13px] opacity-70">{summary}</span>}
+          {summary && (
+            // The side-pins warning is a sentence, not a preview: it wraps instead of being cut.
+            <span className={cx('text-[13px] opacity-70', p.pinsFit !== null ? 'line-clamp-2' : 'truncate')}>
+              {summary}
+            </span>
+          )}
         </span>
       </div>
     </div>
