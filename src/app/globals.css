@@ -421,7 +421,9 @@
     font-size: 13px;
     -webkit-font-smoothing: antialiased;
     user-select: none;
-    @apply bg-base-100 text-base-content;
+    /* Inherited by every window: Korean wraps between words, not inside one, and no line ends on a lone word.
+       Clip previews that must break anywhere (code, URLs) set `break-all` themselves. */
+    @apply bg-base-100 text-base-content text-pretty break-keep;
   }
 
   html[data-window='panel'] body,
