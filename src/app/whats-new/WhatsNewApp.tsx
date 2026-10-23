@@ -115,7 +115,7 @@ export function WhatsNewApp() {
         </h1>
       </header>
       {/* Only the notes scroll; the title and button stay put. */}
-      <div className="relative z-1 min-h-0 flex-1 overflow-y-auto leading-[1.45] select-text">
+      <div className="relative z-1 min-h-0 flex-1 overflow-x-hidden overflow-y-auto leading-[1.45] select-text">
         {render(parseNotes(data.notes))}
       </div>
       <footer className="relative z-1 flex justify-end pt-4">
