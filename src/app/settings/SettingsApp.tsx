@@ -6,6 +6,7 @@ import ConvertSection from '@/app/settings/_components/ConvertSection';
 import { Dropdown } from '@/app/settings/_components/Dropdown';
 import { HistorySection } from '@/app/settings/_components/HistorySection';
 import PermissionsSection from '@/app/settings/_components/PermissionsSection';
+import PositionPicker from '@/app/settings/_components/PositionPicker';
 import Row from '@/app/settings/_components/Row';
 import Segmented from '@/app/settings/_components/Segmented';
 import SettingSection from '@/app/settings/_components/SettingSection';
@@ -24,6 +25,7 @@ import { type Dict, relativeTime } from '@/shared/i18n';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { errorText } from '@/utils/errorText';
 import { PANEL_KEYS } from '@/utils/keys';
+import { isSide } from '@/utils/panelEdge';
 
 import { listen } from '@tauri-apps/api/event';
 
@@ -139,6 +141,7 @@ export function SettingsApp() {
 
   const s = t.settings;
   if (!settings) return null;
+  const side = isSide(settings.panelPosition);
 
   return (
     <main className="relative flex h-full flex-col">
@@ -185,6 +188,13 @@ export function SettingsApp() {
         )}
         {tab === 'panel' && (
           <SettingSection>
+            <Row col label={s.panelPosition} hint={s.panelPositionHint} labelId="position-label">
+              <PositionPicker
+                value={settings.panelPosition}
+                onChange={(v) => updateSetting({ key: 'panelPosition', value: v })}
+                labelledBy="position-label"
+              />
+            </Row>
             <Row label={s.copySound}>
               <Switch
                 ariaLabel={s.copySound}
@@ -222,7 +232,7 @@ export function SettingsApp() {
                 onChange={(checked) => updateSetting({ key: 'confirmDelete', value: checked ? 'on' : 'off' })}
               />
             </Row>
-            <Row label={s.panelResize} hint={s.panelResizeHint}>
+            <Row label={s.panelResize} hint={s.panelResizeHints[settings.panelPosition]}>
               <Switch
                 ariaLabel={s.panelResize}
                 checked={settings.panelResize === 'on'}
@@ -231,7 +241,10 @@ export function SettingsApp() {
             </Row>
             {/* Stays enabled while resizing is off: the saved size is kept. */}
             <Row label={s.panelSizeReset}>
-              <Button disabled={settings.panelHeightRatio === ''} onClick={() => setConfirmReset(true)}>
+              <Button
+                disabled={(side ? settings.panelWidthRatio : settings.panelHeightRatio) === ''}
+                onClick={() => setConfirmReset(true)}
+              >
                 {s.reset}
               </Button>
             </Row>
@@ -257,7 +270,7 @@ export function SettingsApp() {
       <ConfirmModal
         open={confirmReset}
         title={s.panelSizeReset}
-        body={s.panelSizeResetBody}
+        body={s.panelSizeResetBodies[side ? 'width' : 'height']}
         confirmLabel={s.reset}
         onConfirm={() => {
           run(resetPanelSize());
