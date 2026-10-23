@@ -23,6 +23,12 @@ export const en = {
   unpinPanel: 'Unpin panel',
   copyFailed: "Couldn't copy",
   copyFailedDetail: 'The original is gone',
+  /** Toast when a left/right panel has more pinned cards than fit above its history. */
+  sidePinsTitle: 'Pinned cards cover the history',
+  sidePinsFit: (n: number) =>
+    n === 0
+      ? "On this screen, history won't fit below a pinned card"
+      : `Up to ${n} pinned card${n === 1 ? '' : 's'} fit with history on this screen`,
   deleteConfirm: 'Delete this item?',
   cancel: 'Cancel',
   delete: 'Delete',
@@ -101,10 +107,6 @@ export const en = {
     },
     panelPosition: 'Panel position',
     panelPositionHint: 'Screen edge the panel opens on',
-    sidePinsFit: (n: number) =>
-      n === 0
-        ? "On this screen, history won't fit below a pinned card"
-        : `On this screen, up to ${n} pinned card${n === 1 ? '' : 's'} fit with history below`,
     panelPositions: { bottom: 'Bottom', top: 'Top', left: 'Left', right: 'Right' },
     reset: 'Reset',
     shortcut: 'Shortcut',

@@ -106,6 +106,7 @@ pub fn run() {
             window::commands::set_panel_pinned,
             window::commands::resize_panel,
             window::commands::reset_panel_size,
+            window::commands::warn_side_pins,
             window::commands::reveal_panel,
             settings::commands::preview_sound,
             window::commands::open_settings,

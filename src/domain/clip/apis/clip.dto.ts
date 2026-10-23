@@ -36,4 +36,6 @@ export interface ToastPayload {
   plain: boolean;
   /** Set when the toast reports a conversion. */
   convert: ConvertNote | null;
+  /** Set when warning that pinned cards hide a side panel's history: how many fit with history below. */
+  pinsFit: number | null;
 }

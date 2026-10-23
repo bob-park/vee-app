@@ -26,9 +26,6 @@ export function dragSize(p: PanelPosition, start: DragStart, x: number, y: numbe
   }
 }
 
-/** Mirrors `app/window.rs`: default side width share, its clamp, the 340pt floor and the 8pt margin. */
-const SIDE_WIDTH = { ratio: 0.25, min: 0.15, max: 0.5, floor: 340 };
-const MARGIN = 8;
 const MAX_PINNED = 3;
 // ponytail: fixed layout heights measured off the side panel (padding, two-line toolbar, gaps, divider);
 // a toolbar restyle that changes its height needs these updated.
@@ -38,14 +35,12 @@ const GAP = 10;
 const CARD_INSET = 32; // panel px-3 + list p-1, both sides
 
 /**
- * How many pinned cards a left/right panel shows with at least one whole history card below them,
- * on a screen whose work area is `w`×`h` points. `ratio` is the saved width share (null: default).
+ * How many pinned (square) cards a left/right panel of `w`×`h` CSS px shows with at least one whole
+ * history card below them.
  */
-export function sidePinsThatFit(w: number, h: number, ratio: number | null): number {
-  const max = Math.floor(w * SIDE_WIDTH.max);
-  const min = Math.min(Math.max(Math.ceil(w * SIDE_WIDTH.min), SIDE_WIDTH.floor), max);
-  const card = Math.min(Math.max(Math.round(w * (ratio ?? SIDE_WIDTH.ratio)), min), max) - CARD_INSET;
-  const room = h - 2 * MARGIN - CHROME - card;
+export function pinsThatFit(w: number, h: number): number {
+  const card = w - CARD_INSET;
+  const room = h - CHROME - card;
   for (let k = MAX_PINNED; k > 0; k--) {
     if (PIN_BLOCK + k * card + (k - 1) * GAP <= room) return k;
   }

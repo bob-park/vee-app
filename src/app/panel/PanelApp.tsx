@@ -16,7 +16,13 @@ import { cancelFloat, cardOffsets, floatCard, playFlip, reducedMotion } from '@/
 import { copyClip, deleteClip, listClips, listPinned, setPinned, startDrag } from '@/domain/clip/apis/clip';
 import type { Clip } from '@/domain/clip/apis/clip.dto';
 import { useConvertJobs } from '@/domain/convert/queries/convert';
-import { hidePanel, openSettings, revealPanel, setPanelPinned as setPanelPinnedApi } from '@/domain/panel/apis/panel';
+import {
+  hidePanel,
+  openSettings,
+  revealPanel,
+  setPanelPinned as setPanelPinnedApi,
+  warnSidePins,
+} from '@/domain/panel/apis/panel';
 import type { PanelPosition } from '@/domain/settings/apis/settings.dto';
 import { useSettings } from '@/domain/settings/queries/settings';
 import type { App } from '@/domain/source_app/apis/sourceApp.dto';
@@ -30,7 +36,7 @@ import { useStore } from '@/shared/store/rootStore';
 import { acceleratorFromEvent } from '@/utils/accelerator';
 import { dragFileName } from '@/utils/fileThumb';
 import { type PinnedSlot, panelKeyAction } from '@/utils/keys';
-import { isSide } from '@/utils/panelEdge';
+import { isSide, pinsThatFit } from '@/utils/panelEdge';
 import {
   type Point,
   clampSelection,
@@ -61,6 +67,8 @@ const PARKED: Record<PanelPosition, string> = {
 export function PanelApp() {
   // ref
   const noticeTimer = useRef<number | undefined>(undefined);
+  /** Panel size and pin count the side-pins toast last warned about. */
+  const warnedPins = useRef<string | null>(null);
   const enterTimer = useRef<number | undefined>(undefined);
   const bodyRef = useRef<HTMLDivElement>(null);
   const requestId = useRef(0);
@@ -186,6 +194,17 @@ export function PanelApp() {
   useEffect(() => {
     document.documentElement.toggleAttribute('data-side', side);
   }, [side]);
+
+  // Square side cards: warn once when the pinned ones leave no room for history on this panel, again only
+  // after another pin, a resize or another monitor changes the picture.
+  useEffect(() => {
+    if (!open || !side) return;
+    const fits = pinsThatFit(window.innerWidth, window.innerHeight);
+    const key = `${window.innerWidth}x${window.innerHeight}:${pinned.length}`;
+    if (pinned.length <= fits || warnedPins.current === key) return;
+    warnedPins.current = key;
+    void warnSidePins(fits);
+  }, [open, side, pinned.length]);
 
   useEffect(() => {
     void reload(false);

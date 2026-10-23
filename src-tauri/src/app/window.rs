@@ -64,29 +64,36 @@ pub struct ToastPayload {
     /// Copied as plain text, without the source app's formatting.
     pub plain: bool,
     pub convert: Option<ConvertNote>,
+    /// Set when warning that pinned cards hide a side panel's history: how many fit with history below.
+    pub pins_fit: Option<usize>,
 }
 
 impl ToastPayload {
     fn copied(content: &ClipContent, plain: bool) -> Self {
         match content {
             ClipContent::Text(t) => {
-                Self { ok: true, kind: classify_text(t), text: Some(toast_preview(t)), files: 0, plain, convert: None }
+                Self { ok: true, kind: classify_text(t), text: Some(toast_preview(t)), files: 0, plain, convert: None, pins_fit: None }
             }
-            ClipContent::Image(_) => Self { ok: true, kind: Kind::Image, text: None, files: 0, plain: false, convert: None },
+            ClipContent::Image(_) => Self { ok: true, kind: Kind::Image, text: None, files: 0, plain: false, convert: None, pins_fit: None },
             ClipContent::Files(f) => {
-                Self { ok: true, kind: Kind::Files, text: None, files: f.len(), plain: false, convert: None }
+                Self { ok: true, kind: Kind::Files, text: None, files: f.len(), plain: false, convert: None, pins_fit: None }
             }
         }
     }
 
     fn failed() -> Self {
-        Self { ok: false, kind: Kind::Text, text: None, files: 0, plain: false, convert: None }
+        Self { ok: false, kind: Kind::Text, text: None, files: 0, plain: false, convert: None, pins_fit: None }
     }
 
     /// A convert note; `ok` only for a saved file.
     pub(crate) fn convert(note: ConvertNote, kind: Kind) -> Self {
         let ok = matches!(note, ConvertNote::Saved { .. });
-        Self { ok, kind, text: None, files: 0, plain: false, convert: Some(note) }
+        Self { ok, kind, text: None, files: 0, plain: false, convert: Some(note), pins_fit: None }
+    }
+
+    /// The side-panel warning: more cards are pinned than fit above the history.
+    pub(crate) fn pins_fit(n: usize) -> Self {
+        Self { ok: false, kind: Kind::Text, text: None, files: 0, plain: false, convert: None, pins_fit: Some(n) }
     }
 }
 
@@ -785,6 +792,12 @@ pub mod commands {
         super::reset_panel_size(&app)
     }
 
+    /// The panel measured that `fits` pinned cards leave room for history and more are pinned.
+    #[tauri::command]
+    pub fn warn_side_pins(app: AppHandle, fits: usize) {
+        super::show_toast(&app, super::ToastPayload::pins_fit(fits));
+    }
+
     #[tauri::command]
     pub fn reveal_panel(app: AppHandle) {
         super::reveal_panel(&app);
@@ -982,6 +995,13 @@ mod tests {
         assert_eq!(ToastPayload::copied(&ClipContent::Image(PathBuf::from("/x.png")), false).kind, Kind::Image);
         let files = ToastPayload::copied(&ClipContent::Files(vec!["/a".into(), "/b".into()]), false);
         assert_eq!((files.kind, files.files), (Kind::Files, 2));
+    }
+
+    #[test]
+    fn side_pins_toast_carries_the_count_that_fits() {
+        let v = serde_json::to_value(ToastPayload::pins_fit(1)).unwrap();
+        assert_eq!((v["ok"].as_bool(), v["pinsFit"].as_u64()), (Some(false), Some(1)));
+        assert!(serde_json::to_value(ToastPayload::failed()).unwrap()["pinsFit"].is_null());
     }
 
     #[test]

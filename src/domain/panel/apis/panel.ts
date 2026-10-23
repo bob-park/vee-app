@@ -22,6 +22,11 @@ export async function resetPanelSize() {
   return call<void>('reset_panel_size');
 }
 
+/** Shows the toast saying pinned cards cover a side panel's history; `fits` is how many leave room for it. */
+export async function warnSidePins(fits: number) {
+  return call<void>('warn_side_pins', { fits });
+}
+
 export async function revealPanel() {
   return call<void>('reveal_panel');
 }

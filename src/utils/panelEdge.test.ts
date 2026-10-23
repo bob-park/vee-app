@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { dragSize, isSide, sidePinsThatFit } from './panelEdge.ts';
+import { dragSize, isSide, pinsThatFit } from './panelEdge.ts';
 
 void test('dragging the inner edge outward grows the panel on every edge', () => {
   const s = { size: 300, x: 500, y: 500 };
@@ -15,15 +15,15 @@ void test('only left and right are side positions', () => {
   assert.deepEqual((['bottom', 'top', 'left', 'right'] as const).filter(isSide), ['left', 'right']);
 });
 
-void test('a MacBook Pro 16" side panel shows one pin with history at the default width, two at the minimum', () => {
-  assert.equal(sidePinsThatFit(1728, 1117, null), 1); // 25% = 432pt wide, cards ~400pt
-  assert.equal(sidePinsThatFit(1728, 1117, 0.1), 2); // clamped to the 340pt floor
+void test('a 432pt-wide side panel on a MacBook Pro 16" fits one pin with history, a 340pt one two', () => {
+  assert.equal(pinsThatFit(432, 1101), 1); // cards ~400pt
+  assert.equal(pinsThatFit(340, 1101), 2);
 });
 
-void test('a tall screen fits all three pins with history', () => {
-  assert.equal(sidePinsThatFit(1080, 1920, null), 3); // portrait: 340pt floor, cards ~308pt
+void test('a tall side panel fits all three pins with history', () => {
+  assert.equal(pinsThatFit(340, 1904), 3); // portrait screen
 });
 
-void test('a screen too short for even one card beside the toolbar fits no pins', () => {
-  assert.equal(sidePinsThatFit(2560, 700, 0.5), 0);
+void test('a panel too short for even one card beside the toolbar fits no pins', () => {
+  assert.equal(pinsThatFit(1280, 684), 0);
 });
