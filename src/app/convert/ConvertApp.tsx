@@ -114,6 +114,23 @@ export default function ConvertApp() {
             style={{ animationDelay: `${40 + n * 25}ms` }}
           />
         )}
+        {/* One shadow for all slices, not one per slice: WebKit redraws every filter on each frame of a
+            highlight transition, and a fast sweep keeps several running at once. Labels stay unshadowed. */}
+        <g className="slice-lit">
+          {open.slices.map(({ format, needs }, i) => (
+            <path
+              key={format}
+              d={slicePath(i, n)}
+              className={cx(
+                play && 'animate-slice-in motion-reduce:animate-none',
+                needs && 'opacity-45',
+                '[transition:fill_180ms_ease,scale_350ms_var(--ease-spring)] motion-reduce:transition-none',
+                i === hot && !needs ? 'fill-primary scale-[1.07]' : 'fill-donut',
+              )}
+              style={{ animationDelay: `${40 + i * 25}ms` }}
+            />
+          ))}
+        </g>
         {open.slices.map(({ format, needs }, i) => {
           const l = labelAt(i, n);
           const active = i === hot && !needs;
@@ -123,13 +140,6 @@ export default function ConvertApp() {
               className={cx(play && 'animate-slice-in motion-reduce:animate-none', needs && 'opacity-45')}
               style={{ animationDelay: `${40 + i * 25}ms` }}
             >
-              <path
-                d={slicePath(i, n)}
-                className={cx(
-                  'slice-lit [transition:fill_180ms_ease,scale_350ms_var(--ease-spring)] motion-reduce:transition-none',
-                  active ? 'fill-primary scale-[1.07]' : 'fill-donut',
-                )}
-              />
               <text
                 x={l.x}
                 y={needs ? l.y : l.y + 4}
