@@ -43,7 +43,13 @@ function Tip({ label, accel, className = 'right-0' }: { label: string; accel: st
   );
 }
 
-const ICON_BTN = 'group relative rounded-[10px] px-1.5 text-[24px] leading-none';
+const ICON_BTN = 'group relative rounded-[10px] px-1.5 text-[24px] leading-none in-data-side:order-1';
+/*
+ * Docked left/right the toolbar wraps: search (and the reset chip) on the first line, then filters and
+ * buttons. `order-1` moves those after the chip; the search box's 60% basis leaves no room for the filters.
+ * The search box gets `z-3` there so its app list opens over the second line instead of under it.
+ */
+const SECOND_LINE = 'in-data-side:order-1';
 
 interface Props {
   query: string;
@@ -126,8 +132,8 @@ export function Toolbar({
   return (
     // z-2: above the card body (z-1, later in the DOM) so the suggest list, update popover and tips
     // aren't covered by cards; both stay above the aurora (z-0).
-    <div className="relative z-2 mb-2.5 flex items-center gap-1.5">
-      <div className="rounded-box glass text-muted relative flex shrink-0 basis-55 items-center gap-1.5 px-2.5 py-1.5">
+    <div className="relative z-2 mb-2.5 flex items-center gap-1.5 in-data-side:flex-wrap in-data-side:gap-y-2">
+      <div className="rounded-box glass text-muted relative flex shrink-0 basis-55 items-center gap-1.5 px-2.5 py-1.5 in-data-side:z-3 in-data-side:shrink in-data-side:grow in-data-side:basis-[60%]">
         <span aria-hidden>🔍</span>
         {app && (
           <span className="bg-accent-subtle text-primary flex max-w-[120px] flex-none items-center gap-1 rounded-md px-0.5 py-px text-[12px] font-semibold whitespace-nowrap">
@@ -165,7 +171,10 @@ export function Toolbar({
           />
         )}
       </div>
-      <div className="glass rounded-box relative inline-grid auto-cols-fr grid-flow-col gap-1 p-[3px]" role="tablist">
+      <div
+        className={cx('glass rounded-box relative inline-grid auto-cols-fr grid-flow-col gap-1 p-[3px]', SECOND_LINE)}
+        role="tablist"
+      >
         {/* The sliding pill behind the selected tab: one column wide (3px padding, 4px gaps), moved by whole columns. */}
         <span
           className="bg-primary ease-spring absolute inset-y-[3px] left-[3px] rounded-[9px] transition-transform duration-450"
@@ -203,10 +212,10 @@ export function Toolbar({
           <Tip label={t.resetSearchTip} accel={resetSearchShortcut} className="left-0" />
         </button>
       )}
-      <span className="flex-1" />
+      <span className={cx('flex-1', SECOND_LINE)} />
       {updateVersion && (
         // `update` is the hook PanelApp keeps a click inside from cancelling the prompt by.
-        <div className="update relative">
+        <div className={cx('update relative', SECOND_LINE)}>
           <button
             className="bg-ok-bg text-ok-fg flex items-center gap-1.25 rounded-md py-0.75 pr-2 pl-1.5 text-[12px] font-semibold"
             onClick={onUpdate}

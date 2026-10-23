@@ -12,11 +12,12 @@ import {
 import { Card } from '@/app/panel/_components/Card';
 import { ResizeHandle } from '@/app/panel/_components/ResizeHandle';
 import { FILTERS, Toolbar } from '@/app/panel/_components/Toolbar';
-import { cancelFloat, cardLefts, floatCard, playFlip, reducedMotion } from '@/app/panel/_components/motion';
+import { cancelFloat, cardOffsets, floatCard, playFlip, reducedMotion } from '@/app/panel/_components/motion';
 import { copyClip, deleteClip, listClips, listPinned, setPinned, startDrag } from '@/domain/clip/apis/clip';
 import type { Clip } from '@/domain/clip/apis/clip.dto';
 import { useConvertJobs } from '@/domain/convert/queries/convert';
 import { hidePanel, openSettings, revealPanel, setPanelPinned as setPanelPinnedApi } from '@/domain/panel/apis/panel';
+import type { PanelPosition } from '@/domain/settings/apis/settings.dto';
 import { useSettings } from '@/domain/settings/queries/settings';
 import type { App } from '@/domain/source_app/apis/sourceApp.dto';
 import { useAppSuggestions } from '@/domain/source_app/queries/sourceApp';
@@ -48,6 +49,14 @@ const isMac = navigator.userAgent.includes('Mac');
 const DRAG_CANCEL_ESC_MS = 300;
 /** How long `data-entering` stays on after an open: the last staggered card (8 × 25 ms) plus its 650 ms spring. */
 const ENTER_MS = 900;
+
+// Where the panel waits off screen (hidden, closing, or while a file is dragged out): past its docked edge.
+const PARKED: Record<PanelPosition, string> = {
+  bottom: 'translate-y-[calc(100%+16px)]',
+  top: '-translate-y-[calc(100%+16px)]',
+  left: '-translate-x-[calc(100%+16px)]',
+  right: 'translate-x-[calc(100%+16px)]',
+};
 
 export function PanelApp() {
   // ref
@@ -124,7 +133,8 @@ export function PanelApp() {
 
   // queries
   const { settings } = useSettings();
-  const side = isSide(settings?.panelPosition ?? 'bottom');
+  const position = settings?.panelPosition ?? 'bottom';
+  const side = isSide(position);
   const { suggestions } = useAppSuggestions(query.slice(1), suggesting);
   const { status: updateStatus } = useUpdateStatus();
   const { jobs } = useConvertJobs();
@@ -139,7 +149,7 @@ export function PanelApp() {
       const [page, pins] = await Promise.all([listClips(textQuery, filter, appId, 0, PAGE), listPinned()]);
       if (id !== requestId.current) return;
       // Only copies arriving while the panel is on screen animate — not searches or filters.
-      if (animate && openRef.current && !reducedMotion()) flipFrom.current = cardLefts(bodyRef.current);
+      if (animate && openRef.current && !reducedMotion()) flipFrom.current = cardOffsets(bodyRef.current, side);
       setPinnedClips(pins);
       setClips(page);
       setHasMore(page.length === PAGE);
@@ -152,7 +162,7 @@ export function PanelApp() {
         rowRef.current?.scrollTo({ left: 0 });
       }
     },
-    [textQuery, filter, appId],
+    [textQuery, filter, appId, side],
   );
 
   const loadMore = useCallback(async () => {
@@ -172,6 +182,11 @@ export function PanelApp() {
   reloadRef.current = reload;
 
   // useEffect
+  // On <html>, not the panel root, so a card's floating copy (appended to <body>) keeps the side sizes too.
+  useEffect(() => {
+    document.documentElement.toggleAttribute('data-side', side);
+  }, [side]);
+
   useEffect(() => {
     void reload(false);
   }, [reload]);
@@ -258,7 +273,7 @@ export function PanelApp() {
   useLayoutEffect(() => {
     const before = flipFrom.current;
     flipFrom.current = null;
-    if (before && bodyRef.current) playFlip(bodyRef.current, before);
+    if (before && bodyRef.current) playFlip(bodyRef.current, before, side);
   }, [clips, pinned]);
 
   // handle
@@ -437,12 +452,15 @@ export function PanelApp() {
   };
 
   const onWheel = (e: WheelEvent<HTMLDivElement>) => {
-    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY;
+    if (!side && Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY;
   };
 
   const onScroll = (e: UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
-    if (el.scrollLeft + el.clientWidth > el.scrollWidth - 400) void loadMore();
+    const near = side
+      ? el.scrollTop + el.clientHeight > el.scrollHeight - 400
+      : el.scrollLeft + el.clientWidth > el.scrollWidth - 400;
+    if (near) void loadMore();
   };
 
   /** `i` is the card's index in `items`. */
@@ -484,11 +502,11 @@ export function PanelApp() {
         panelPinned && !pinPressing ? 'border-primary shadow-panel-pinned' : 'border-base-300',
         pinPressing && 'animate-pin-press',
         /*
-         * Entrance: the window appears instantly with the panel parked below its bottom edge (set
-         * while hidden), then the panel slides up like a sheet. Closing, or dragging a file out so the
-         * whole screen is a drop target, slides it back down.
+         * Entrance: the window appears instantly with the panel parked past its docked edge (set
+         * while hidden), then the panel slides in like a sheet. Closing, or dragging a file out so the
+         * whole screen is a drop target, slides it back out.
          */
-        (!open || closing || dragging) && 'translate-y-[calc(100%+16px)]',
+        (!open || closing || dragging) && PARKED[position],
         open && 'transition-[translate] motion-reduce:transition-none',
         open &&
           (closing || dragging ? 'duration-200 ease-[ease-in]' : 'duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]'),
@@ -550,11 +568,11 @@ export function PanelApp() {
         onConfirmUpdate={installUpdate}
         onCancelUpdate={cancelUpdate}
       />
-      {/* Pins on the left, history scrolling on the right. */}
-      <div className="relative z-1 flex min-h-0 flex-1" ref={bodyRef}>
+      {/* Pins first (left, or on top when docked to a side), then the scrolling history. */}
+      <div className={cx('relative z-1 flex min-h-0 flex-1', side && 'flex-col')} ref={bodyRef}>
         {pinned.length > 0 && (
           <>
-            <div className="relative flex flex-none gap-2.5 p-1 pt-1.5" role="listbox">
+            <div className={cx('relative flex flex-none gap-2.5 p-1 pt-1.5', side && 'flex-col')} role="listbox">
               {pinned.map((clip, i) => renderCard(clip, i))}
               {pinNotice && (
                 <div
@@ -565,7 +583,7 @@ export function PanelApp() {
                 </div>
               )}
             </div>
-            <div className="bg-base-300 mx-1.5 my-2 w-px flex-none" aria-hidden />
+            <div className={cx('bg-base-300 flex-none', side ? 'mx-2 my-1.5 h-px' : 'mx-1.5 my-2 w-px')} aria-hidden />
           </>
         )}
         {clips.length === 0 ? (
@@ -574,7 +592,13 @@ export function PanelApp() {
           </div>
         ) : (
           <div
-            className="flex min-w-0 flex-1 [scrollbar-width:none] gap-2.5 overflow-x-auto overflow-y-hidden p-1 pt-1.5 [&::-webkit-scrollbar]:hidden"
+            className={cx(
+              'flex min-w-0 flex-1 [scrollbar-width:none] gap-2.5 p-1 [&::-webkit-scrollbar]:hidden',
+              // Room above the first card for its hover lift and selection ring, which the scroll box would clip.
+              side
+                ? 'min-h-0 scroll-pt-2.5 flex-col overflow-x-hidden overflow-y-auto pt-2.5'
+                : 'overflow-x-auto overflow-y-hidden pt-1.5',
+            )}
             ref={rowRef}
             role="listbox"
             onWheel={onWheel}
