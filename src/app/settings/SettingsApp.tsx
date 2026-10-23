@@ -13,7 +13,7 @@ import { ShortcutRecorder } from '@/app/settings/_components/ShortcutRecorder';
 import Switch from '@/app/settings/_components/Switch';
 import { type SettingsTab, Tabs } from '@/app/settings/_components/Tabs';
 import ThemePicker from '@/app/settings/_components/ThemePicker';
-import { resetPanelHeight } from '@/domain/panel/apis/panel';
+import { resetPanelSize } from '@/domain/panel/apis/panel';
 import { previewSound, setAutostart, setSetting, setShortcut } from '@/domain/settings/apis/settings';
 import { SOUND_NAMES, type SoundName } from '@/domain/settings/apis/settings.dto';
 import { useSettingUpdate, useSettings } from '@/domain/settings/queries/settings';
@@ -260,7 +260,7 @@ export function SettingsApp() {
         body={s.panelSizeResetBody}
         confirmLabel={s.reset}
         onConfirm={() => {
-          run(resetPanelHeight());
+          run(resetPanelSize());
           setConfirmReset(false);
         }}
         onCancel={() => setConfirmReset(false)}

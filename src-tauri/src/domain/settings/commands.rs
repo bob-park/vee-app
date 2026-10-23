@@ -7,7 +7,7 @@ use crate::app::{
     shortcut::register_shortcut,
     sound,
     state::{AppState, now_ms},
-    tray,
+    tray, window,
 };
 use crate::shared::error::{AppError, AppResult};
 use tauri::{AppHandle, Emitter, State};
@@ -57,6 +57,9 @@ pub fn set_setting(app: AppHandle, state: State<AppState>, key: String, value: S
     }
     if key == "retention" {
         prune_now(&app)?;
+    }
+    if key == "panelPosition" {
+        window::place_panel(&app);
     }
     if key == "ocr" {
         ocr::wake();
