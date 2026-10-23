@@ -27,7 +27,7 @@
 
 ## 2. 기술 스택
 
-- Tauri v2 (Rust) + React + TypeScript + Vite, 패키지 매니저 yarn 4 (`.mise.toml`의 node 24)
+- Tauri v2 (Rust) + React + TypeScript + Vite, 패키지 매니저 yarn 4 (`../../../mise.toml`의 node 24)
 - Rust 크레이트: `tauri` 2, `tauri-plugin-global-shortcut`, `tauri-plugin-autostart`, `tauri-plugin-updater`, `tauri-plugin-single-instance`, `tauri-plugin-log`, `clipboard-rs`, `rusqlite`(feature `bundled`), `sha2`, `image`(썸네일), macOS `objc2-app-kit`, Windows `windows`
 - 프론트엔드 의존성: `react`, `react-dom`, `@tauri-apps/api`, 사용 플러그인의 JS 바인딩. i18n·상태관리 라이브러리 없음
 

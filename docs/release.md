@@ -7,7 +7,7 @@
 - `~/.config/vee/sign.env`: `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`, `TAURI_SIGNING_PRIVATE_KEY`(절대 경로 또는 키 내용), `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
 - Windows PC: Rust, Node 26/yarn 4, `gh auth login`, PowerShell 7, `%USERPROFILE%\.config\vee\sign.env`(Tauri 키 두 줄, Windows 경로)와 개인키 파일
 - `GITHUB_NPM_AUTH_TOKEN`: `read:packages` 권한의 GitHub 토큰을 환경 변수로 등록한다(macOS는 셸 프로필에 `export`, Windows는 `setx`). 없으면 `yarn install`이 실패한다. 자세한 방법은 [개발 문서](development.md#github-packages-토큰-github_npm_auth_token)
-- yarn은 반드시 4.18.1(`.mise.toml`)로 실행한다. mise가 활성화되지 않아 전역 yarn 1.x가 잡히면 `yarn.lock`이 Yarn 1 형식으로 통째로 바뀐다. `yarn --version`으로 확인하고, 4.x가 아니면 `corepack yarn@4.18.1 <명령>`으로 실행한다.
+- yarn은 반드시 4.18.1 (`../mise.toml`)로 실행한다. mise가 활성화되지 않아 전역 yarn 1.x가 잡히면 `yarn.lock`이 Yarn 1 형식으로 통째로 바뀐다. `yarn --version`으로 확인하고, 4.x가 아니면 `corepack yarn@4.18.1 <명령>`으로 실행한다.
 
 ## 절차
 1. `master`로 머지 → GitHub Actions가 버전을 올려 `chore: bump version to X.Y.Z [skip ci]`를 커밋한다. 릴리스할 각 기계에서 `master`를 pull하고 `src-tauri/tauri.conf.json`의 `version`이 올라갔는지 확인한다. 버전 파일은 손으로 고치지 않는다.
