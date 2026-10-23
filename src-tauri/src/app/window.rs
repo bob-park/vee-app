@@ -353,13 +353,7 @@ fn place_and_show(app: &AppHandle, panel: &WebviewWindow) -> tauri::Result<()> {
     }
     set_panel_alpha(panel, 0.0);
     panel.show()?;
-    // Never leave a shown, focused panel invisible; revealing twice is harmless.
-    let handle = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(PANEL_REVEAL_FALLBACK_MS));
-        let main = handle.clone();
-        let _ = handle.run_on_main_thread(move || reveal_panel(&main));
-    });
+    reveal_later(app);
     panel.set_focus()?;
     app.emit_to(PANEL, "panel://opened", ())?;
     Ok(())
@@ -375,6 +369,25 @@ fn set_panel_alpha(panel: &WebviewWindow, alpha: f64) {
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (panel, alpha);
+}
+
+/// Never leaves a shown panel invisible if the page doesn't reveal it; revealing twice is harmless.
+fn reveal_later(app: &AppHandle) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(PANEL_REVEAL_FALLBACK_MS));
+        let main = handle.clone();
+        let _ = handle.run_on_main_thread(move || reveal_panel(&main));
+    });
+}
+
+/// Moves a visible panel to a new position. It turns invisible first and the page reveals it once the new
+/// layout is painted, so the old layout never shows in the new window shape.
+pub fn move_panel(app: &AppHandle) {
+    let Some(panel) = app.get_webview_window(PANEL).filter(|p| p.is_visible().unwrap_or(false)) else { return };
+    set_panel_alpha(&panel, 0.0);
+    place_panel(app);
+    reveal_later(app);
 }
 
 /// Called by the panel once its parked frame has been painted.

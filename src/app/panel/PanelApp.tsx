@@ -68,6 +68,8 @@ export function PanelApp() {
   // ref
   const noticeTimer = useRef<number | undefined>(undefined);
   /** Panel size and pin count the side-pins toast last warned about. */
+  /** The edge the panel was last laid out for; a change while open waits for the repaint to reveal it. */
+  const lastPosition = useRef<PanelPosition | null>(null);
   const warnedPins = useRef<string | null>(null);
   const enterTimer = useRef<number | undefined>(undefined);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -194,6 +196,14 @@ export function PanelApp() {
   useEffect(() => {
     document.documentElement.toggleAttribute('data-side', side);
   }, [side]);
+
+  // Moved to another edge while open: Rust hid the window before moving it; show it once this layout is painted.
+  useEffect(() => {
+    if (lastPosition.current === position) return;
+    const moved = lastPosition.current !== null;
+    lastPosition.current = position;
+    if (moved && openRef.current) requestAnimationFrame(() => requestAnimationFrame(() => void revealPanel()));
+  }, [position]);
 
   // Square side cards: warn once when the pinned ones leave no room for history on this panel, again only
   // after another pin, a resize or another monitor changes the picture.

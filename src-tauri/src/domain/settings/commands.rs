@@ -59,7 +59,7 @@ pub fn set_setting(app: AppHandle, state: State<AppState>, key: String, value: S
         prune_now(&app)?;
     }
     if key == "panelPosition" {
-        window::place_panel(&app);
+        window::move_panel(&app);
     }
     if key == "ocr" {
         ocr::wake();
