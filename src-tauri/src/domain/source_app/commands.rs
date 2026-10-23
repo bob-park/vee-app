@@ -7,7 +7,7 @@ use tauri::{AppHandle, Emitter, State};
 
 #[tauri::command]
 pub fn list_apps(state: State<AppState>, query: String) -> AppResult<Vec<AppDto>> {
-    super::apps(&state.db.lock().unwrap(), &query, 8)
+    super::apps(&state.db.lock().unwrap(), &query)
 }
 
 #[tauri::command]

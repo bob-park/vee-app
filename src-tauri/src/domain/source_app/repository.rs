@@ -63,17 +63,16 @@ fn apps_with_counts(conn: &Connection, cond: &str, order: &str) -> AppResult<Vec
 }
 
 /// Apps that have clips, whose name contains `query` (ASCII case-insensitive), most clips first.
-pub fn apps(conn: &Connection, query: &str, limit: i64) -> AppResult<Vec<AppDto>> {
+pub fn apps(conn: &Connection, query: &str) -> AppResult<Vec<AppDto>> {
     let mut stmt = conn.prepare(
         "SELECT a.id, a.name, a.icon_png, COUNT(c.id) AS n
          FROM apps a JOIN clips c ON c.app_id = a.id
          WHERE a.name LIKE ?1 ESCAPE '\\'
          GROUP BY a.id
-         ORDER BY n DESC, a.name ASC
-         LIMIT ?2",
+         ORDER BY n DESC, a.name ASC",
     )?;
     let pattern = format!("%{}%", escape_like(query.trim()));
-    let rows = stmt.query_map(params![pattern, limit], |r| {
+    let rows = stmt.query_map(params![pattern], |r| {
         Ok(AppDto {
             id: r.get(0)?,
             name: r.get(1)?,
