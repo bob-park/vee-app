@@ -85,16 +85,15 @@ mod tests {
         add(&c, &d, "b", Some(slack), 2);
         add(&c, &d, "c", Some(slack), 3);
         add(&c, &d, "d", Some(notes), 4);
-        let names = |q: &str, limit: i64| -> Vec<(String, i64)> {
-            apps(&c, q, limit).unwrap().into_iter().map(|a| (a.name, a.count)).collect()
+        let names = |q: &str| -> Vec<(String, i64)> {
+            apps(&c, q).unwrap().into_iter().map(|a| (a.name, a.count)).collect()
         };
-        assert_eq!(names("s", 8), vec![("Slack".to_string(), 2), ("Safari".to_string(), 1)]);
-        assert_eq!(names("SA", 8), vec![("Safari".to_string(), 1)]);
-        assert_eq!(names("메", 8), vec![("메모".to_string(), 1)]);
-        assert_eq!(names("", 8), vec![("Slack".to_string(), 2), ("Safari".to_string(), 1), ("메모".to_string(), 1)]);
-        assert_eq!(names("", 1), vec![("Slack".to_string(), 2)]);
-        assert!(names("%", 8).is_empty());
-        assert!(apps(&c, "safari", 8).unwrap()[0].icon.as_deref().unwrap().starts_with("data:image/png;base64,"));
+        assert_eq!(names("s"), vec![("Slack".to_string(), 2), ("Safari".to_string(), 1)]);
+        assert_eq!(names("SA"), vec![("Safari".to_string(), 1)]);
+        assert_eq!(names("메"), vec![("메모".to_string(), 1)]);
+        assert_eq!(names(""), vec![("Slack".to_string(), 2), ("Safari".to_string(), 1), ("메모".to_string(), 1)]);
+        assert!(names("%").is_empty());
+        assert!(apps(&c, "safari").unwrap()[0].icon.as_deref().unwrap().starts_with("data:image/png;base64,"));
     }
 
     #[test]
