@@ -256,7 +256,9 @@ fn toast_rect(work: Rect, unit: f64, pinned: Option<(PanelPosition, f64)>) -> Re
         Some(PanelPosition::Right) => (0.0, 0.0, work.w - taken),
         Some(PanelPosition::Top) | None => (0.0, 0.0, work.w),
     };
-    Rect { x: work.x + left + (free_w - w) / 2.0, y: work.y + work.h - h - TOAST_BOTTOM * unit - lift, w, h }
+    // Centred in the free part; when that is narrower than the toast, kept on screen against the far edge.
+    let x = (work.x + left + (free_w - w) / 2.0).min(work.x + work.w - w).max(work.x);
+    Rect { x, y: work.y + work.h - h - TOAST_BOTTOM * unit - lift, w, h }
 }
 
 /// The live cursor in positioning space.
@@ -978,6 +980,14 @@ mod tests {
         assert_eq!(toast_rect(work, 1.0, Some((Top, 360.0))), toast_rect(work, 1.0, None));
         assert_eq!(toast_rect(work, 1.0, Some((Left, 400.0))), Rect { x: -1286.0, y: 1023.0, w: 420.0, h: 132.0 });
         assert_eq!(toast_rect(work, 1.0, Some((Right, 400.0))), Rect { x: -1694.0, y: 1023.0, w: 420.0, h: 132.0 });
+    }
+
+    #[test]
+    fn toast_beside_a_wide_side_panel_stays_on_screen_and_hugs_the_far_edge() {
+        let small = Rect { x: 0.0, y: 0.0, w: 600.0, h: 800.0 };
+        use PanelPosition::*;
+        assert_eq!(toast_rect(small, 1.0, Some((Left, 300.0))).x, 180.0);
+        assert_eq!(toast_rect(small, 1.0, Some((Right, 300.0))).x, 0.0);
     }
 
     #[test]
