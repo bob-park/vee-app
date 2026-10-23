@@ -10,7 +10,7 @@ related:
 
 # Project Overview
 
-> Vee is a clipboard-history app (Tauri 2, Rust + React). It records every copy (text, links, images, files) in SQLite and shows it as a card panel at the bottom of the screen on a global shortcut. It lives in the tray; there is no main window. Five windows: `panel`, `settings`, `toast`, `convert`, `whats-new`.
+> Vee is a clipboard-history app (Tauri 2, Rust + React). It records every copy (text, links, images, files) in SQLite and shows it as a card panel docked to a screen edge (bottom by default; top, left or right in Settings) on a global shortcut. It lives in the tray; there is no main window. Five windows: `panel`, `settings`, `toast`, `convert`, `whats-new`.
 
 ## What it is
 

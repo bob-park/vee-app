@@ -264,7 +264,7 @@ function Body({ clip }: { clip: Clip }) {
   return (
     // Set apart from the card's header and footer; the wrapper anchors the quote mark.
     <div className="relative h-[calc(100%-8px)]">
-      <p className="bg-subtle line-clamp-14 h-full rounded-lg px-2.5 py-2 text-[length:clamp(12px,calc(100vh/26),15px)] leading-[1.45] break-all whitespace-pre-wrap">
+      <p className="bg-subtle line-clamp-14 h-full rounded-lg px-2.5 py-2 text-[length:clamp(12px,calc(100vh/26),15px)] leading-[1.45] break-all whitespace-pre-wrap in-data-side:line-clamp-12 in-data-side:text-[13px]">
         {clip.textPreview}
       </p>
       <span
@@ -302,6 +302,8 @@ export function Card({
       // `card` is the hook motion.ts finds cards by. `data-slot` (set by motion.ts) marks where a floating card came from.
       className={cx(
         'card group rounded-box glass relative isolate flex w-[calc((100vh-72px)*0.95)] flex-none cursor-default flex-col overflow-hidden backdrop-filter-none',
+        // Docked left/right (`data-side` on <html>): full-width, short cards stacked top to bottom.
+        'in-data-side:aspect-square in-data-side:w-full',
         // Only solid panel sits behind a card, so `backdrop-filter-none` drops .glass's blur: dozens of blur
         // layers would slow the open entrance and the panel slide. `isolate` keeps the stacking context the
         // blur used to give, so the card's z-indexed layers stay inside it.

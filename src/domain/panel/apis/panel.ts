@@ -9,13 +9,22 @@ export async function setPanelPinned(pinned: boolean) {
   return call<void>('set_panel_pinned', { pinned });
 }
 
-/** `height` in CSS px; the backend clamps it and keeps the bottom edge put. Rejects with code "RESIZE_OFF". */
-export async function resizePanel(height: number, save: boolean) {
-  return call<void>('resize_panel', { height, save });
+/**
+ * `size` is the height (top/bottom) or width (left/right) in CSS px; the backend clamps it and keeps the
+ * screen-side edge put. Rejects with code "RESIZE_OFF".
+ */
+export async function resizePanel(size: number, save: boolean) {
+  return call<void>('resize_panel', { size, save });
 }
 
-export async function resetPanelHeight() {
-  return call<void>('reset_panel_height');
+/** Forgets the saved size of the current position's axis. */
+export async function resetPanelSize() {
+  return call<void>('reset_panel_size');
+}
+
+/** Shows the toast saying pinned cards cover a side panel's history; `fits` is how many leave room for it. */
+export async function warnSidePins(fits: number) {
+  return call<void>('warn_side_pins', { fits });
 }
 
 export async function revealPanel() {

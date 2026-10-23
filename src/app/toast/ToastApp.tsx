@@ -50,16 +50,18 @@ export function ToastApp() {
   // The tile follows `ok` and `kind` for a conversion too (Rust sets them to match).
   const [title, summary] = p.convert
     ? convertLines(p.convert, t)
-    : [
-        p.ok ? (p.plain ? t.copiedPlain : t.copied) : t.copyFailed,
-        !p.ok
-          ? t.copyFailedDetail
-          : p.kind === 'image'
-            ? t.kinds.image
-            : p.kind === 'files'
-              ? t.filesCount(p.files)
-              : p.text,
-      ];
+    : p.pinsFit !== null
+      ? [t.sidePinsTitle, t.sidePinsFit(p.pinsFit)]
+      : [
+          p.ok ? (p.plain ? t.copiedPlain : t.copied) : t.copyFailed,
+          !p.ok
+            ? t.copyFailedDetail
+            : p.kind === 'image'
+              ? t.kinds.image
+              : p.kind === 'files'
+                ? t.filesCount(p.files)
+                : p.text,
+        ];
   return (
     // The window is larger than the card; the margin is room for the card's shadow.
     <div
@@ -91,7 +93,12 @@ export function ToastApp() {
         </span>
         <span className="flex min-w-0 flex-col gap-0.5">
           <b className="text-[16px]">{title}</b>
-          {summary && <span className="truncate text-[13px] opacity-70">{summary}</span>}
+          {summary && (
+            // The side-pins warning is a sentence, not a preview: it wraps instead of being cut.
+            <span className={cx('text-[13px] opacity-70', p.pinsFit !== null ? 'line-clamp-2' : 'truncate')}>
+              {summary}
+            </span>
+          )}
         </span>
       </div>
     </div>

@@ -1,5 +1,9 @@
 export type Retention = 'off' | '7' | '30' | '90';
 
+export const PANEL_POSITIONS = ['bottom', 'top', 'left', 'right'] as const;
+/** Screen edge the panel docks to. */
+export type PanelPosition = (typeof PANEL_POSITIONS)[number];
+
 export const SOUND_NAMES = ['none', 'pop', 'click', 'chime', 'bubble', 'tap'] as const;
 export type SoundName = (typeof SOUND_NAMES)[number];
 
@@ -12,6 +16,7 @@ export type SettingKey =
   | 'confirmDelete'
   | 'retention'
   | 'panelResize'
+  | 'panelPosition'
   | 'panelPinShortcut'
   | 'resetSearchShortcut'
   | 'pinnedCopy1Shortcut'
@@ -40,6 +45,9 @@ export interface Settings {
   panelResize: 'on' | 'off';
   /** Saved panel height as a share of the screen; "" means the default height. */
   panelHeightRatio: string;
+  /** Saved side-panel width as a share of the screen; "" means the default width. */
+  panelWidthRatio: string;
+  panelPosition: PanelPosition;
   retention: Retention;
   /** Reads text in image clips with the OS OCR so search can find it. */
   ocr: 'on' | 'off';

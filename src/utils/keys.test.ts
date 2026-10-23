@@ -19,6 +19,7 @@ const press = (key: string, extra: Partial<KeyInput> = {}) =>
     resetCombo: false,
     pinnedCopy: null,
     justCancelledDrag: false,
+    side: false,
     ...extra,
   });
 
@@ -171,4 +172,15 @@ void test('the escape that cancelled a drag does not also hide the panel', () =>
   assert.deepEqual(press('Escape'), { type: 'hide' });
   // Only escape is swallowed; other keys right after a cancel still work.
   assert.deepEqual(press('Enter', { justCancelledDrag: true }), { type: 'copy', plain: false });
+});
+
+void test('side panel moves between cards with up and down', () => {
+  assert.deepEqual(press('ArrowDown', { side: true }), { type: 'move', delta: 1 });
+  assert.deepEqual(press('ArrowUp', { side: true }), { type: 'move', delta: -1 });
+  assert.deepEqual(press('ArrowRight', { side: true }), { type: 'move', delta: 1 });
+  assert.equal(press('ArrowDown'), null);
+});
+
+void test('side panel up and down still drive an open suggestion list', () => {
+  assert.deepEqual(press('ArrowDown', { side: true, suggesting: true }), { type: 'suggestMove', delta: 1 });
 });

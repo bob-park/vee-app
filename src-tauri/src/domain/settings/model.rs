@@ -31,6 +31,8 @@ pub struct SettingsDto {
     pub retention: String,
     pub panel_resize: String,
     pub panel_height_ratio: String,
+    pub panel_width_ratio: String,
+    pub panel_position: String,
     pub ocr: String,
     pub drag_convert: String,
     pub convert_key: String,

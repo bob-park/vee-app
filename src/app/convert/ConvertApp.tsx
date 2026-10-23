@@ -135,9 +135,15 @@ export default function ConvertApp() {
           const l = labelAt(i, n);
           const active = i === hot && !needs;
           return (
+            // Grows with its slice (same scale, curve and centre), so the label moves out with it.
             <g
               key={format}
-              className={cx(play && 'animate-slice-in motion-reduce:animate-none', needs && 'opacity-45')}
+              className={cx(
+                play && 'animate-slice-in motion-reduce:animate-none',
+                needs && 'opacity-45',
+                '[transition:scale_350ms_var(--ease-spring)] motion-reduce:transition-none',
+                active && 'scale-[1.07]',
+              )}
               style={{ animationDelay: `${40 + i * 25}ms` }}
             >
               <text

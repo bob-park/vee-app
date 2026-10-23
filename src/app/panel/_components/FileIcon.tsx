@@ -2,7 +2,7 @@ import { fileColor, fileExt } from '@/utils/fileThumb';
 
 /*
  * File and folder icons sit in the middle of the card and scale with the panel (the window is the
- * panel's height).
+ * panel's height). Docked left/right the square cards follow the panel's width instead.
  */
 
 /** A document with a folded corner and the file's extension on a coloured band. */
@@ -10,7 +10,7 @@ export function DocIcon({ path }: { path: string }) {
   const ext = fileExt(path);
   return (
     <svg
-      className="block aspect-[52/64] h-auto max-h-full w-[clamp(66px,calc(100vh/4.67),102px)]"
+      className="block aspect-[52/64] h-auto max-h-full w-[clamp(66px,calc(100vh/4.67),102px)] in-data-side:w-[clamp(66px,calc(100vw/4.67),102px)]"
       viewBox="0 0 52 64"
       aria-hidden
     >
@@ -34,7 +34,7 @@ export function DocIcon({ path }: { path: string }) {
 export function FolderIcon() {
   return (
     <svg
-      className="block aspect-[70/54] h-auto max-h-full w-[clamp(56px,calc(100vh/5.5),88px)]"
+      className="block aspect-[70/54] h-auto max-h-full w-[clamp(56px,calc(100vh/5.5),88px)] in-data-side:w-[clamp(56px,calc(100vw/5.5),88px)]"
       viewBox="0 0 70 54"
       aria-hidden
     >

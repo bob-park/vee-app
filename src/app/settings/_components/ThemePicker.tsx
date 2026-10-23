@@ -9,8 +9,10 @@ type Theme = Settings['theme'];
 const THEMES: Theme[] = ['system', 'light', 'dark'];
 
 // Fixed per depicted theme, so a preview looks the same in either app theme.
+// The gradient is laid out over the border box: from the padding box it would repeat under the 2px
+// transparent border and edge the tile with a strip of the opposite half.
 const PREVIEW: Record<Theme, string> = {
-  system: 'bg-[linear-gradient(135deg,var(--color-preview-light)_50%,var(--color-preview-dark)_50%)]',
+  system: 'bg-[linear-gradient(135deg,var(--color-preview-light)_50%,var(--color-preview-dark)_50%)] bg-origin-border',
   light: 'bg-preview-light',
   dark: 'bg-preview-dark',
 };

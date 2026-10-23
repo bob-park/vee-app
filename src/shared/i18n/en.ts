@@ -23,6 +23,12 @@ export const en = {
   unpinPanel: 'Unpin panel',
   copyFailed: "Couldn't copy",
   copyFailedDetail: 'The original is gone',
+  /** Toast when a left/right panel has more pinned cards than fit above its history. */
+  sidePinsTitle: 'Pinned cards cover the history',
+  sidePinsFit: (n: number) =>
+    n === 0
+      ? "On this screen, history won't fit below a pinned card"
+      : `Up to ${n} pinned card${n === 1 ? '' : 's'} fit with history on this screen`,
   deleteConfirm: 'Delete this item?',
   cancel: 'Cancel',
   delete: 'Delete',
@@ -88,9 +94,20 @@ export const en = {
     diskAccessGranted: 'Allowed',
     diskAccessGrant: 'Allow',
     panelResize: 'Resizable panel',
-    panelResizeHint: "Drag the panel's top edge to change its height (up to 50% of the screen)",
+    panelResizeHints: {
+      bottom: "Drag the panel's top edge to change its height (up to 50% of the screen)",
+      top: "Drag the panel's bottom edge to change its height (up to 50% of the screen)",
+      left: "Drag the panel's right edge to change its width (up to 50% of the screen)",
+      right: "Drag the panel's left edge to change its width (up to 50% of the screen)",
+    },
     panelSizeReset: 'Reset panel size',
-    panelSizeResetBody: 'Return the panel to its default height. Continue?',
+    panelSizeResetBodies: {
+      height: 'Return the panel to its default height. Continue?',
+      width: 'Return the panel to its default width. Continue?',
+    },
+    panelPosition: 'Panel position',
+    panelPositionHint: 'Screen edge the panel opens on',
+    panelPositions: { bottom: 'Bottom', top: 'Top', left: 'Left', right: 'Right' },
     reset: 'Reset',
     shortcut: 'Shortcut',
     shortcutHint: 'Open the history panel',

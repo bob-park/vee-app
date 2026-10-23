@@ -25,6 +25,11 @@ export const ko: Dict = {
   unpinPanel: '패널 고정 해제',
   copyFailed: '복사하지 못했어요',
   copyFailedDetail: '원본이 없어요',
+  sidePinsTitle: '고정 카드가 기록을 가리고 있어요',
+  sidePinsFit: (n: number) =>
+    n === 0
+      ? '이 화면에서는 고정 카드가 있으면 기록이 보이지 않아요'
+      : `이 화면에서는 고정 카드 ${n}장까지 기록과 함께 보여요`,
   deleteConfirm: '이 항목을 삭제할까요?',
   cancel: '취소',
   delete: '삭제',
@@ -90,9 +95,20 @@ export const ko: Dict = {
     diskAccessGranted: '허용됨',
     diskAccessGrant: '허용하기',
     panelResize: '패널 크기 조절',
-    panelResizeHint: '패널 위 가장자리를 끌어 높이를 바꿉니다 (최대 화면의 50%)',
+    panelResizeHints: {
+      bottom: '패널 위 가장자리를 끌어 높이를 바꿉니다 (최대 화면의 50%)',
+      top: '패널 아래 가장자리를 끌어 높이를 바꿉니다 (최대 화면의 50%)',
+      left: '패널 오른쪽 가장자리를 끌어 폭을 바꿉니다 (최대 화면의 50%)',
+      right: '패널 왼쪽 가장자리를 끌어 폭을 바꿉니다 (최대 화면의 50%)',
+    },
     panelSizeReset: '패널 크기 초기화',
-    panelSizeResetBody: '패널 높이를 기본값으로 되돌립니다. 계속할까요?',
+    panelSizeResetBodies: {
+      height: '패널 높이를 기본값으로 되돌립니다. 계속할까요?',
+      width: '패널 폭을 기본값으로 되돌립니다. 계속할까요?',
+    },
+    panelPosition: '패널 위치',
+    panelPositionHint: '패널을 띄울 화면 가장자리',
+    panelPositions: { bottom: '하단', top: '상단', left: '왼쪽', right: '오른쪽' },
     reset: '초기화',
     shortcut: '단축키',
     shortcutHint: '히스토리 패널 열기',
