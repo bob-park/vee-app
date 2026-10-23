@@ -103,6 +103,10 @@ export const ko: Dict = {
     },
     panelPosition: '패널 위치',
     panelPositionHint: '패널을 띄울 화면 가장자리',
+    sidePinsFit: (n: number) =>
+      n === 0
+        ? '이 화면에서는 고정 카드가 있으면 기록이 보이지 않아요'
+        : `이 화면에서는 고정 카드 ${n}장까지 기록과 함께 보여요`,
     panelPositions: { bottom: '하단', top: '상단', left: '왼쪽', right: '오른쪽' },
     reset: '초기화',
     shortcut: '단축키',

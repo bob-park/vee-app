@@ -14,6 +14,7 @@ import { ShortcutRecorder } from '@/app/settings/_components/ShortcutRecorder';
 import Switch from '@/app/settings/_components/Switch';
 import { type SettingsTab, Tabs } from '@/app/settings/_components/Tabs';
 import ThemePicker from '@/app/settings/_components/ThemePicker';
+import { usePinnedCount } from '@/domain/clip/queries/clip';
 import { resetPanelSize } from '@/domain/panel/apis/panel';
 import { previewSound, setAutostart, setSetting, setShortcut } from '@/domain/settings/apis/settings';
 import { SOUND_NAMES, type SoundName } from '@/domain/settings/apis/settings.dto';
@@ -25,9 +26,10 @@ import { type Dict, relativeTime } from '@/shared/i18n';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { errorText } from '@/utils/errorText';
 import { PANEL_KEYS } from '@/utils/keys';
-import { isSide } from '@/utils/panelEdge';
+import { isSide, sidePinsThatFit } from '@/utils/panelEdge';
 
 import { listen } from '@tauri-apps/api/event';
+import cx from 'classnames';
 
 function UpdateRow({ version }: { version: string }) {
   // state
@@ -120,6 +122,7 @@ export function SettingsApp() {
 
   // queries
   const { settings } = useSettings();
+  const { pinnedCount } = usePinnedCount();
   const { updateSetting } = useSettingUpdate({
     onSuccess: () => setError(null),
     onError: (e) => setError(errorText(e)),
@@ -142,6 +145,8 @@ export function SettingsApp() {
   const s = t.settings;
   if (!settings) return null;
   const side = isSide(settings.panelPosition);
+  // Square side cards: measured on the screen this window is on, against the saved width (approximate).
+  const pinsFit = sidePinsThatFit(screen.availWidth, screen.availHeight, parseFloat(settings.panelWidthRatio) || null);
 
   return (
     <main className="relative flex h-full flex-col">
@@ -194,6 +199,11 @@ export function SettingsApp() {
                 onChange={(v) => updateSetting({ key: 'panelPosition', value: v })}
                 labelledBy="position-label"
               />
+              {side && (
+                <small className={cx('text-[11px]', pinnedCount > pinsFit ? 'text-error font-semibold' : 'text-muted')}>
+                  {s.sidePinsFit(pinsFit)}
+                </small>
+              )}
             </Row>
             <Row label={s.copySound}>
               <Switch

@@ -101,6 +101,10 @@ export const en = {
     },
     panelPosition: 'Panel position',
     panelPositionHint: 'Screen edge the panel opens on',
+    sidePinsFit: (n: number) =>
+      n === 0
+        ? "On this screen, history won't fit below a pinned card"
+        : `On this screen, up to ${n} pinned card${n === 1 ? '' : 's'} fit with history below`,
     panelPositions: { bottom: 'Bottom', top: 'Top', left: 'Left', right: 'Right' },
     reset: 'Reset',
     shortcut: 'Shortcut',
