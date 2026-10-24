@@ -70,7 +70,7 @@ pub struct EngineSpec {
 /// Indexed by `EngineId as usize`.
 pub const SPECS: [EngineSpec; 2] = [
     EngineSpec {
-        version: "8.1.2",
+        version: "9.0.2",
         dir_name: "ffmpeg",
         binaries: if cfg!(windows) { &["ffmpeg.exe", "ffprobe.exe"] } else { &["ffmpeg", "ffprobe"] },
         assets: || FFMPEG_ASSETS,
@@ -83,38 +83,31 @@ pub const SPECS: [EngineSpec; 2] = [
     },
 ];
 
-// shaka-project's static builds, release n8.1.2-1 (GPL, downloaded by the user, not bundled).
+// FFmpeg 9.0.2 static builds (GPL, downloaded by the user, not bundled): martin-riedl.de on macOS
+// (one zip per binary), gyan.dev's essentials build via its GitHub mirror on Windows.
 #[cfg(target_os = "macos")]
 const FFMPEG_ASSETS: &[Asset] = &[
     Asset {
-        url: "https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.1.2-1/ffmpeg-osx-arm64",
-        sha256: "e7b9fcd97f95f333512d6e8b8ac24d9dbc08f189f36047695499bd7b57214b22",
-        size: 34_074_040,
-        kind: AssetKind::Raw { name: "ffmpeg" },
+        url: "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip",
+        sha256: "c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924",
+        size: 28_395_699,
+        kind: AssetKind::Archive,
     },
     Asset {
-        url: "https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.1.2-1/ffprobe-osx-arm64",
-        sha256: "ded4c698b8ff38d0bc1fd30fcc5e768dc46f58bc15a8dfd61f98615ba49cde5c",
-        size: 33_882_408,
-        kind: AssetKind::Raw { name: "ffprobe" },
+        url: "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffprobe.zip",
+        sha256: "fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6",
+        size: 28_317_701,
+        kind: AssetKind::Archive,
     },
 ];
 
 #[cfg(windows)]
-const FFMPEG_ASSETS: &[Asset] = &[
-    Asset {
-        url: "https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.1.2-1/ffmpeg-win-x64.exe",
-        sha256: "4044b3924c977ad31229d504c5d5b8685f9553124fbaff6e9c99048b42830341",
-        size: 53_763_072,
-        kind: AssetKind::Raw { name: "ffmpeg.exe" },
-    },
-    Asset {
-        url: "https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.1.2-1/ffprobe-win-x64.exe",
-        sha256: "fc37ca23d31ee08bb8f7e108edf3822f6ef3efc1a8d306bbe0b779190230710b",
-        size: 53_558_272,
-        kind: AssetKind::Raw { name: "ffprobe.exe" },
-    },
-];
+const FFMPEG_ASSETS: &[Asset] = &[Asset {
+    url: "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip",
+    sha256: "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba",
+    size: 114_768_076,
+    kind: AssetKind::Archive,
+}];
 
 // rhwp's own release builds (https://github.com/edwardkim/rhwp), v0.8.7.
 #[cfg(target_os = "macos")]
@@ -311,12 +304,16 @@ fn stage(
             }
         }
     }
+    if let Some(bin) = binaries.iter().find(|b| !staged.join(b).is_file()) {
+        log::warn!("engines: {bin} not found in the downloads");
+        return Err(InstallError::Unpack);
+    }
     let meta = Meta { version: version.into(), installed_at: now, size };
     std::fs::write(staged.join("meta.json"), serde_json::to_vec(&meta).expect("plain struct")).map_err(disk)
 }
 
-/// Unpacks `archive` into `work` and places every binary found in it into `staged`; returns their size.
-// ponytail: an engine has either raw assets or archives; each archive must hold every binary.
+/// Unpacks `archive` into `work` and places the binaries found in it into `staged`; returns their size.
+/// An archive may hold only some of them (one zip per binary); `stage` checks that all arrived.
 fn unpack_into(archive: &Path, work: &Path, binaries: &[&str], staged: &Path) -> Result<u64, InstallError> {
     remove_dir(work);
     std::fs::create_dir_all(work).map_err(disk)?;
@@ -325,12 +322,8 @@ fn unpack_into(archive: &Path, work: &Path, binaries: &[&str], staged: &Path) ->
         InstallError::Unpack
     })?;
     let mut size = 0;
-    for bin in binaries {
-        let found = find(work, bin).ok_or_else(|| {
-            log::warn!("engines: {bin} not found in {}", archive.display());
-            InstallError::Unpack
-        })?;
-        size += place(&found, &staged.join(bin))?;
+    for found in binaries.iter().filter_map(|bin| find(work, bin)) {
+        size += place(&found, &staged.join(found.file_name().expect("found by file name")))?;
     }
     Ok(size)
 }
@@ -775,6 +768,17 @@ mod tests {
     }
 
     #[test]
+    fn installs_one_binary_from_each_archive_and_needs_them_all() {
+        let root = tempfile::tempdir().unwrap();
+        let [(f0, a0), (f1, a1)] = [0, 1].map(|i| archive(&root.path().join(i.to_string()), |f| std::fs::write(f.join(FFMPEG[i]), FFMPEG[i]).unwrap()));
+        let dest = existing(root.path());
+        assert_eq!(install_from(FFMPEG, &[(f0.clone(), &a0)], &dest, "9.0.2", 1, NONE), Err(InstallError::Unpack));
+        assert!(dest.join("keep").is_file());
+        install_from(FFMPEG, &[(f0, &a0), (f1, &a1)], &dest, "9.0.2", 1, NONE).unwrap();
+        assert!(FFMPEG.iter().all(|b| std::fs::read(dest.join(b)).unwrap() == b.as_bytes()));
+    }
+
+    #[test]
     fn an_archive_without_the_binary_leaves_the_old_install() {
         let root = tempfile::tempdir().unwrap();
         let (file, a) = archive(root.path(), |f| std::fs::write(f.join("rhwp/README.md"), b"docs").unwrap());
@@ -975,9 +979,9 @@ mod tests {
         }
         let [ffmpeg, rhwp] = SPECS.each_ref().map(download_size);
         #[cfg(target_os = "macos")]
-        assert_eq!((ffmpeg, rhwp), (34_074_040 + 33_882_408, 12_941_874));
+        assert_eq!((ffmpeg, rhwp), (28_395_699 + 28_317_701, 12_941_874));
         #[cfg(windows)]
-        assert_eq!((ffmpeg, rhwp), (53_763_072 + 53_558_272, 19_796_112));
+        assert_eq!((ffmpeg, rhwp), (114_768_076, 19_796_112));
         let _ = (ffmpeg, rhwp);
     }
 
@@ -1005,16 +1009,8 @@ mod tests {
         for spec in &SPECS {
             let assets = (spec.assets)();
             assert!(assets.iter().all(|a| a.sha256.len() == 64 && a.url.starts_with("https://")));
-            match EngineId::parse(spec.dir_name).unwrap() {
-                // FFmpeg ships raw executables, one per binary.
-                EngineId::Ffmpeg if !assets.is_empty() => {
-                    let names: Vec<&str> =
-                        assets.iter().map(|a| if let AssetKind::Raw { name } = a.kind { name } else { panic!("{a:?}") }).collect();
-                    assert_eq!(names, spec.binaries);
-                }
-                EngineId::Ffmpeg => {}
-                EngineId::Rhwp => assert!(assets.iter().all(|a| matches!(a.kind, AssetKind::Archive))),
-            }
+            // Both engines ship archives now; `Raw` stays for a future pin.
+            assert!(assets.iter().all(|a| matches!(a.kind, AssetKind::Archive)));
         }
     }
 
