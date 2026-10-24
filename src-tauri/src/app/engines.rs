@@ -590,14 +590,34 @@ fn apply_latest(app: &AppHandle, id: EngineId, release: Option<Release>) {
     if let Some(r) = release {
         *s.latest.lock().unwrap() = Some(r);
     }
-    let downloading = s.cancel.lock().unwrap().is_some();
-    if !downloading {
+    // Held across the `set`, so a download can't start between the check and the publish and be
+    // overwritten. Lock order: `cancel`, then `status` / `latest` (nothing takes them the other way).
+    let cancel = s.cancel.lock().unwrap();
+    if cancel.is_none() {
         // Keeps the last download's error on screen until the next download.
         let error = match &*s.status.lock().unwrap() {
             EngineStatus::Missing { error, .. } | EngineStatus::Installed { error, .. } => *error,
             EngineStatus::Downloading { .. } => None,
         };
         set(app, id, current(app, id, error));
+    }
+}
+
+/// Set while a lookup runs, so remounting the Convert tab doesn't start another one beside it.
+static CHECKING: AtomicBool = AtomicBool::new(false);
+
+/// Holds `CHECKING` for one lookup; `None` when one is already running.
+struct Checking;
+
+impl Checking {
+    fn start() -> Option<Self> {
+        (!CHECKING.swap(true, Ordering::SeqCst)).then_some(Checking)
+    }
+}
+
+impl Drop for Checking {
+    fn drop(&mut self) {
+        CHECKING.store(false, Ordering::SeqCst);
     }
 }
 
@@ -648,12 +668,15 @@ fn download(app: &AppHandle, id: EngineId) {
             None => Err(Stop::Failed(InstallError::Network)),
         };
         remove_dir(&s.tmp);
-        *s.cancel.lock().unwrap() = None;
         let error = match result {
             Err(Stop::Failed(reason)) => Some(reason),
             Ok(()) | Err(Stop::Cancelled) => None,
         };
+        // Published before `cancel` clears, so a lookup finishing now sees the download still running
+        // and can't replace this status (and its error) with one read mid-download.
+        let mut cancel = s.cancel.lock().unwrap();
         set(&app, id, current(&app, id, error));
+        *cancel = None;
     });
 }
 
@@ -765,9 +788,11 @@ pub mod commands {
     }
 
     /// Looks up both engines' latest releases and re-publishes their status (`update`, `downloadSize`)
-    /// as `engines://status`. Run when the Convert tab opens; a failed lookup changes nothing.
+    /// as `engines://status`. Run when the Convert tab opens; a failed lookup changes nothing, and a call
+    /// while one runs returns at once.
     #[tauri::command(async)]
     pub fn check_engine_updates(app: AppHandle) {
+        let Some(_checking) = super::Checking::start() else { return };
         std::thread::scope(|scope| {
             for id in EngineId::ALL {
                 let app = &app;
@@ -1217,6 +1242,15 @@ mod tests {
         assert!(!with(&|r| r.version = String::new()));
         assert!(!with(&|r| r.assets[0].sha256 = "abc".into()));
         assert!(!with(&|r| r.assets.clear()));
+    }
+
+    #[test]
+    fn only_one_lookup_runs_at_a_time() {
+        let first = Checking::start();
+        assert!(first.is_some());
+        assert!(Checking::start().is_none());
+        drop(first);
+        assert!(Checking::start().is_some());
     }
 
     #[test]
