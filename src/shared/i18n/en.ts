@@ -183,7 +183,8 @@ export const en = {
       ffmpeg: {
         caption: 'FFmpeg · Video conversion',
         title: 'FFmpeg',
-        missingHint: (mb: number) => `Needed to convert video and audio. About ${mb} MB`,
+        missingHint: (mb: number | null) =>
+          mb ? `Needed to convert video and audio. About ${mb} MB` : 'Needed to convert video and audio.',
         removeConfirm: 'Remove FFmpeg? Video conversion stops until you download it again.',
         quality: 'Video quality',
         qualityHint: 'Used for every video conversion',
@@ -196,7 +197,8 @@ export const en = {
       rhwp: {
         caption: 'rhwp · HWP conversion',
         title: 'rhwp',
-        missingHint: (mb: number) => `Needed to convert HWP and HWPX. About ${mb} MB`,
+        missingHint: (mb: number | null) =>
+          mb ? `Needed to convert HWP and HWPX. About ${mb} MB` : 'Needed to convert HWP and HWPX.',
         removeConfirm: 'Remove rhwp? HWP conversion stops until you download it again.',
       },
       libreoffice: {

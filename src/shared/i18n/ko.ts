@@ -183,7 +183,8 @@ export const ko: Dict = {
       ffmpeg: {
         caption: 'FFmpeg · 영상 변환',
         title: 'FFmpeg',
-        missingHint: (mb: number) => `영상·소리 변환에 필요해요. 약 ${mb}MB`,
+        missingHint: (mb: number | null) =>
+          mb ? `영상·소리 변환에 필요해요. 약 ${mb}MB` : '영상·소리 변환에 필요해요.',
         removeConfirm: 'FFmpeg를 삭제할까요? 다시 내려받기 전까지 영상 변환을 할 수 없어요.',
         quality: '영상 기본 화질',
         qualityHint: '모든 영상 변환에 쓰여요',
@@ -196,7 +197,7 @@ export const ko: Dict = {
       rhwp: {
         caption: 'rhwp · HWP 변환',
         title: 'rhwp',
-        missingHint: (mb: number) => `HWP·HWPX 변환에 필요해요. 약 ${mb}MB`,
+        missingHint: (mb: number | null) => (mb ? `HWP·HWPX 변환에 필요해요. 약 ${mb}MB` : 'HWP·HWPX 변환에 필요해요.'),
         removeConfirm: 'rhwp를 삭제할까요? 다시 내려받기 전까지 HWP 변환을 할 수 없어요.',
       },
       libreoffice: {
