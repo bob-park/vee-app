@@ -69,9 +69,12 @@ export type EngineId = 'ffmpeg' | 'rhwp';
 /** Why the last engine download failed; mirrors Rust `InstallError`. */
 export type InstallError = 'network' | 'checksum' | 'unpack' | 'disk';
 
-/** A downloaded engine; mirrors Rust `EngineStatus`. `error` is the last failed download, if any. */
+/**
+ * A downloaded engine; mirrors Rust `EngineStatus`. `error` is the last failed download, if any.
+ * `downloadSize` and `update` are known once the latest release has been looked up.
+ */
 export type EngineStatus =
-  | { state: 'missing'; error: InstallError | null; downloadSize: number }
+  | { state: 'missing'; error: InstallError | null; downloadSize: number | null }
   | { state: 'downloading'; received: number; total: number; speed: number; stage: 'download' | 'verify' | 'unpack' }
   | {
       state: 'installed';

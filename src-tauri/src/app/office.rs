@@ -1,15 +1,18 @@
 //! The user's LibreOffice: found at its default install path, never downloaded.
 
+#[cfg(not(windows))]
 use crate::domain::convert::{command, output};
 use serde::Serialize;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
 use std::time::Duration;
 
 /// LibreOffice's download page, opened from Settings; fixed so the webview never picks a URL.
 const DOWNLOAD_PAGE: &str = "https://www.libreoffice.org/download/download-libreoffice/";
 
 /// `soffice --version` is given up after this long.
+#[cfg(not(windows))]
 const VERSION_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A LibreOffice that was found; mirrors TS `LibreOffice`.
@@ -50,8 +53,23 @@ fn windows_candidates(program_files: Option<OsString>, program_files_x86: Option
 }
 
 /// The version `soffice --version` prints, or `None` if it fails, hangs or prints something else.
+#[cfg(not(windows))]
 pub fn libreoffice_version(soffice: &Path) -> Option<String> {
     parse_version(&output(command(soffice).arg("--version"), VERSION_TIMEOUT)?)
+}
+
+/// The version in `program\version.ini` next to `soffice.exe`. Never runs `soffice --version` on Windows:
+/// it opens a console window of its own (LibreOffice bug 103255) every time the Convert tab mounts.
+#[cfg(windows)]
+pub fn libreoffice_version(soffice: &Path) -> Option<String> {
+    parse_version_ini(&std::fs::read_to_string(soffice.with_file_name("version.ini")).ok()?)
+}
+
+/// `MsiProductVersion=26.8.1.1` in `version.ini` → `26.8.1.1`.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+fn parse_version_ini(ini: &str) -> Option<String> {
+    let version = ini.lines().find_map(|l| l.trim().strip_prefix("MsiProductVersion="))?.trim();
+    parse_version(&format!("LibreOffice {version}"))
 }
 
 /// `LibreOffice 26.8.1.1 bf6ef…` (first line) → `26.8.1.1`.
@@ -104,6 +122,14 @@ mod tests {
         assert_eq!(parse_version("LibreOffice"), None);
         assert_eq!(parse_version("LibreOffice dev"), None);
         assert_eq!(parse_version("warning: something\nLibreOffice 26.8.1.1 x"), None);
+    }
+
+    #[test]
+    fn reads_the_version_from_version_ini() {
+        let ini = "[Version]\r\nbuildid=bf6ef2662401c7d6dce671ab4deb26ee0af3a7c1\r\nMsiProductVersion=26.8.1.1\r\nReferenceOOoMajorMinor=4.1\r\n";
+        assert_eq!(parse_version_ini(ini).as_deref(), Some("26.8.1.1"));
+        assert_eq!(parse_version_ini("[Version]\nbuildid=x\n"), None);
+        assert_eq!(parse_version_ini("MsiProductVersion=dev"), None);
     }
 
     #[test]

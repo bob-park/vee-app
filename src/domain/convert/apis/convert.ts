@@ -56,6 +56,11 @@ export async function getEngineStatus(engine: EngineId) {
   return call<EngineStatus>('get_engine_status', { engine });
 }
 
+/** Looks up both engines' latest releases; the new statuses arrive on `engines://status`. */
+export async function checkEngineUpdates() {
+  return call<void>('check_engine_updates');
+}
+
 /** Downloads (or updates) the engine; progress arrives on `engines://status`. */
 export async function downloadEngine(engine: EngineId) {
   return call<void>('download_engine', { engine });

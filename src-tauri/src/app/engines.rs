@@ -1,5 +1,6 @@
 //! Optional engines the user downloads from Settings: FFmpeg and rhwp, each kept under
-//! `<app data>/engines/<name>/`. The network is used only when the user asks for a download.
+//! `<app data>/engines/<name>/`. The network is used to look up each engine's latest release when the
+//! Convert tab opens, and to download it when the user asks.
 
 use crate::{
     app::state::now_ms,
@@ -39,108 +40,213 @@ impl EngineId {
 }
 
 /// How a downloaded file becomes the engine's binaries.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AssetKind {
-    /// The file is the executable, installed as `name`.
+    /// The file is the executable, installed as `name`. No source ships these now; kept for the tests.
+    #[cfg_attr(not(test), allow(dead_code))]
     Raw { name: &'static str },
     /// A `tar -xf` readable archive; the engine's binaries are found by file name inside it.
     Archive,
 }
 
 /// One file to download.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Asset {
-    pub url: &'static str,
-    pub sha256: &'static str,
+    pub url: String,
+    /// Lowercase hex, as published next to the file by its source.
+    pub sha256: String,
     pub size: u64,
     pub kind: AssetKind,
 }
 
+/// An engine's latest release, as its source publishes it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Release {
+    pub version: String,
+    pub assets: Vec<Asset>,
+}
+
+impl Release {
+    /// Bytes a download of this release fetches.
+    pub fn size(&self) -> u64 {
+        self.assets.iter().map(|a| a.size).sum()
+    }
+
+    /// A plain version, and every file from a known host with a full SHA-256.
+    fn valid(&self) -> bool {
+        let version = !self.version.is_empty() && self.version.split('.').all(|p| !p.is_empty() && p.bytes().all(|c| c.is_ascii_digit()));
+        let file = |a: &Asset| {
+            SOURCES.iter().any(|h| a.url.starts_with(h))
+                && a.sha256.len() == 64
+                && a.sha256.bytes().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f'))
+        };
+        version && !self.assets.is_empty() && self.assets.iter().all(file)
+    }
+}
+
+/// The only places a release may point at.
+const SOURCES: [&str; 3] = [
+    "https://github.com/edwardkim/rhwp/releases/download/",
+    "https://github.com/GyanD/codexffmpeg/releases/download/",
+    RIEDL_DOWNLOAD,
+];
+const RIEDL_DOWNLOAD: &str = "https://ffmpeg.martin-riedl.de/download/";
+
 /// One downloadable engine.
 pub struct EngineSpec {
-    pub version: &'static str,
     /// The install dir's name, and the engine's serde name.
     pub dir_name: &'static str,
     /// Every file an install must hold, as named on this platform.
     pub binaries: &'static [&'static str],
-    /// The pinned files for this platform.
-    pub assets: fn() -> &'static [Asset],
 }
 
 /// Indexed by `EngineId as usize`.
 pub const SPECS: [EngineSpec; 2] = [
-    EngineSpec {
-        version: "8.1.2",
-        dir_name: "ffmpeg",
-        binaries: if cfg!(windows) { &["ffmpeg.exe", "ffprobe.exe"] } else { &["ffmpeg", "ffprobe"] },
-        assets: || FFMPEG_ASSETS,
-    },
-    EngineSpec {
-        version: "0.8.7",
-        dir_name: "rhwp",
-        binaries: if cfg!(windows) { &["rhwp.exe"] } else { &["rhwp"] },
-        assets: || RHWP_ASSETS,
-    },
+    EngineSpec { dir_name: "ffmpeg", binaries: if cfg!(windows) { &["ffmpeg.exe", "ffprobe.exe"] } else { &["ffmpeg", "ffprobe"] } },
+    EngineSpec { dir_name: "rhwp", binaries: if cfg!(windows) { &["rhwp.exe"] } else { &["rhwp"] } },
 ];
 
-// shaka-project's static builds, release n8.1.2-1 (GPL, downloaded by the user, not bundled).
-#[cfg(target_os = "macos")]
-const FFMPEG_ASSETS: &[Asset] = &[
-    Asset {
-        url: "https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.1.2-1/ffmpeg-osx-arm64",
-        sha256: "e7b9fcd97f95f333512d6e8b8ac24d9dbc08f189f36047695499bd7b57214b22",
-        size: 34_074_040,
-        kind: AssetKind::Raw { name: "ffmpeg" },
-    },
-    Asset {
-        url: "https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.1.2-1/ffprobe-osx-arm64",
-        sha256: "ded4c698b8ff38d0bc1fd30fcc5e768dc46f58bc15a8dfd61f98615ba49cde5c",
-        size: 33_882_408,
-        kind: AssetKind::Raw { name: "ffprobe" },
-    },
+// ---- Latest releases ----
+// FFmpeg: martin-riedl.de's static builds on macOS (one zip per binary), gyan.dev's essentials build
+// (its GitHub mirror) on Windows. rhwp: its own GitHub releases. All GPL/own-licensed, downloaded by
+// the user, not bundled. Checksums come from the source: GitHub's asset `digest`, martin-riedl's `.sha256`.
+
+const RHWP_LATEST: &str = "https://api.github.com/repos/edwardkim/rhwp/releases/latest";
+#[cfg_attr(not(windows), allow(dead_code))]
+const GYAN_RELEASES: &str = "https://api.github.com/repos/GyanD/codexffmpeg/releases?per_page=30";
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+const RIEDL_LATEST: &str = "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release";
+
+/// The archive named `name` in a GitHub release, with the checksum GitHub computed for it.
+fn github_asset(release: &serde_json::Value, name: &str) -> Option<Asset> {
+    let a = release["assets"].as_array()?.iter().find(|a| a["name"] == name)?;
+    Some(Asset {
+        url: a["browser_download_url"].as_str()?.to_owned(),
+        sha256: a["digest"].as_str()?.strip_prefix("sha256:")?.to_owned(),
+        size: a["size"].as_u64()?,
+        kind: AssetKind::Archive,
+    })
+}
+
+/// rhwp's latest release (`tag_name` `v<ver>`) and its `rhwp-v<ver>-<platform>` archive.
+#[cfg_attr(not(any(target_os = "macos", windows, test)), allow(dead_code))]
+fn parse_rhwp(json: &str, platform: &str) -> Option<Release> {
+    let release: serde_json::Value = serde_json::from_str(json).ok()?;
+    let version = release["tag_name"].as_str()?.strip_prefix('v')?;
+    let asset = github_asset(&release, &format!("rhwp-v{version}-{platform}"))?;
+    Some(Release { version: version.to_owned(), assets: vec![asset] })
+}
+
+/// The newest gyan.dev release version (a tag of digits and dots; the daily `…-git-…` builds are skipped).
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+fn parse_gyan(json: &str) -> Option<Release> {
+    let releases: Vec<serde_json::Value> = serde_json::from_str(json).ok()?;
+    let release = releases.iter().find(|r| r["tag_name"].as_str().is_some_and(|t| t.bytes().all(|c| c.is_ascii_digit() || c == b'.')))?;
+    let version = release["tag_name"].as_str()?;
+    let asset = github_asset(release, &format!("ffmpeg-{version}-essentials_build.zip"))?;
+    Some(Release { version: version.to_owned(), assets: vec![asset] })
+}
+
+/// `…/download/macos/arm64/<id>_<ver>/ffmpeg.zip` → `<ver>`.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+fn parse_riedl_url(url: &str) -> Option<String> {
+    let dir = url.strip_prefix(RIEDL_DOWNLOAD)?.rsplit('/').nth(1)?;
+    Some(dir.split_once('_')?.1.to_owned())
+}
+
+/// `<sha256>  ffmpeg.zip` → the hash, if it is one.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+fn parse_sha256_file(text: &str) -> Option<String> {
+    let hash = text.split_whitespace().next()?.to_ascii_lowercase();
+    (hash.len() == 64 && hash.bytes().all(|c| c.is_ascii_hexdigit())).then_some(hash)
+}
+
+/// The last `content-length` in HEAD response headers (the one after any redirect).
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+fn parse_content_length(headers: &str) -> Option<u64> {
+    headers.lines().filter_map(|l| l.split_once(':')).rfind(|(k, _)| k.trim().eq_ignore_ascii_case("content-length"))?.1.trim().parse().ok()
+}
+
+/// The curl arguments of a lookup, before its own.
+const LOOKUP_ARGS: [&str; 11] = [
+    "-sf",
+    "--proto",
+    "=https",
+    "--proto-redir",
+    "=https",
+    "--connect-timeout",
+    "10",
+    "--max-time",
+    "20",
+    "-H",
+    "Accept: application/vnd.github+json",
 ];
+
+/// curl's stdout for a short request, or `None` on any failure (offline, HTTP error, rate limit).
+fn curl_text(args: &[&str]) -> Option<String> {
+    let program = if cfg!(windows) { "curl.exe" } else { "curl" };
+    let out = command(Path::new(program))
+        .args(LOOKUP_ARGS)
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Looks up the engine's latest release for this platform; `None` when the source can't be reached
+/// or answers with something unexpected.
+pub fn resolve(id: EngineId) -> Option<Release> {
+    let release = match id {
+        EngineId::Rhwp => resolve_rhwp(),
+        EngineId::Ffmpeg => resolve_ffmpeg(),
+    };
+    let release = release.filter(Release::valid);
+    if release.is_none() {
+        log::info!("engines: couldn't look up the latest {}", id.spec().dir_name);
+    }
+    release
+}
+
+fn resolve_rhwp() -> Option<Release> {
+    let platform = if cfg!(target_os = "macos") {
+        "macos-aarch64.tar.gz"
+    } else if cfg!(windows) {
+        "windows-x86_64.zip"
+    } else {
+        return None;
+    };
+    parse_rhwp(&curl_text(&[RHWP_LATEST])?, platform)
+}
 
 #[cfg(windows)]
-const FFMPEG_ASSETS: &[Asset] = &[
-    Asset {
-        url: "https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.1.2-1/ffmpeg-win-x64.exe",
-        sha256: "4044b3924c977ad31229d504c5d5b8685f9553124fbaff6e9c99048b42830341",
-        size: 53_763_072,
-        kind: AssetKind::Raw { name: "ffmpeg.exe" },
-    },
-    Asset {
-        url: "https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.1.2-1/ffprobe-win-x64.exe",
-        sha256: "fc37ca23d31ee08bb8f7e108edf3822f6ef3efc1a8d306bbe0b779190230710b",
-        size: 53_558_272,
-        kind: AssetKind::Raw { name: "ffprobe.exe" },
-    },
-];
+fn resolve_ffmpeg() -> Option<Release> {
+    parse_gyan(&curl_text(&[GYAN_RELEASES])?)
+}
 
-// rhwp's own release builds (https://github.com/edwardkim/rhwp), v0.8.7.
 #[cfg(target_os = "macos")]
-const RHWP_ASSETS: &[Asset] = &[Asset {
-    url: "https://github.com/edwardkim/rhwp/releases/download/v0.8.7/rhwp-v0.8.7-macos-aarch64.tar.gz",
-    sha256: "6ed46aa63f6d10c447842999f73abc59cf9586c5645fefc5e763bd6a6d43662d",
-    size: 12_941_874,
-    kind: AssetKind::Archive,
-}];
-
-#[cfg(windows)]
-const RHWP_ASSETS: &[Asset] = &[Asset {
-    url: "https://github.com/edwardkim/rhwp/releases/download/v0.8.7/rhwp-v0.8.7-windows-x86_64.zip",
-    sha256: "f7ac326e98f595ae8fecd8da7a614ee9a37db77bdf938782a8e07c9da473ec6f",
-    size: 19_796_112,
-    kind: AssetKind::Archive,
-}];
+fn resolve_ffmpeg() -> Option<Release> {
+    let mut version = None;
+    let mut assets = Vec::new();
+    for bin in SPECS[EngineId::Ffmpeg as usize].binaries {
+        // GET, not HEAD: the redirect endpoint answers HEAD with 404 most of the time.
+        let url = curl_text(&["-o", "/dev/null", "-w", "%{redirect_url}", &format!("{RIEDL_LATEST}/{bin}.zip")])?;
+        let v = parse_riedl_url(&url)?;
+        // Both zips must come from the same release.
+        if version.get_or_insert_with(|| v.clone()) != &v {
+            return None;
+        }
+        let sha256 = parse_sha256_file(&curl_text(&[&format!("{url}.sha256")])?)?;
+        let size = parse_content_length(&curl_text(&["-I", &url])?)?;
+        assets.push(Asset { url, sha256, size, kind: AssetKind::Archive });
+    }
+    Some(Release { version: version?, assets })
+}
 
 #[cfg(not(any(target_os = "macos", windows)))]
-const FFMPEG_ASSETS: &[Asset] = &[];
-#[cfg(not(any(target_os = "macos", windows)))]
-const RHWP_ASSETS: &[Asset] = &[];
-
-/// Bytes a download of the engine's pinned files fetches.
-pub fn download_size(spec: &EngineSpec) -> u64 {
-    (spec.assets)().iter().map(|a| a.size).sum()
+fn resolve_ffmpeg() -> Option<Release> {
+    None
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -164,8 +270,9 @@ pub enum InstallError {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum EngineStatus {
-    /// `error`: why the last download failed; cleared by the next one. `download_size`: bytes a download fetches.
-    Missing { error: Option<InstallError>, download_size: u64 },
+    /// `error`: why the last download failed; cleared by the next one. `download_size`: bytes a download
+    /// fetches, once the latest release has been looked up.
+    Missing { error: Option<InstallError>, download_size: Option<u64> },
     Downloading { received: u64, total: u64, speed: u64, stage: Stage },
     Installed { version: String, size: u64, installed_at: i64, path: String, update: bool, error: Option<InstallError> },
 }
@@ -311,12 +418,16 @@ fn stage(
             }
         }
     }
+    if let Some(bin) = binaries.iter().find(|b| !staged.join(b).is_file()) {
+        log::warn!("engines: {bin} not found in the downloads");
+        return Err(InstallError::Unpack);
+    }
     let meta = Meta { version: version.into(), installed_at: now, size };
     std::fs::write(staged.join("meta.json"), serde_json::to_vec(&meta).expect("plain struct")).map_err(disk)
 }
 
-/// Unpacks `archive` into `work` and places every binary found in it into `staged`; returns their size.
-// ponytail: an engine has either raw assets or archives; each archive must hold every binary.
+/// Unpacks `archive` into `work` and places the binaries found in it into `staged`; returns their size.
+/// An archive may hold only some of them (one zip per binary); `stage` checks that all arrived.
 fn unpack_into(archive: &Path, work: &Path, binaries: &[&str], staged: &Path) -> Result<u64, InstallError> {
     remove_dir(work);
     std::fs::create_dir_all(work).map_err(disk)?;
@@ -325,12 +436,8 @@ fn unpack_into(archive: &Path, work: &Path, binaries: &[&str], staged: &Path) ->
         InstallError::Unpack
     })?;
     let mut size = 0;
-    for bin in binaries {
-        let found = find(work, bin).ok_or_else(|| {
-            log::warn!("engines: {bin} not found in {}", archive.display());
-            InstallError::Unpack
-        })?;
-        size += place(&found, &staged.join(bin))?;
+    for found in binaries.iter().filter_map(|bin| find(work, bin)) {
+        size += place(&found, &staged.join(found.file_name().expect("found by file name")))?;
     }
     Ok(size)
 }
@@ -407,6 +514,8 @@ struct Slot {
     /// `<temp>/vee-<engine>-download-<identifier>`, so a dev build and the installed app don't share it.
     tmp: PathBuf,
     status: Mutex<EngineStatus>,
+    /// The last latest release looked up; kept when a later lookup fails.
+    latest: Mutex<Option<Release>>,
     /// The running download's cancel flag.
     cancel: Mutex<Option<Arc<AtomicBool>>>,
     /// The running curl, killed on cancel and on app exit.
@@ -433,8 +542,8 @@ pub fn manage(app: &AppHandle, data_dir: &Path) {
         remove_dir(&tmp);
         recover(&dir, spec.binaries);
         tidy(&dir, spec.binaries);
-        let status = Mutex::new(on_disk(spec, &dir, None));
-        Slot { dir, tmp, status, cancel: Mutex::new(None), curl: Mutex::new(None) }
+        let status = Mutex::new(on_disk(spec, &dir, None, None));
+        Slot { dir, tmp, status, latest: Mutex::new(None), cancel: Mutex::new(None), curl: Mutex::new(None) }
     });
     app.manage(Engines(slots));
 }
@@ -472,18 +581,73 @@ pub fn rhwp(app: &AppHandle) -> Option<PathBuf> {
     engine_bin(app, EngineId::Rhwp)?.pop()
 }
 
-/// What is installed in `dir`, with the last download's `error` attached.
-pub fn on_disk(spec: &EngineSpec, dir: &Path, error: Option<InstallError>) -> EngineStatus {
+/// What is installed in `dir`, compared with the `latest` release if it is known, with the last
+/// download's `error` attached.
+pub fn on_disk(spec: &EngineSpec, dir: &Path, latest: Option<&Release>, error: Option<InstallError>) -> EngineStatus {
     match read_installed(dir, spec.binaries) {
         Some(m) => EngineStatus::Installed {
-            update: m.version != spec.version,
+            update: latest.is_some_and(|r| newer(&r.version, &m.version)),
             version: m.version,
             size: m.size,
             installed_at: m.installed_at,
             path: dir.to_string_lossy().into_owned(),
             error,
         },
-        None => EngineStatus::Missing { error, download_size: download_size(spec) },
+        None => EngineStatus::Missing { error, download_size: latest.map(Release::size) },
+    }
+}
+
+/// `a` is a later dotted version than `b` (`10.0` > `9.0.2` > `9.0`); a part that isn't a number counts as 0.
+fn newer(a: &str, b: &str) -> bool {
+    let parts = |v: &str| v.split('.').map(|p| p.parse::<u64>().unwrap_or(0)).collect::<Vec<_>>();
+    let (mut a, mut b) = (parts(a), parts(b));
+    let len = a.len().max(b.len());
+    a.resize(len, 0);
+    b.resize(len, 0);
+    a > b
+}
+
+/// The status on disk against the last latest release looked up.
+fn current(app: &AppHandle, id: EngineId, error: Option<InstallError>) -> EngineStatus {
+    let s = app.state::<Engines>().inner().get(id);
+    on_disk(id.spec(), &s.dir, s.latest.lock().unwrap().as_ref(), error)
+}
+
+/// Keeps a looked-up release (a failed lookup keeps the previous one) and re-publishes the status,
+/// unless a download is running: its progress stays on screen.
+fn apply_latest(app: &AppHandle, id: EngineId, release: Option<Release>) {
+    let s = app.state::<Engines>().inner().get(id);
+    if let Some(r) = release {
+        *s.latest.lock().unwrap() = Some(r);
+    }
+    // Held across the `set`, so a download can't start between the check and the publish and be
+    // overwritten. Lock order: `cancel`, then `status` / `latest` (nothing takes them the other way).
+    let cancel = s.cancel.lock().unwrap();
+    if cancel.is_none() {
+        // Keeps the last download's error on screen until the next download.
+        let error = match &*s.status.lock().unwrap() {
+            EngineStatus::Missing { error, .. } | EngineStatus::Installed { error, .. } => *error,
+            EngineStatus::Downloading { .. } => None,
+        };
+        set(app, id, current(app, id, error));
+    }
+}
+
+/// Set while a lookup runs, so remounting the Convert tab doesn't start another one beside it.
+static CHECKING: AtomicBool = AtomicBool::new(false);
+
+/// Holds `CHECKING` for one lookup; `None` when one is already running.
+struct Checking;
+
+impl Checking {
+    fn start() -> Option<Self> {
+        (!CHECKING.swap(true, Ordering::SeqCst)).then_some(Checking)
+    }
+}
+
+impl Drop for Checking {
+    fn drop(&mut self) {
+        CHECKING.store(false, Ordering::SeqCst);
     }
 }
 
@@ -503,8 +667,9 @@ impl From<InstallError> for Stop {
     }
 }
 
-/// Starts downloading the pinned engine in the background. A second call for the same engine while
-/// one runs does nothing; different engines download side by side.
+/// Starts downloading the engine's latest release in the background (looked up first if no lookup
+/// has succeeded yet). A second call for the same engine while one runs does nothing; different
+/// engines download side by side.
 fn download(app: &AppHandle, id: EngineId) {
     let e = app.state::<Engines>();
     let cancel = {
@@ -516,35 +681,50 @@ fn download(app: &AppHandle, id: EngineId) {
         *slot = Some(cancel.clone());
         cancel
     };
-    let spec = id.spec();
-    let total = download_size(spec);
+    let known = e.get(id).latest.lock().unwrap().clone();
+    let total = known.as_ref().map_or(0, Release::size);
     set(app, id, EngineStatus::Downloading { received: 0, total, speed: 0, stage: Stage::Download });
     let app = app.clone();
     std::thread::spawn(move || {
         let e = app.state::<Engines>();
         let s = e.get(id);
-        let result = fetch_and_install(&app, id, total, &cancel);
+        let release = known.or_else(|| {
+            let r = resolve(id);
+            // A failed lookup keeps whatever a check stored meanwhile.
+            if let Some(r) = &r {
+                *s.latest.lock().unwrap() = Some(r.clone());
+            }
+            r
+        });
+        let result = match &release {
+            Some(r) => fetch_and_install(&app, id, r, &cancel),
+            None => Err(Stop::Failed(InstallError::Network)),
+        };
         remove_dir(&s.tmp);
-        *s.cancel.lock().unwrap() = None;
         let error = match result {
             Err(Stop::Failed(reason)) => Some(reason),
             Ok(()) | Err(Stop::Cancelled) => None,
         };
-        set(&app, id, on_disk(spec, &s.dir, error));
+        // Published before `cancel` clears, so a lookup finishing now sees the download still running
+        // and can't replace this status (and its error) with one read mid-download.
+        let mut cancel = s.cancel.lock().unwrap();
+        set(&app, id, current(&app, id, error));
+        *cancel = None;
     });
 }
 
-fn fetch_and_install(app: &AppHandle, id: EngineId, total: u64, cancel: &AtomicBool) -> Result<(), Stop> {
+fn fetch_and_install(app: &AppHandle, id: EngineId, release: &Release, cancel: &AtomicBool) -> Result<(), Stop> {
     let spec = id.spec();
     let s = app.state::<Engines>().inner().get(id);
     remove_dir(&s.tmp);
     std::fs::create_dir_all(&s.tmp).map_err(disk)?;
+    let total = release.size();
     let started = Instant::now();
     let mut done = 0;
     let mut files = Vec::new();
-    for (i, asset) in (spec.assets)().iter().enumerate() {
+    for (i, asset) in release.assets.iter().enumerate() {
         let file = s.tmp.join(format!("{i}.download"));
-        curl(app, id, asset.url, &file, cancel, |got| {
+        curl(app, id, &asset.url, &file, cancel, |got| {
             let received = done + got;
             let secs = started.elapsed().as_secs_f64();
             let speed = if secs > 0.0 { (received as f64 / secs) as u64 } else { 0 };
@@ -555,7 +735,7 @@ fn fetch_and_install(app: &AppHandle, id: EngineId, total: u64, cancel: &AtomicB
     }
     set(app, id, EngineStatus::Downloading { received: total, total, speed: 0, stage: Stage::Verify });
     let on_unpack = || set(app, id, EngineStatus::Downloading { received: total, total, speed: 0, stage: Stage::Unpack });
-    install_from(spec.binaries, &files, &s.dir, spec.version, now_ms(), &on_unpack)?;
+    install_from(spec.binaries, &files, &s.dir, &release.version, now_ms(), &on_unpack)?;
     // Downloaded by curl, so no quarantine flag is expected; cleared in case one was added.
     #[cfg(target_os = "macos")]
     let _ = std::process::Command::new("xattr").arg("-dr").arg("com.apple.quarantine").arg(&s.dir).status();
@@ -563,8 +743,22 @@ fn fetch_and_install(app: &AppHandle, id: EngineId, total: u64, cancel: &AtomicB
 }
 
 /// The curl arguments before `<file> <url>`; a stalled transfer fails instead of hanging.
-const CURL_ARGS: [&str; 10] =
-    ["-fL", "--retry", "2", "--connect-timeout", "20", "--speed-time", "60", "--speed-limit", "1024", "-o"];
+const CURL_ARGS: [&str; 14] = [
+    "-fL",
+    "--proto",
+    "=https",
+    "--proto-redir",
+    "=https",
+    "--retry",
+    "2",
+    "--connect-timeout",
+    "20",
+    "--speed-time",
+    "60",
+    "--speed-limit",
+    "1024",
+    "-o",
+];
 
 fn stop(child: &mut Child) {
     let _ = child.kill();
@@ -630,7 +824,7 @@ fn curl(app: &AppHandle, id: EngineId, url: &str, file: &Path, cancel: &AtomicBo
 
 /// Engine commands; `engine` is `"ffmpeg"` or `"rhwp"`.
 pub mod commands {
-    use super::{EngineId, EngineStatus, Engines, on_disk};
+    use super::{EngineId, EngineStatus, Engines};
     use crate::shared::error::{AppError, AppResult};
     use std::sync::atomic::Ordering;
     use tauri::{AppHandle, Manager, State};
@@ -640,7 +834,21 @@ pub mod commands {
         Ok(state.get(EngineId::parse(&engine)?).status.lock().unwrap().clone())
     }
 
-    /// Downloads (or updates to) the pinned engine. Progress arrives as `engines://status`.
+    /// Looks up both engines' latest releases and re-publishes their status (`update`, `downloadSize`)
+    /// as `engines://status`. Run when the Convert tab opens; a failed lookup changes nothing, and a call
+    /// while one runs returns at once.
+    #[tauri::command(async)]
+    pub fn check_engine_updates(app: AppHandle) {
+        let Some(_checking) = super::Checking::start() else { return };
+        std::thread::scope(|scope| {
+            for id in EngineId::ALL {
+                let app = &app;
+                scope.spawn(move || super::apply_latest(app, id, super::resolve(id)));
+            }
+        });
+    }
+
+    /// Downloads (or updates to) the engine's latest release. Progress arrives as `engines://status`.
     #[tauri::command]
     pub fn download_engine(app: AppHandle, engine: String) -> AppResult<()> {
         super::download(&app, EngineId::parse(&engine)?);
@@ -667,7 +875,7 @@ pub mod commands {
         }
         let removed = if s.dir.exists() { std::fs::remove_dir_all(&s.dir) } else { Ok(()) };
         // A partial removal may leave a broken dir: report what is really there.
-        super::set(&app, id, on_disk(id.spec(), &s.dir, None));
+        super::set(&app, id, super::current(&app, id, None));
         Ok(removed?)
     }
 }
@@ -693,7 +901,7 @@ mod tests {
 
     /// A raw asset per FFmpeg binary with these hashes.
     fn assets_with(sha256: [&'static str; 2]) -> [Asset; 2] {
-        [0, 1].map(|i| Asset { url: "test://dl", sha256: sha256[i], size: 3, kind: AssetKind::Raw { name: FFMPEG[i] } })
+        [0, 1].map(|i| Asset { url: "test://dl".into(), sha256: sha256[i].into(), size: 3, kind: AssetKind::Raw { name: FFMPEG[i] } })
     }
 
     fn pairs<'a>(files: &[PathBuf; 2], assets: &'a [Asset; 2]) -> Vec<(PathBuf, &'a Asset)> {
@@ -716,8 +924,8 @@ mod tests {
         let file = root.join("dl/0.download");
         let ok = std::process::Command::new("tar").arg("-czf").arg(&file).arg("-C").arg(&fixture).arg(".").status().unwrap();
         assert!(ok.success());
-        let sha256: &'static str = Box::leak(sha256_file(&file).unwrap().into_boxed_str());
-        (file, Asset { url: "test://a.tar.gz", sha256, size: 3, kind: AssetKind::Archive })
+        let sha256 = sha256_file(&file).unwrap();
+        (file, Asset { url: "test://a.tar.gz".into(), sha256, size: 3, kind: AssetKind::Archive })
     }
 
     fn with_rhwp(fixture: &Path) {
@@ -775,6 +983,17 @@ mod tests {
     }
 
     #[test]
+    fn installs_one_binary_from_each_archive_and_needs_them_all() {
+        let root = tempfile::tempdir().unwrap();
+        let [(f0, a0), (f1, a1)] = [0, 1].map(|i| archive(&root.path().join(i.to_string()), |f| std::fs::write(f.join(FFMPEG[i]), FFMPEG[i]).unwrap()));
+        let dest = existing(root.path());
+        assert_eq!(install_from(FFMPEG, &[(f0.clone(), &a0)], &dest, "9.0.2", 1, NONE), Err(InstallError::Unpack));
+        assert!(dest.join("keep").is_file());
+        install_from(FFMPEG, &[(f0, &a0), (f1, &a1)], &dest, "9.0.2", 1, NONE).unwrap();
+        assert!(FFMPEG.iter().all(|b| std::fs::read(dest.join(b)).unwrap() == b.as_bytes()));
+    }
+
+    #[test]
     fn an_archive_without_the_binary_leaves_the_old_install() {
         let root = tempfile::tempdir().unwrap();
         let (file, a) = archive(root.path(), |f| std::fs::write(f.join("rhwp/README.md"), b"docs").unwrap());
@@ -791,7 +1010,7 @@ mod tests {
         let dest = existing(root.path());
         let file = root.path().join("0.download");
         std::fs::write(&file, b"abc").unwrap();
-        let a = Asset { url: "test://a.tar.gz", sha256: ABC, size: 3, kind: AssetKind::Archive };
+        let a = Asset { url: "test://a.tar.gz".into(), sha256: ABC.into(), size: 3, kind: AssetKind::Archive };
         assert_eq!(install_from(RHWP, &[(file, &a)], &dest, "0.8.7", 1, NONE), Err(InstallError::Unpack));
         assert!(dest.join("keep").exists());
     }
@@ -840,11 +1059,11 @@ mod tests {
     fn status_serializes_for_the_settings_tab() {
         let json = |s: EngineStatus| serde_json::to_value(s).unwrap();
         assert_eq!(
-            json(EngineStatus::Missing { error: None, download_size: 9 }),
+            json(EngineStatus::Missing { error: None, download_size: Some(9) }),
             serde_json::json!({ "state": "missing", "error": null, "downloadSize": 9 })
         );
         assert_eq!(
-            json(EngineStatus::Missing { error: Some(InstallError::Unpack), download_size: 9 }),
+            json(EngineStatus::Missing { error: Some(InstallError::Unpack), download_size: Some(9) }),
             serde_json::json!({ "state": "missing", "error": "unpack", "downloadSize": 9 })
         );
         assert_eq!(
@@ -868,10 +1087,10 @@ mod tests {
     fn the_status_event_names_its_engine() {
         let root = tempfile::tempdir().unwrap();
         let spec = EngineId::Rhwp.spec();
-        let event = StatusEvent { engine: EngineId::Rhwp, status: on_disk(spec, root.path(), None) };
+        let event = StatusEvent { engine: EngineId::Rhwp, status: on_disk(spec, root.path(), None, None) };
         assert_eq!(
             serde_json::to_value(event).unwrap(),
-            serde_json::json!({ "engine": "rhwp", "status": { "state": "missing", "error": null, "downloadSize": download_size(spec) } })
+            serde_json::json!({ "engine": "rhwp", "status": { "state": "missing", "error": null, "downloadSize": null } })
         );
     }
 
@@ -921,14 +1140,14 @@ mod tests {
         let a = assets_with(["00", "00"]);
         let err = install_from(FFMPEG, &pairs(&files, &a), &dest, "9.0.2", 1, NONE).unwrap_err();
         let spec = EngineId::Ffmpeg.spec();
-        let status = on_disk(spec, &dest, Some(err));
+        let status = on_disk(spec, &dest, Some(&release("9.0.2", 10)), Some(err));
         assert!(matches!(
             status,
             EngineStatus::Installed { ref version, update: true, error: Some(InstallError::Checksum), .. } if version == "9.0.1"
         ));
         assert_eq!(
-            on_disk(spec, &root.path().join("none"), Some(InstallError::Network)),
-            EngineStatus::Missing { error: Some(InstallError::Network), download_size: download_size(spec) }
+            on_disk(spec, &root.path().join("none"), None, Some(InstallError::Network)),
+            EngineStatus::Missing { error: Some(InstallError::Network), download_size: None }
         );
     }
 
@@ -968,17 +1187,33 @@ mod tests {
         assert!(read_installed(&root.path().join(".ffmpeg-old"), FFMPEG).is_some());
     }
 
-    #[test]
-    fn download_size_sums_the_pinned_assets() {
-        for spec in &SPECS {
-            assert_eq!(download_size(spec), (spec.assets)().iter().map(|a| a.size).sum::<u64>());
+    /// A release of `version` whose one file is `size` bytes.
+    fn release(version: &str, size: u64) -> Release {
+        Release {
+            version: version.into(),
+            assets: vec![Asset { url: "test://dl".into(), sha256: ABC.into(), size, kind: AssetKind::Archive }],
         }
-        let [ffmpeg, rhwp] = SPECS.each_ref().map(download_size);
-        #[cfg(target_os = "macos")]
-        assert_eq!((ffmpeg, rhwp), (34_074_040 + 33_882_408, 12_941_874));
-        #[cfg(windows)]
-        assert_eq!((ffmpeg, rhwp), (53_763_072 + 53_558_272, 19_796_112));
-        let _ = (ffmpeg, rhwp);
+    }
+
+    #[test]
+    fn update_and_size_come_from_the_latest_release() {
+        let root = tempfile::tempdir().unwrap();
+        let spec = EngineId::Ffmpeg.spec();
+        let dest = root.path().join("ffmpeg");
+        let update = |latest: Option<&Release>| match on_disk(spec, &dest, latest, None) {
+            EngineStatus::Installed { update, .. } => update,
+            s => panic!("{s:?}"),
+        };
+        assert_eq!(on_disk(spec, &dest, None, None), EngineStatus::Missing { error: None, download_size: None });
+        assert_eq!(on_disk(spec, &dest, Some(&release("9.0.2", 10)), None), EngineStatus::Missing { error: None, download_size: Some(10) });
+        installed(&dest, FFMPEG, "9.0.1");
+        assert!(update(Some(&release("9.0.2", 10))));
+        assert!(update(Some(&release("10.0", 10))));
+        assert!(!update(Some(&release("9.0.1", 10))));
+        // A "latest" older than the install never offers a downgrade.
+        assert!(!update(Some(&release("9.0", 10))));
+        assert!(!update(Some(&release("8.1.2", 10))));
+        assert!(!update(None));
     }
 
     #[test]
@@ -992,57 +1227,124 @@ mod tests {
         assert_eq!(read_installed(&dest, FFMPEG).map(|m| m.version), Some("9.0.1".into()));
     }
 
+    const RHWP_JSON: &str = r#"{"tag_name":"v0.8.7","assets":[{"name":"rhwp-v0.8.7-macos-aarch64.tar.gz","size":12941874,
+      "browser_download_url":"https://github.com/edwardkim/rhwp/releases/download/v0.8.7/rhwp-v0.8.7-macos-aarch64.tar.gz",
+      "digest":"sha256:6ed46aa63f6d10c447842999f73abc59cf9586c5645fefc5e763bd6a6d43662d"}]}"#;
+
+    #[test]
+    fn rhwp_latest_release_from_the_github_api() {
+        let r = parse_rhwp(RHWP_JSON, "macos-aarch64.tar.gz").unwrap();
+        assert_eq!((r.version.as_str(), r.size()), ("0.8.7", 12_941_874));
+        assert_eq!(r.assets[0].sha256, "6ed46aa63f6d10c447842999f73abc59cf9586c5645fefc5e763bd6a6d43662d");
+        assert!(r.valid());
+        let no_digest = RHWP_JSON.replace(r#""digest""#, r#""label""#);
+        assert_eq!(parse_rhwp(&no_digest, "macos-aarch64.tar.gz"), None);
+        assert_eq!(parse_rhwp(RHWP_JSON, "windows-x86_64.zip"), None);
+        assert_eq!(parse_rhwp("", "macos-aarch64.tar.gz"), None);
+    }
+
+    #[test]
+    fn gyan_skips_git_builds_for_the_newest_release_version() {
+        let asset = |tag: &str| {
+            format!(
+                r#"{{"tag_name":"{tag}","assets":[{{"name":"ffmpeg-{tag}-essentials_build.zip","size":5,
+                "browser_download_url":"https://github.com/GyanD/codexffmpeg/releases/download/{tag}/ffmpeg-{tag}-essentials_build.zip",
+                "digest":"sha256:60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba"}}]}}"#
+            )
+        };
+        let json = format!("[{},{},{}]", asset("2026-10-22-git-bf0e831606"), asset("9.0.2"), asset("9.0.1"));
+        let r = parse_gyan(&json).unwrap();
+        assert_eq!(r.version, "9.0.2");
+        assert!(r.assets[0].url.ends_with("/9.0.2/ffmpeg-9.0.2-essentials_build.zip"));
+        assert!(r.valid());
+        assert_eq!(parse_gyan(&format!("[{}]", asset("2026-10-22-git-bf0e831606"))), None);
+        assert_eq!(parse_gyan("{}"), None);
+    }
+
+    #[test]
+    fn riedl_redirect_and_checksum_files() {
+        assert_eq!(
+            parse_riedl_url("https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip").as_deref(),
+            Some("9.0.2")
+        );
+        assert_eq!(parse_riedl_url("https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip"), None);
+        assert_eq!(parse_riedl_url(""), None);
+        let sha = "c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924";
+        assert_eq!(parse_sha256_file(&format!("{sha}  ffmpeg.zip\n")).as_deref(), Some(sha));
+        assert_eq!(parse_sha256_file("<html>not found</html>"), None);
+        assert_eq!(
+            parse_content_length("HTTP/2 302\r\ncontent-length: 19\r\n\r\nHTTP/2 200\r\nContent-Length: 28395699\r\n"),
+            Some(28_395_699)
+        );
+        assert_eq!(parse_content_length("HTTP/2 200\r\n"), None);
+    }
+
+    #[test]
+    fn a_release_from_elsewhere_or_with_a_bad_version_is_invalid() {
+        let ok = parse_rhwp(RHWP_JSON, "macos-aarch64.tar.gz").unwrap();
+        let with = |f: &dyn Fn(&mut Release)| {
+            let mut r = ok.clone();
+            f(&mut r);
+            r.valid()
+        };
+        assert!(!with(&|r| r.assets[0].url = r.assets[0].url.replace("https://github.com/", "http://github.com/")));
+        assert!(!with(&|r| r.assets[0].url = "https://evil.example/rhwp.tar.gz".into()));
+        assert!(!with(&|r| r.assets[0].url = "https://github.com/someone/else/releases/download/v1/rhwp.tar.gz".into()));
+        assert!(!with(&|r| r.version = "9.0-dev".into()));
+        assert!(!with(&|r| r.version = String::new()));
+        assert!(!with(&|r| r.assets[0].sha256 = "abc".into()));
+        assert!(!with(&|r| r.assets.clear()));
+    }
+
+    #[test]
+    fn only_one_lookup_runs_at_a_time() {
+        let first = Checking::start();
+        assert!(first.is_some());
+        assert!(Checking::start().is_none());
+        drop(first);
+        assert!(Checking::start().is_some());
+    }
+
     #[test]
     fn curl_gives_up_on_a_stalled_download() {
         for w in [["--connect-timeout", "20"], ["--speed-time", "60"], ["--speed-limit", "1024"]] {
             assert!(CURL_ARGS.windows(2).any(|p| p == w), "{w:?}");
         }
         assert_eq!(CURL_ARGS.last(), Some(&"-o"));
-    }
-
-    #[test]
-    fn pinned_assets_cover_the_binaries() {
-        for spec in &SPECS {
-            let assets = (spec.assets)();
-            assert!(assets.iter().all(|a| a.sha256.len() == 64 && a.url.starts_with("https://")));
-            match EngineId::parse(spec.dir_name).unwrap() {
-                // FFmpeg ships raw executables, one per binary.
-                EngineId::Ffmpeg if !assets.is_empty() => {
-                    let names: Vec<&str> =
-                        assets.iter().map(|a| if let AssetKind::Raw { name } = a.kind { name } else { panic!("{a:?}") }).collect();
-                    assert_eq!(names, spec.binaries);
-                }
-                EngineId::Ffmpeg => {}
-                EngineId::Rhwp => assert!(assets.iter().all(|a| matches!(a.kind, AssetKind::Archive))),
-            }
+        // Never handed to plain http, not even by a redirect.
+        for w in [["--proto", "=https"], ["--proto-redir", "=https"]] {
+            assert!(CURL_ARGS.windows(2).any(|p| p == w), "{w:?}");
+            assert!(LOOKUP_ARGS.windows(2).any(|p| p == w), "{w:?}");
         }
     }
 
-    /// Downloads the pinned assets for real into a temp dir.
-    fn install_pinned(id: EngineId) -> (tempfile::TempDir, PathBuf) {
+    /// Looks up the latest release and downloads it for real into a temp dir.
+    fn install_latest(id: EngineId) -> (tempfile::TempDir, PathBuf) {
         let spec = id.spec();
+        let release = resolve(id).expect("latest release");
+        println!("latest {}: {}", spec.dir_name, release.version);
         let root = tempfile::tempdir().unwrap();
         let started = Instant::now();
         let mut files = Vec::new();
-        for (i, a) in (spec.assets)().iter().enumerate() {
+        for (i, a) in release.assets.iter().enumerate() {
             let file = root.path().join(format!("{i}.download"));
-            let ok = std::process::Command::new("curl").args(CURL_ARGS).arg(&file).arg(a.url).status().unwrap();
+            let ok = std::process::Command::new("curl").args(CURL_ARGS).arg(&file).arg(&a.url).status().unwrap();
             assert!(ok.success(), "curl {}", a.url);
             assert_eq!(std::fs::metadata(&file).unwrap().len(), a.size);
             files.push((file, a));
         }
         println!("downloaded in {:.1}s", started.elapsed().as_secs_f64());
         let dest = install_dir(root.path(), spec);
-        install_from(spec.binaries, &files, &dest, spec.version, now_ms(), NONE).unwrap();
+        install_from(spec.binaries, &files, &dest, &release.version, now_ms(), NONE).unwrap();
         println!("{:?}", read_installed(&dest, spec.binaries).unwrap());
         (root, dest)
     }
 
-    /// `cargo test --lib installs_pinned_ffmpeg -- --ignored --nocapture`
+    /// `cargo test --lib installs_latest_ffmpeg -- --ignored --nocapture`
     #[test]
     #[ignore]
-    fn installs_pinned_ffmpeg() {
-        let (_root, dest) = install_pinned(EngineId::Ffmpeg);
+    fn installs_latest_ffmpeg() {
+        let (_root, dest) = install_latest(EngineId::Ffmpeg);
         let out = std::process::Command::new(dest.join(FFMPEG[0])).arg("-version").output().unwrap();
         println!("{}", String::from_utf8_lossy(&out.stdout).lines().next().unwrap_or_default());
         assert!(out.status.success());
@@ -1050,11 +1352,11 @@ mod tests {
         assert!(out.status.success());
     }
 
-    /// `cargo test --lib installs_pinned_rhwp -- --ignored --nocapture`
+    /// `cargo test --lib installs_latest_rhwp -- --ignored --nocapture`
     #[test]
     #[ignore]
-    fn installs_pinned_rhwp() {
-        let (_root, dest) = install_pinned(EngineId::Rhwp);
+    fn installs_latest_rhwp() {
+        let (_root, dest) = install_latest(EngineId::Rhwp);
         let out = std::process::Command::new(dest.join(RHWP[0])).arg("--help").output().unwrap();
         println!("{}", String::from_utf8_lossy(&out.stdout).lines().next().unwrap_or_default());
         assert!(out.status.success());

@@ -113,8 +113,10 @@ export function PanelApp() {
   /** Restart was pressed; the app is re-checking or downloading before it restarts. */
   const [updateInstalling, setUpdateInstalling] = useState(false);
   const [panelPinned, setPanelPinned] = useState(false);
-  /** Pinning was just switched on; plays the press, then the edge sweep, then shows the pinned border. */
+  /** Pinning was just switched on; plays the press and the ring zipping shut, then shows the pinned border. */
   const [pinPressing, setPinPressing] = useState(false);
+  /** Pinning was just switched off; the ring unzips from the top and runs off the bottom. */
+  const [pinReleasing, setPinReleasing] = useState(false);
   const [suggestIndex, setSuggestIndex] = useState(0);
 
   // store
@@ -362,8 +364,9 @@ export function PanelApp() {
   const togglePanelPin = () => {
     const next = !panelPinned;
     setPanelPinned(next);
-    // Without motion there is no sweep to end the press, so the border shows at once.
+    // Without motion there is no zip to end the press, so the border shows (or goes) at once.
     setPinPressing(next && !reducedMotion());
+    setPinReleasing(!next && !reducedMotion());
     void setPanelPinnedApi(next);
   };
 
@@ -526,7 +529,7 @@ export function PanelApp() {
       className={cx(
         // Thumbnails must not start WebKit's own HTML drag.
         'bg-base-100 relative flex h-full flex-col overflow-hidden rounded-[18px] border px-3 pt-2.5 pb-3 [&_img]:[-webkit-user-drag:none]',
-        // While pinning plays, the border waits: the sweep's last lap hands over to it.
+        // While pinning plays, the border waits: the zip closing hands over to it.
         panelPinned && !pinPressing ? 'border-primary shadow-panel-pinned' : 'border-base-300',
         pinPressing && 'animate-pin-press',
         /*
@@ -554,11 +557,18 @@ export function PanelApp() {
     >
       {/* The glow sits behind the toolbar only. */}
       <Aurora className="inset-x-0 top-0 h-[72px]" />
-      {pinPressing && (
-        // The sweep ends last: its end shows the pinned border.
+      {(pinPressing || pinReleasing) && (
+        // The zip ends last: closing hands over to the pinned border, opening leaves the plain one.
         <span
-          className="animate-pin-sweep pin-sweep pointer-events-none absolute inset-0 z-10 rounded-[inherit] motion-reduce:hidden"
-          onAnimationEnd={() => setPinPressing(false)}
+          key={pinPressing ? 'close' : 'open'}
+          className={cx(
+            'pin-zip pointer-events-none absolute inset-0 z-10 rounded-[inherit] motion-reduce:hidden',
+            pinPressing ? 'animate-pin-zip-close' : 'animate-pin-zip-open',
+          )}
+          onAnimationEnd={() => {
+            setPinPressing(false);
+            setPinReleasing(false);
+          }}
           aria-hidden
         />
       )}
@@ -579,6 +589,7 @@ export function PanelApp() {
         onSettings={() => void openSettings()}
         panelPinned={panelPinned}
         panelPinPressing={pinPressing}
+        panelPinReleasing={pinReleasing}
         panelPinShortcut={settings?.panelPinShortcut ?? ''}
         searching={searching}
         onResetSearch={resetSearch}

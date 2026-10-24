@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { getEngineStatus, getLibreOffice, getVideoEncoder } from '@/domain/convert/apis/convert';
+import { checkEngineUpdates, getEngineStatus, getLibreOffice, getVideoEncoder } from '@/domain/convert/apis/convert';
 import type {
   EngineId,
   EngineStatus,
@@ -34,6 +34,13 @@ export function useEngineStatus(engine: EngineId) {
   }, [queryClient, engine]);
 
   return { status: data ?? null };
+}
+
+/** Looks up the engines' latest releases once per mount; results arrive as `engines://status`. Offline is silent. */
+export function useEngineUpdateCheck() {
+  useEffect(() => {
+    checkEngineUpdates().catch(() => {});
+  }, []);
 }
 
 /** The user's LibreOffice; `staleTime: 0` re-checks it each time the Convert tab mounts. */

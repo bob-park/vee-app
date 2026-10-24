@@ -6,7 +6,7 @@ import Row from '@/app/settings/_components/Row';
 import Segmented from '@/app/settings/_components/Segmented';
 import SettingSection from '@/app/settings/_components/SettingSection';
 import Switch from '@/app/settings/_components/Switch';
-import { BADGE } from '@/app/settings/_components/badge';
+import { BADGE, BADGE_OFF } from '@/app/settings/_components/badge';
 import {
   cancelEngineDownload,
   downloadEngine,
@@ -14,7 +14,12 @@ import {
   removeEngine,
 } from '@/domain/convert/apis/convert';
 import type { EngineId } from '@/domain/convert/apis/convert.dto';
-import { useEngineStatus, useLibreOffice, useVideoEncoder } from '@/domain/convert/queries/engines';
+import {
+  useEngineStatus,
+  useEngineUpdateCheck,
+  useLibreOffice,
+  useVideoEncoder,
+} from '@/domain/convert/queries/engines';
 import type { SettingKey, Settings } from '@/domain/settings/apis/settings.dto';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
@@ -34,6 +39,7 @@ interface Props {
 export default function ConvertSection({ settings, run, updateSetting }: Props) {
   // hooks
   const s = useI18n().t.settings;
+  useEngineUpdateCheck();
 
   // queries
   const { videoEncoder } = useVideoEncoder();
@@ -141,7 +147,10 @@ function EngineSection({ engine, index, run, children }: EngineSectionProps) {
       <SettingSection index={index}>
         {status.state === 'missing' && (
           <Row col>
-            <Head title={f.title} hint={f.missingHint(Math.round(status.downloadSize / MB))}>
+            <Head
+              title={f.title}
+              hint={f.missingHint(status.downloadSize === null ? null : Math.round(status.downloadSize / MB))}
+            >
               <Button onClick={() => run(downloadEngine(engine))}>{e.download}</Button>
             </Head>
             {error}
@@ -154,14 +163,17 @@ function EngineSection({ engine, index, run, children }: EngineSectionProps) {
               hint={
                 status.stage === 'verify'
                   ? e.verifying
-                  : status.stage === 'unpack'
-                    ? e.unpacking
-                    : e.progress(
-                        status.total > 0 ? Math.min(100, Math.floor((status.received / status.total) * 100)) : 0,
-                        (status.received / MB).toFixed(1),
-                        (status.total / MB).toFixed(1),
-                        (status.speed / MB).toFixed(1),
-                      )
+                  : status.total === 0
+                    ? // No release known yet: the download looks it up first.
+                      e.resolving
+                    : status.stage === 'unpack'
+                      ? e.unpacking
+                      : e.progress(
+                          status.total > 0 ? Math.min(100, Math.floor((status.received / status.total) * 100)) : 0,
+                          (status.received / MB).toFixed(1),
+                          (status.total / MB).toFixed(1),
+                          (status.speed / MB).toFixed(1),
+                        )
               }
             >
               <Button variant="gray" onClick={() => run(cancelEngineDownload(engine))}>
@@ -253,7 +265,7 @@ function LibreOfficeSection({ index, run }: { index: number; run: Props['run'] }
           ) : (
             // Kept whole: the long hint on the left would otherwise squeeze this to one character per line.
             <div className="flex shrink-0 items-center gap-2">
-              <span className="text-muted text-[11px] whitespace-nowrap">{l.missing}</span>
+              <span className={BADGE_OFF}>{l.missing}</span>
               <Button onClick={() => run(openLibreOfficeDownload())}>{l.install}</Button>
             </div>
           )}

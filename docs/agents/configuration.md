@@ -34,7 +34,7 @@ related:
 
 ## Network and temp paths
 
-- The only network use besides the updater is the FFmpeg and rhwp downloads the user starts (`app/engines.rs`, pinned GitHub URLs + SHA-256: shaka-project's GPL static FFmpeg builds and rhwp's release archives; the user downloads them, not bundled). They run the system `curl` (and `tar` to unpack rhwp), so no HTTP crate or capability is needed. LibreOffice is never downloaded; Settings only opens its download page.
+- Network use besides the updater (`app/engines.rs`): opening Settings → Convert looks up FFmpeg's and rhwp's latest releases (GitHub API for rhwp and gyan.dev's FFmpeg mirror, martin-riedl.de for macOS FFmpeg), and the downloads the user starts fetch them, checked against the SHA-256 the source publishes (not bundled). Both run the system `curl` (and `tar` to unpack), so no HTTP crate or capability is needed. LibreOffice is never downloaded; Settings only opens its download page.
 - Temp dirs: `<temp>/vee-<engine>-download-<identifier>` (`ffmpeg` / `rhwp` download) and `<temp>/vee-convert-<identifier>` (conversion output before the move, cleared at startup and exit).
 - App data: `<app data>/engines/{ffmpeg,rhwp}/` (installed engines) and `<app data>/lo-profile/` (LibreOffice's own profile for headless runs, so a LibreOffice the user has open doesn't block it). Run a dev build with its own identifier so it doesn't share these with the installed app ([build-run](./build-run.md)).
 

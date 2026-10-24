@@ -66,6 +66,8 @@ interface Props {
   panelPinned: boolean;
   /** Pinning was just switched on: the pin icon drops in. */
   panelPinPressing: boolean;
+  /** Pinning was just switched off: the pin icon is pulled out. */
+  panelPinReleasing: boolean;
   panelPinShortcut: string;
   onTogglePanelPin: () => void;
   /** A search, app tag or filter is set. */
@@ -99,6 +101,7 @@ export function Toolbar({
   onSettings,
   panelPinned,
   panelPinPressing,
+  panelPinReleasing,
   panelPinShortcut,
   searching,
   onResetSearch,
@@ -254,7 +257,11 @@ export function Toolbar({
         >
           {/* Lucide `pin` (ISC); the head fills while pinned. */}
           <svg
-            className={cx('block size-4.5', panelPinPressing && 'animate-pin-drop')}
+            className={cx(
+              'block size-4.5',
+              panelPinPressing && 'animate-pin-drop',
+              panelPinReleasing && 'animate-pin-pull',
+            )}
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"

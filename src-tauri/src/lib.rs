@@ -118,6 +118,7 @@ pub fn run() {
             convert::commands::dismiss_convert,
             convert::commands::cancel_convert,
             engines::commands::get_engine_status,
+            engines::commands::check_engine_updates,
             engines::commands::download_engine,
             engines::commands::cancel_engine_download,
             engines::commands::remove_engine,
