@@ -5,6 +5,7 @@ use crate::domain::convert::{command, output};
 use serde::Serialize;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
 use std::time::Duration;
 
 /// LibreOffice's download page, opened from Settings; fixed so the webview never picks a URL.

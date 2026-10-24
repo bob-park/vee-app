@@ -167,6 +167,7 @@ export const en = {
         mb: (n: number) => `${n} MB`,
         download: 'Download',
         progress: (p: number, r: string, t: string, s: string) => `Downloading · ${p}% · ${r} MB / ${t} MB · ${s} MB/s`,
+        resolving: 'Finding the latest version…',
         verifying: 'Checking the download…',
         unpacking: 'Unpacking…',
         installed: 'Installed',

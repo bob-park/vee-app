@@ -167,6 +167,7 @@ export const ko: Dict = {
         mb: (n: number) => `${n}MB`,
         download: '다운로드',
         progress: (p: number, r: string, t: string, s: string) => `내려받는 중 · ${p}% · ${r} MB / ${t} MB · ${s} MB/s`,
+        resolving: '최신 버전 찾는 중…',
         verifying: '내려받은 파일 확인 중…',
         unpacking: '압축 푸는 중…',
         installed: '설치됨',

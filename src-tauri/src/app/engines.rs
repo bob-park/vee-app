@@ -84,8 +84,13 @@ impl Release {
     }
 }
 
-/// The only hosts a release may point at.
-const SOURCES: [&str; 2] = ["https://github.com/", "https://ffmpeg.martin-riedl.de/download/"];
+/// The only places a release may point at.
+const SOURCES: [&str; 3] = [
+    "https://github.com/edwardkim/rhwp/releases/download/",
+    "https://github.com/GyanD/codexffmpeg/releases/download/",
+    RIEDL_DOWNLOAD,
+];
+const RIEDL_DOWNLOAD: &str = "https://ffmpeg.martin-riedl.de/download/";
 
 /// One downloadable engine.
 pub struct EngineSpec {
@@ -145,7 +150,7 @@ fn parse_gyan(json: &str) -> Option<Release> {
 /// `…/download/macos/arm64/<id>_<ver>/ffmpeg.zip` → `<ver>`.
 #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
 fn parse_riedl_url(url: &str) -> Option<String> {
-    let dir = url.strip_prefix(SOURCES[1])?.rsplit('/').nth(1)?;
+    let dir = url.strip_prefix(RIEDL_DOWNLOAD)?.rsplit('/').nth(1)?;
     Some(dir.split_once('_')?.1.to_owned())
 }
 
@@ -162,11 +167,26 @@ fn parse_content_length(headers: &str) -> Option<u64> {
     headers.lines().filter_map(|l| l.split_once(':')).rfind(|(k, _)| k.trim().eq_ignore_ascii_case("content-length"))?.1.trim().parse().ok()
 }
 
+/// The curl arguments of a lookup, before its own.
+const LOOKUP_ARGS: [&str; 11] = [
+    "-sf",
+    "--proto",
+    "=https",
+    "--proto-redir",
+    "=https",
+    "--connect-timeout",
+    "10",
+    "--max-time",
+    "20",
+    "-H",
+    "Accept: application/vnd.github+json",
+];
+
 /// curl's stdout for a short request, or `None` on any failure (offline, HTTP error, rate limit).
 fn curl_text(args: &[&str]) -> Option<String> {
     let program = if cfg!(windows) { "curl.exe" } else { "curl" };
     let out = command(Path::new(program))
-        .args(["-sf", "--connect-timeout", "10", "--max-time", "20", "-H", "Accept: application/vnd.github+json"])
+        .args(LOOKUP_ARGS)
         .args(args)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
@@ -566,7 +586,7 @@ pub fn rhwp(app: &AppHandle) -> Option<PathBuf> {
 pub fn on_disk(spec: &EngineSpec, dir: &Path, latest: Option<&Release>, error: Option<InstallError>) -> EngineStatus {
     match read_installed(dir, spec.binaries) {
         Some(m) => EngineStatus::Installed {
-            update: latest.is_some_and(|r| r.version != m.version),
+            update: latest.is_some_and(|r| newer(&r.version, &m.version)),
             version: m.version,
             size: m.size,
             installed_at: m.installed_at,
@@ -575,6 +595,16 @@ pub fn on_disk(spec: &EngineSpec, dir: &Path, latest: Option<&Release>, error: O
         },
         None => EngineStatus::Missing { error, download_size: latest.map(Release::size) },
     }
+}
+
+/// `a` is a later dotted version than `b` (`10.0` > `9.0.2` > `9.0`); a part that isn't a number counts as 0.
+fn newer(a: &str, b: &str) -> bool {
+    let parts = |v: &str| v.split('.').map(|p| p.parse::<u64>().unwrap_or(0)).collect::<Vec<_>>();
+    let (mut a, mut b) = (parts(a), parts(b));
+    let len = a.len().max(b.len());
+    a.resize(len, 0);
+    b.resize(len, 0);
+    a > b
 }
 
 /// The status on disk against the last latest release looked up.
@@ -660,7 +690,10 @@ fn download(app: &AppHandle, id: EngineId) {
         let s = e.get(id);
         let release = known.or_else(|| {
             let r = resolve(id);
-            s.latest.lock().unwrap().clone_from(&r);
+            // A failed lookup keeps whatever a check stored meanwhile.
+            if let Some(r) = &r {
+                *s.latest.lock().unwrap() = Some(r.clone());
+            }
             r
         });
         let result = match &release {
@@ -710,8 +743,22 @@ fn fetch_and_install(app: &AppHandle, id: EngineId, release: &Release, cancel: &
 }
 
 /// The curl arguments before `<file> <url>`; a stalled transfer fails instead of hanging.
-const CURL_ARGS: [&str; 10] =
-    ["-fL", "--retry", "2", "--connect-timeout", "20", "--speed-time", "60", "--speed-limit", "1024", "-o"];
+const CURL_ARGS: [&str; 14] = [
+    "-fL",
+    "--proto",
+    "=https",
+    "--proto-redir",
+    "=https",
+    "--retry",
+    "2",
+    "--connect-timeout",
+    "20",
+    "--speed-time",
+    "60",
+    "--speed-limit",
+    "1024",
+    "-o",
+];
 
 fn stop(child: &mut Child) {
     let _ = child.kill();
@@ -1161,7 +1208,11 @@ mod tests {
         assert_eq!(on_disk(spec, &dest, Some(&release("9.0.2", 10)), None), EngineStatus::Missing { error: None, download_size: Some(10) });
         installed(&dest, FFMPEG, "9.0.1");
         assert!(update(Some(&release("9.0.2", 10))));
+        assert!(update(Some(&release("10.0", 10))));
         assert!(!update(Some(&release("9.0.1", 10))));
+        // A "latest" older than the install never offers a downgrade.
+        assert!(!update(Some(&release("9.0", 10))));
+        assert!(!update(Some(&release("8.1.2", 10))));
         assert!(!update(None));
     }
 
@@ -1238,6 +1289,7 @@ mod tests {
         };
         assert!(!with(&|r| r.assets[0].url = r.assets[0].url.replace("https://github.com/", "http://github.com/")));
         assert!(!with(&|r| r.assets[0].url = "https://evil.example/rhwp.tar.gz".into()));
+        assert!(!with(&|r| r.assets[0].url = "https://github.com/someone/else/releases/download/v1/rhwp.tar.gz".into()));
         assert!(!with(&|r| r.version = "9.0-dev".into()));
         assert!(!with(&|r| r.version = String::new()));
         assert!(!with(&|r| r.assets[0].sha256 = "abc".into()));
@@ -1259,6 +1311,11 @@ mod tests {
             assert!(CURL_ARGS.windows(2).any(|p| p == w), "{w:?}");
         }
         assert_eq!(CURL_ARGS.last(), Some(&"-o"));
+        // Never handed to plain http, not even by a redirect.
+        for w in [["--proto", "=https"], ["--proto-redir", "=https"]] {
+            assert!(CURL_ARGS.windows(2).any(|p| p == w), "{w:?}");
+            assert!(LOOKUP_ARGS.windows(2).any(|p| p == w), "{w:?}");
+        }
     }
 
     /// Looks up the latest release and downloads it for real into a temp dir.

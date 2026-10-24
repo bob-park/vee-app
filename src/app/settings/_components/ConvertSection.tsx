@@ -163,14 +163,17 @@ function EngineSection({ engine, index, run, children }: EngineSectionProps) {
               hint={
                 status.stage === 'verify'
                   ? e.verifying
-                  : status.stage === 'unpack'
-                    ? e.unpacking
-                    : e.progress(
-                        status.total > 0 ? Math.min(100, Math.floor((status.received / status.total) * 100)) : 0,
-                        (status.received / MB).toFixed(1),
-                        (status.total / MB).toFixed(1),
-                        (status.speed / MB).toFixed(1),
-                      )
+                  : status.total === 0
+                    ? // No release known yet: the download looks it up first.
+                      e.resolving
+                    : status.stage === 'unpack'
+                      ? e.unpacking
+                      : e.progress(
+                          status.total > 0 ? Math.min(100, Math.floor((status.received / status.total) * 100)) : 0,
+                          (status.received / MB).toFixed(1),
+                          (status.total / MB).toFixed(1),
+                          (status.speed / MB).toFixed(1),
+                        )
               }
             >
               <Button variant="gray" onClick={() => run(cancelEngineDownload(engine))}>
