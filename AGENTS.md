@@ -6,7 +6,11 @@ Each topic doc opens with YAML frontmatter (`title`, `scope`, `applies_to`, `rel
 
 Find the matching entry in the Map or in "How to use", open that doc, and check its TL;DR. If nothing matches, start with [overview](docs/agents/overview.md) and [architecture](docs/agents/architecture.md).
 
-**App design: read [`docs/design/`](docs/design/) before building or changing any UI.**
+## Always
+
+- **Design/UI work:** before building or changing any UI (screens, components, styles, tokens), read [`docs/design/`](docs/design/) and [design](docs/agents/design.md) first.
+- **UI mockups:** for any design or UI work, show at least 3 mockup options in the `superpowers` visual companion before implementing. Always use the `ui-ux-pro-max` skill to create them.
+- **Node/Yarn versions:** use the versions pinned in [`mise.toml`](mise.toml) (Node 26, Yarn 4.18.1). Run `mise install` once, then run every `node`/`yarn` command through mise (activated shell or `mise exec --`). Don't use a global Node or Yarn 1; it rewrites `yarn.lock`.
 
 ## Map
 
@@ -45,10 +49,10 @@ Find the matching entry in the Map or in "How to use", open that doc, and check 
 - [Commit Messages](docs/agents/workflow/commit-messages.md): `<prefix>: <subject>`
 - [Pull Requests](docs/agents/workflow/pr.md): base branch, title → version bump
 - [Versioning](docs/agents/workflow/versioning.md): semver, `bump-version-up.sh`, the `master` workflow
-- [Release](docs/agents/workflow/release.md): local signed release scripts, `latest.json`
+- [Release](docs/agents/workflow/release.md): local signed release scripts per OS (`scripts/release-macos.sh`: Developer ID + App Store Connect API key notarization of `.app` and `.dmg`; `scripts/release-windows.ps1`), `latest.json`
 
 ### Ops
-- [Build & Run](docs/agents/build-run.md): dev, `--no-bundle`, full build, gotchas
+- [Build & Run](docs/agents/build-run.md): dev, `--no-bundle`, full build, signed macOS build (`scripts/release-macos.sh --build-only`), gotchas
 - [Testing](docs/agents/testing.md): `cargo test`, `node:test`, typecheck, lint, what to test
 - [Configuration & Secrets](docs/agents/configuration.md): `tauri.conf.json`, capabilities, where secrets live
 - [Documentation](docs/agents/documentation.md): where docs go, format, languages
@@ -66,6 +70,7 @@ Find the matching entry in the Map or in "How to use", open that doc, and check 
 - **Window, tray, shortcut, clipboard watcher, or startup change:** [architecture](docs/agents/architecture.md) → [rust-modules](docs/agents/conventions/rust-modules.md)
 - **Running, building, or testing:** [build-run](docs/agents/build-run.md) → [testing](docs/agents/testing.md)
 - **Config, permissions, or secrets:** [configuration](docs/agents/configuration.md)
+- **Signed/notarized macOS build or Apple credentials:** [build-run](docs/agents/build-run.md) → [configuration](docs/agents/configuration.md#secrets) → [release](docs/agents/workflow/release.md)
 - **Starting a branch:** [branching](docs/agents/workflow/branching.md)
 - **Writing a commit message:** [commit-messages](docs/agents/workflow/commit-messages.md)
 - **Opening a PR:** [pr](docs/agents/workflow/pr.md)

@@ -89,7 +89,8 @@ yarn tauri build
   ```bash
   yarn tauri build --no-bundle
   ```
-- 서명·공증·GitHub 릴리스 업로드는 [릴리스 절차](release.md)를 따릅니다(`scripts/release.sh`, `scripts/release.ps1`, `scripts/latest-json.mjs`).
+- 서명·공증된 macOS 앱만 만들어 보려면 `scripts/release-macos.sh --build-only`를 실행합니다(Developer ID 서명 + App Store Connect API 키로 `.app`·`.dmg` 공증, 업로드 없음). 키체인의 API 키 ID·Issuer ID와 `~/.config/apple/`, `~/.config/vee/sign.env`를 읽으며, 준비 방법은 [릴리스 절차](release.md#준비-한-번만)를 봅니다.
+- 서명·공증·GitHub 릴리스 업로드는 [릴리스 절차](release.md)를 따릅니다(`scripts/release-macos.sh`, `scripts/release-windows.ps1`, `scripts/latest-json.mjs`).
 
 ## 브랜치와 버전
 

@@ -32,7 +32,7 @@ related:
 
 ## Platforms
 
-- macOS: Apple Silicon only, signed and notarized. Uses `macos-private-api` (transparent windows) and `objc2*` for the frontmost app.
+- macOS: Apple Silicon only, Developer ID signed and notarized (App Store Connect API key). Uses `macos-private-api` (transparent windows) and `objc2*` for the frontmost app.
 - Windows: x64 (NSIS installer). No code signing; only the updater `.sig`. Uses the `windows` crate.
 - Platform code sits behind `#[cfg(target_os = "macos")]` / `#[cfg(windows)]`. A change to one side must keep the other compiling and behaving the same.
 

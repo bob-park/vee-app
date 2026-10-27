@@ -44,7 +44,7 @@
 
 - 다음 작업은 사용자가 명시적으로 승인하기 전에는 절대 실행하지 않는다.
   - `git reset --hard`, `git push --force`, 파일 대량 삭제, 브랜치 삭제
-  - 릴리스 스크립트(`scripts/release.*`, `scripts/latest-json.mjs`), `gh release` 명령
+  - 릴리스 스크립트(`scripts/release-*`, `scripts/latest-json.mjs`), `gh release` 명령
   - 배포된 마이그레이션 파일 수정
   - 설치된 Vee의 데이터 폴더(`com.bobpark.vee`)를 지우거나 고치는 작업
 - `bump-version-up.sh`는 GitHub Actions가 실행한다(`master`로 머지될 때마다). 로컬에서 버전 파일을 직접 고치지 않는다.

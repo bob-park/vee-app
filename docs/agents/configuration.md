@@ -10,7 +10,7 @@ related:
 
 # Configuration & Secrets
 
-> App config is `src-tauri/tauri.conf.json`. Webview permissions are in `src-tauri/capabilities/default.json`. Secrets (signing keys, Apple credentials, npm token) live **outside the repo**: `~/.config/vee/sign.env` and the `GITHUB_NPM_AUTH_TOKEN` env var. **Never commit a secret.**
+> App config is `src-tauri/tauri.conf.json`. Webview permissions are in `src-tauri/capabilities/default.json`. Secrets (signing keys, Apple credentials, npm token) live **outside the repo**: the login keychain, `~/.config/apple/`, `~/.config/vee/sign.env` and the `GITHUB_NPM_AUTH_TOKEN` env var. **Never commit a secret.**
 
 ## `tauri.conf.json`
 
@@ -48,8 +48,10 @@ related:
 
 | Secret | Where | Used by |
 | ------ | ----- | ------- |
-| Apple signing identity, Apple ID, app password, team ID | `~/.config/vee/sign.env` | `scripts/release.sh` (notarization) |
-| `TAURI_SIGNING_PRIVATE_KEY` (+ password) | `sign.env` on each release machine (`%USERPROFILE%\.config\vee\sign.env` on Windows) | `yarn tauri build`, both release scripts |
+| `APPLE_SIGNING_IDENTITY` (Developer ID) | `~/.config/apple/.env` (shared by all apps) | `scripts/release-macos.sh` (code signing) |
+| App Store Connect API key ID / issuer ID | login keychain, services `tauri-apple-api-key` / `tauri-apple-api-issuer` | `scripts/release-macos.sh` (notarization) |
+| App Store Connect API private key | `~/.config/apple/AuthKey_<key id>.p8` | `scripts/release-macos.sh` (`APPLE_API_KEY_PATH`) |
+| `TAURI_SIGNING_PRIVATE_KEY` (+ password) | `~/.config/vee/sign.env` on each release machine (`%USERPROFILE%\.config\vee\sign.env` on Windows) | `yarn tauri build`, both release scripts |
 | `GITHUB_NPM_AUTH_TOKEN` | shell env (GitHub PAT with `read:packages`) | `yarn install` (`@bob-park/*` from GitHub Packages, via `.yarnrc.yml`) |
 | `GITHUB_TOKEN` | Actions-provided | `bump-version.yml` |
 

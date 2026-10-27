@@ -29,6 +29,7 @@ Always use Yarn 4.18.1 (mise). A global Yarn 1 rewrites `yarn.lock`; if `yarn --
 | `yarn tauri dev` | Vite on :1420 + debug Rust app; frontend hot-reloads, Rust/config changes rebuild and restart |
 | `yarn tauri build --no-bundle` | release compile, no `.app`/installer, no signing key needed |
 | `yarn tauri build` | bundles (`.app`, `.dmg`, NSIS) + updater artifacts; needs `TAURI_SIGNING_PRIVATE_KEY` |
+| `scripts/release-macos.sh --build-only` | macOS `.app` + `.dmg` (Apple Silicon), Developer ID signed; both notarized and stapled with the App Store Connect API key; no upload ([configuration](./configuration.md#secrets)) |
 | `yarn build` | frontend only (`tsc` + `vite build`) |
 | `yarn lint` | ESLint over `src/` |
 | `yarn prettier` | format `src/**/*.{ts,tsx,css}` (writes files) |
