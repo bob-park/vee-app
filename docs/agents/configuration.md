@@ -10,7 +10,7 @@ related:
 
 # Configuration & Secrets
 
-> App config is `src-tauri/tauri.conf.json`. Webview permissions are in `src-tauri/capabilities/default.json`. Secrets (signing keys, Apple credentials, npm token) live **outside the repo**: the login keychain, `~/.config/apple/`, `~/.config/vee/sign.env` and the `GITHUB_NPM_AUTH_TOKEN` env var. **Never commit a secret.**
+> App config is `src-tauri/tauri.conf.json`. Webview permissions are in `src-tauri/capabilities/default.json`. Secrets (signing keys, Apple credentials, npm token) live **outside the repo**: the login keychain (macOS), Windows Credential Manager, `~/.config/apple/` and the `GITHUB_NPM_AUTH_TOKEN` env var. **Never commit a secret.**
 
 ## `tauri.conf.json`
 
@@ -23,7 +23,7 @@ related:
 | `bundle.targets` | `app`, `dmg`, `nsis` |
 | `bundle.macOS.entitlements` | `Entitlements.plist` — `com.apple.security.automation.apple-events`, so the signed (hardened runtime) app may ask Finder for its folder |
 | `bundle.createUpdaterArtifacts` | `true` — full builds need the signing key |
-| `plugins.updater.pubkey` | public half of the updater key ([release](../release.md)) |
+| `plugins.updater.pubkey` | public half of the updater key; same content as `src-tauri/updater.key.pub` ([release](../release.md)) |
 | `plugins.updater.endpoints` | `…/releases/latest/download/latest.json` of `bob-park/vee-app` |
 | `plugins.updater.windows.installMode` | `passive` |
 
@@ -51,7 +51,7 @@ related:
 | `APPLE_SIGNING_IDENTITY` (Developer ID) | `~/.config/apple/.env` (shared by all apps) | `scripts/release-macos.sh` (code signing) |
 | App Store Connect API key ID / issuer ID | login keychain, services `tauri-apple-api-key` / `tauri-apple-api-issuer` | `scripts/release-macos.sh` (notarization) |
 | App Store Connect API private key | `~/.config/apple/AuthKey_<key id>.p8` | `scripts/release-macos.sh` (`APPLE_API_KEY_PATH`) |
-| `TAURI_SIGNING_PRIVATE_KEY` (+ password) | `~/.config/vee/sign.env` on each release machine (`%USERPROFILE%\.config\vee\sign.env` on Windows) | `yarn tauri build`, both release scripts |
+| `TAURI_SIGNING_PRIVATE_KEY` (+ password) | macOS: login keychain, services `tauri-updater-vee` / `tauri-updater-vee-pw`, exported by `source scripts/load-updater-key-macos.sh`. Windows: Credential Manager, same two names, set by `. scripts/load-updater-key-windows.ps1` (`-Save` stores them once) | `yarn tauri build`, both release scripts |
 | `GITHUB_NPM_AUTH_TOKEN` | shell env (GitHub PAT with `read:packages`) | `yarn install` (`@bob-park/*` from GitHub Packages, via `.yarnrc.yml`) |
 | `GITHUB_TOKEN` | Actions-provided | `bump-version.yml` |
 

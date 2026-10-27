@@ -1,12 +1,11 @@
 # Builds the Windows installer and uploads it with its .sig to the draft release.
-# Run from a Windows PC after copying the signing key there. latest.json is
-# assembled afterwards by scripts/latest-json.mjs.
+# Run from a Windows PC; the updater signing key comes from Credential Manager via
+# scripts/load-updater-key-windows.ps1. latest.json is assembled afterwards by
+# scripts/latest-json.mjs.
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
-Get-Content (Join-Path $env:USERPROFILE ".config\vee\sign.env") |
-  Where-Object { $_ -match '^\s*([A-Z_]+)=(.*)$' } |
-  ForEach-Object { [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2].Trim().Trim('"', "'"), "Process") }
+. scripts/load-updater-key-windows.ps1 # TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)
 
 $repo = "bob-park/vee-app"
 $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version

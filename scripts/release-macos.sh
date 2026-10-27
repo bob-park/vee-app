@@ -4,7 +4,8 @@
 # bundle and its .sig to a draft release. latest.json is assembled afterwards by
 # scripts/latest-json.mjs. `--build-only` stops after notarizing and uploads nothing.
 # Notarization uses an App Store Connect API key: key ID and issuer ID come from the
-# login keychain, the .p8 from ~/.config/apple.
+# login keychain, the .p8 from ~/.config/apple. The updater signing key also comes from the
+# keychain, via scripts/load-updater-key-macos.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 kc() { security find-generic-password -a "$USER" -s "$1" -w; }
@@ -15,9 +16,9 @@ build_only=false
 set -a
 # shellcheck disable=SC1091
 source "$HOME/.config/apple/.env" # APPLE_SIGNING_IDENTITY
-# shellcheck disable=SC1091
-source "$HOME/.config/vee/sign.env" # TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)
 set +a
+# shellcheck source=load-updater-key-macos.sh
+source scripts/load-updater-key-macos.sh # TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)
 
 # Assign before export: `export X="$(kc …)"` would hide a failed lookup from set -e.
 APPLE_API_KEY=$(kc tauri-apple-api-key)

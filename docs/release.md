@@ -13,12 +13,35 @@
      security add-generic-password -a "$USER" -s tauri-apple-api-issuer -w '<Issuer ID>'
      ```
 - `~/.config/apple/.env`(앱 공통): `APPLE_SIGNING_IDENTITY="Developer ID Application: ..."`
-- `~/.config/vee/sign.env`(앱마다): `TAURI_SIGNING_PRIVATE_KEY`(절대 경로 또는 키 내용), `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+- 업데이터 서명 키(macOS): 개인키 내용과 암호를 로그인 키체인에 넣는다. `release-macos.sh`가 `scripts/load-updater-key-macos.sh`로 읽어 온다.
+  ```bash
+  security add-generic-password -a "$USER" -s tauri-updater-vee -w '<개인키 내용>'
+  security add-generic-password -a "$USER" -s tauri-updater-vee-pw -w '<키 암호>'
+  ```
+  - 직접 `yarn tauri build`를 할 때는 먼저 `source scripts/load-updater-key-macos.sh`를 실행한다.
+  - 공개키는 저장소의 `src-tauri/updater.key.pub`에 있고, `tauri.conf.json`의 `plugins.updater.pubkey`와 내용이 같다. 키를 바꾸면 둘 다 고친다.
   - 예전 `APPLE_ID`/`APPLE_PASSWORD`/`APPLE_TEAM_ID`가 남아 있으면 지운다. `APPLE_ID`가 있으면 Tauri가 API 키 대신 그쪽으로 공증한다.
 - 서명·공증된 앱만 만들어 보려면 `scripts/release-macos.sh --build-only`를 실행한다(업로드 없음). Tauri는 `.app`만 공증하므로, 스크립트가 빌드 뒤 `.dmg`도 `notarytool`로 공증하고 스테이플한다.
-- Windows PC: Rust, Node 26/yarn 4, `gh auth login`, PowerShell 7, `%USERPROFILE%\.config\vee\sign.env`(Tauri 키 두 줄, Windows 경로)와 개인키 파일
+- Windows PC: Rust, Node 26/yarn 4, `gh auth login`, PowerShell 7
+- 업데이터 서명 키(Windows): 저장소 루트에서 아래를 한 번 실행하고, 물어보는 두 값(개인키 내용, 키 암호)을 붙여 넣는다. 자격 증명 관리자에 `tauri-updater-vee`, `tauri-updater-vee-pw`로 저장되고, `release-windows.ps1`이 같은 스크립트로 읽어 온다.
+  ```powershell
+  . scripts/load-updater-key-windows.ps1 -Save
+  ```
+  - `cmdkey /pass`는 길이 제한 때문에 개인키를 다 담지 못하므로 쓰지 않는다.
+  - 직접 `yarn tauri build`를 할 때는 먼저 `. scripts/load-updater-key-windows.ps1`을 실행한다.
+  - 예전 `%USERPROFILE%\.config\vee\sign.env`와 개인키 파일은 저장한 뒤 지워도 된다.
 - `GITHUB_NPM_AUTH_TOKEN`: `read:packages` 권한의 GitHub 토큰을 환경 변수로 등록한다(macOS는 셸 프로필에 `export`, Windows는 `setx`). 없으면 `yarn install`이 실패한다. 자세한 방법은 [개발 문서](development.md#github-packages-토큰-github_npm_auth_token)
 - yarn은 반드시 4.18.1 (`../mise.toml`)로 실행한다. mise가 활성화되지 않아 전역 yarn 1.x가 잡히면 `yarn.lock`이 Yarn 1 형식으로 통째로 바뀐다. `yarn --version`으로 확인하고, 4.x가 아니면 `corepack yarn@4.18.1 <명령>`으로 실행한다.
+
+## 업데이터 서명 키 만들기·바꾸기
+키는 처음 한 번만 만든다. **키를 바꾸면 이미 설치된 앱은 새 키로 서명된 업데이트를 받지 못하고, 사용자가 직접 다시 설치해야 한다.** 개인키를 잃어버렸을 때만 바꾼다.
+
+1. `yarn tauri signer generate -w <경로>` → `<경로>`(개인키)와 `<경로>.pub`(공개키)가 생긴다. 암호를 물어본다(`-p`로 지정, 같은 경로에 이미 있으면 `-f`).
+2. 개인키 **내용**과 암호를 위 "준비"대로 키체인(macOS)과 자격 증명 관리자(Windows)에 넣는다.
+3. `<경로>.pub`을 `src-tauri/updater.key.pub`으로 복사하고, 같은 내용을 `tauri.conf.json`의 `plugins.updater.pubkey`에 넣어 커밋한다.
+4. 개인키 파일은 오프라인 백업만 남기고 작업 기계에서 지운다.
+
+파일 하나를 손으로 다시 서명할 때: 키를 불러온 뒤(`source scripts/load-updater-key-macos.sh` / `. scripts/load-updater-key-windows.ps1`) `yarn tauri signer sign --app-version <버전> <파일>`. `yarn tauri build`가 업데이트 파일은 알아서 서명하므로 보통은 필요 없다.
 
 ## 절차
 1. `master`로 머지 → GitHub Actions가 버전을 올려 `chore: bump version to X.Y.Z [skip ci]`를 커밋한다. 릴리스할 각 기계에서 `master`를 pull하고 `src-tauri/tauri.conf.json`의 `version`이 올라갔는지 확인한다. 버전 파일은 손으로 고치지 않는다.
@@ -50,5 +73,6 @@ Windows 빌드를 바로 할 수 없을 때는 macOS만 먼저 내보내고, Win
 - 게시된 릴리스에 아직 없는 플랫폼을 더하는 것은 된다(아래 "macOS만 먼저 게시하기").
 
 ## 문제 해결
-- `failed to decode secret key: ... Invalid symbol 46` — `TAURI_SIGNING_PRIVATE_KEY`가 경로인데 그 파일이 없어서, 경로 문자열을 키 내용으로 읽으려다 실패한 것이다. `sign.env`의 경로 오타(예: `.cofing`)를 확인한다. 이 오류는 공증까지 끝난 뒤 마지막에 나며, 그때는 릴리스에 아무것도 올라가지 않는다.
-- `missing .../AuthKey_<ID>.p8` 또는 `security: SecKeychainSearchCopyNext` — 키체인 항목(`tauri-apple-api-key`, `tauri-apple-api-issuer`)이나 `~/.config/apple/`의 `.p8`이 없다. 위 "준비"를 다시 본다.
+- `failed to decode secret key: ... Invalid symbol` — 키체인/자격 증명 관리자의 `tauri-updater-vee`에 개인키 **내용**이 아닌 다른 값(파일 경로, 잘린 값)이 들어 있다. 다시 저장한다. macOS에서는 이 오류가 공증까지 끝난 뒤 마지막에 나며, 그때는 릴리스에 아무것도 올라가지 않는다.
+- `Credential Manager has no tauri-updater-vee` — Windows에서 위 "준비"의 `-Save`를 하지 않았다.
+- `missing .../AuthKey_<ID>.p8` 또는 `security: SecKeychainSearchCopyNext` — 키체인 항목(`tauri-apple-api-key`, `tauri-apple-api-issuer`, `tauri-updater-vee`, `tauri-updater-vee-pw`)이나 `~/.config/apple/`의 `.p8`이 없다. 위 "준비"를 다시 본다.
