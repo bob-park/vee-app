@@ -4,7 +4,7 @@ use crate::{
     app::{
         ai,
         state::{AppState, now_ms},
-        watcher::THUMB_SIZE,
+        watcher::{MAX_IMAGE_BYTES, THUMB_SIZE},
         window,
     },
     domain::{
@@ -166,8 +166,17 @@ fn is_current(state: &EditorState, id: u64) -> bool {
 
 /// Saves `img` as a new history clip and puts it on the clipboard.
 /// If the clipboard write fails the clip stays in history: lists refresh and a failed toast shows.
+/// The watcher's cap on one image, so an edit can't save what a copy couldn't.
+fn check_png_size(len: usize) -> AppResult<()> {
+    if len > MAX_IMAGE_BYTES {
+        return Err(AppError::InvalidInput(format!("edited image is {len} bytes, over the {MAX_IMAGE_BYTES} byte limit")));
+    }
+    Ok(())
+}
+
 fn copy_to_history(app: &AppHandle, img: &DynamicImage) -> AppResult<(i64, clip::ClipContent)> {
     let png = edit::to_png(img)?;
+    check_png_size(png.len())?;
     let thumb_png = edit::to_png(&img.thumbnail(THUMB_SIZE, THUMB_SIZE))?;
     let state = app.state::<AppState>();
     let (id, content) = {
@@ -238,6 +247,12 @@ mod tests {
 
     fn blank(w: u32, h: u32) -> DynamicImage {
         DynamicImage::ImageRgba8(RgbaImage::new(w, h))
+    }
+
+    #[test]
+    fn rejects_an_edit_over_the_image_cap() {
+        assert!(check_png_size(MAX_IMAGE_BYTES).is_ok());
+        assert!(matches!(check_png_size(MAX_IMAGE_BYTES + 1), Err(AppError::InvalidInput(_))));
     }
 
     /// A fake AI op that counts its calls and returns the input unchanged.

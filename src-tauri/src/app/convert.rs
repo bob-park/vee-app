@@ -351,6 +351,8 @@ fn drop_on(app: &AppHandle, format: &str) -> AppResult<()> {
         std::thread::spawn(move || {
             if let Err(e) = editor::open(&app, source) {
                 log::warn!("convert: opening the editor failed: {e}");
+                // From this worker thread as the job runner does; window calls hop to the main thread.
+                window::show_toast(&app, ToastPayload::failed());
             }
         });
         return Ok(());

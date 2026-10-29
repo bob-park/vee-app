@@ -173,6 +173,7 @@ export function EditorApp() {
     on === 'upscale' ? upscaleOp(scale) : on === 'removeBg' && bgReady ? { type: 'removeBg' } : null;
 
   const handleUndo = () => {
+    if (busy) return;
     setError(null);
     // An AI tab offers its step again on the image the undo brings back.
     setPending(aiStep(tab));
