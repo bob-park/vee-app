@@ -81,7 +81,7 @@ impl ToastPayload {
         }
     }
 
-    fn failed() -> Self {
+    pub(crate) fn failed() -> Self {
         Self { ok: false, kind: Kind::Text, text: None, files: 0, plain: false, convert: None, pins_fit: None }
     }
 

@@ -121,9 +121,8 @@ fn preview(img: &DynamicImage) -> AppResult<EditImageDto> {
     Ok(EditImageDto { width: w, height: h, data_url: png::data_url(&png) })
 }
 
-/// Renders on a blocking thread with the real AI ops.
-async fn render_off_main(app: &AppHandle, ops: Vec<Op>) -> AppResult<DynamicImage> {
-    let session = app.state::<EditorState>().current()?;
+/// Renders `session` on a blocking thread with the real AI ops.
+async fn render_off_main(app: &AppHandle, session: Arc<Session>, ops: Vec<Op>) -> AppResult<DynamicImage> {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         render(&session, &ops, |img, op| match op {
@@ -160,7 +159,13 @@ pub fn close(app: &AppHandle) {
     }
 }
 
+/// Whether `id` is still the open session, so a late copy doesn't close a newer image.
+fn is_current(state: &EditorState, id: u64) -> bool {
+    state.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|s| s.id == id)
+}
+
 /// Saves `img` as a new history clip and puts it on the clipboard.
+/// If the clipboard write fails the clip stays in history: lists refresh and a failed toast shows.
 fn copy_to_history(app: &AppHandle, img: &DynamicImage) -> AppResult<(i64, clip::ClipContent)> {
     let png = edit::to_png(img)?;
     let thumb_png = edit::to_png(&img.thumbnail(THUMB_SIZE, THUMB_SIZE))?;
@@ -171,14 +176,19 @@ fn copy_to_history(app: &AppHandle, img: &DynamicImage) -> AppResult<(i64, clip:
         let id = clip::upsert(&conn, &state.images_dir, clip, None, now_ms())?;
         (id, clip::content(&conn, id)?.ok_or_else(|| AppError::Other("clip no longer exists".into()))?)
     };
-    window::write_clipboard(&state, &content, Vec::new())?;
+    if let Err(e) = window::write_clipboard(&state, &content, Vec::new()) {
+        log::warn!("editor copy failed: {e}");
+        let _ = app.emit("clips://changed", ());
+        window::show_toast(app, window::ToastPayload::failed());
+        return Err(e);
+    }
     Ok((id, content))
 }
 
 pub mod commands {
     use super::{EditImageDto, EditorState, join_err};
     use crate::{domain::edit::Op, shared::error::AppResult};
-    use tauri::{AppHandle, State};
+    use tauri::{AppHandle, Manager, State};
 
     /// Async so encoding the preview stays off the main thread.
     #[tauri::command(async)]
@@ -189,22 +199,27 @@ pub mod commands {
     /// Full-resolution render; the preview is fitted to `PREVIEW_SIDE`.
     #[tauri::command]
     pub async fn render_edit(app: AppHandle, ops: Vec<Op>) -> AppResult<EditImageDto> {
-        let img = super::render_off_main(&app, ops).await?;
+        let session = app.state::<EditorState>().current()?;
+        let img = super::render_off_main(&app, session, ops).await?;
         tauri::async_runtime::spawn_blocking(move || super::preview(&img)).await.map_err(join_err)?
     }
 
-    /// Renders, saves a new clip, copies it and closes the editor.
+    /// Renders, saves a new clip, copies it and closes the editor (unless another image opened meanwhile).
     #[tauri::command]
     pub async fn copy_edit(app: AppHandle, ops: Vec<Op>) -> AppResult<()> {
-        let img = super::render_off_main(&app, ops).await?;
+        let session = app.state::<EditorState>().current()?;
+        let id = session.id;
+        let img = super::render_off_main(&app, session, ops).await?;
         let handle = app.clone();
-        let (id, content) =
+        let (clip_id, content) =
             tauri::async_runtime::spawn_blocking(move || super::copy_to_history(&handle, &img)).await.map_err(join_err)??;
         let main = app.clone();
         // The copy sound is AppKit, which belongs on the main thread.
         app.run_on_main_thread(move || {
-            crate::app::window::confirm_copy(&main, id, &content, false);
-            super::close(&main);
+            crate::app::window::confirm_copy(&main, clip_id, &content, false);
+            if super::is_current(&main.state::<EditorState>(), id) {
+                super::close(&main);
+            }
         })
         .map_err(join_err)
     }
@@ -312,8 +327,11 @@ mod tests {
         assert!(second.cache.lock().unwrap().is_empty());
         assert_eq!((second.source.width(), second.source.height()), (7, 9));
 
+        assert!(!is_current(&state, first.id) && is_current(&state, second.id));
+
         state.set(None);
         assert!(matches!(state.current(), Err(AppError::InvalidInput(_))));
+        assert!(!is_current(&state, second.id));
     }
 
     #[test]
