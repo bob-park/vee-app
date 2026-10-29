@@ -3,25 +3,22 @@
 복사한 텍스트·링크·이미지·파일을 기록해 두고, 단축키 하나로 화면 하단에 카드로 펼쳐 다시 꺼내 쓰는 클립보드 히스토리 앱입니다. macOS 앱 [Paste](https://pasteapp.io)에서 영감을 받았습니다.
 
 - **지원 OS**: macOS (Apple Silicon), Windows 10/11 (x64)
-- **기술 스택**: Tauri 2 (Rust) + React + TypeScript + Tailwind CSS (daisyUI)
 
 ## 미리보기
 
 ![카드 패널](docs/images/panel.png)
 
-**패널을 띄워 둔 채 복사하면** 새 카드가 들어오고, `Enter`로 복사하면 패널이 내려가며 알림이 뜹니다.
+**패널을 고정해 두고 복사하면** 새 카드가 바로 들어옵니다. 카드를 더블클릭하면 "복사됨" 알림이 뜨고, 원래 앱에서 바로 붙여넣으면 됩니다.
 
-![새 항목 추가와 복사 알림](docs/images/clip-add.gif)
+![패널 고정, 새 항목 추가, 다시 복사](docs/images/clip-add.gif)
 
-**카드를 끌면** 카드가 커서를 따라 기울어지며 움직이고, 패널 밖으로 끌어내면 카드 모양 그대로 Finder나 다른 앱까지 따라가 놓을 수 있습니다.
+**카드를 끌어 패널 밖에 놓으면** 놓은 자리에 그대로 들어갑니다. 텍스트는 글자로, 파일·이미지는 파일로 놓입니다.
 
-![드래그 애니메이션](docs/images/drag.gif)
+![카드 드래그](docs/images/drag.gif)
 
-| `@`로 앱 검색 | 앱 태그로 거르기 |
-|---|---|
-| ![앱 자동완성](docs/images/app-search.png) | ![앱 태그](docs/images/app-tag.png) |
+**바로 타이핑하면 검색**되고, `@`를 입력하면 앱을 골라 그 앱에서 복사한 항목만 볼 수 있습니다.
 
-<p align="center"><img src="docs/images/toast.png" alt="복사됨 알림" width="420"></p>
+![검색과 앱으로 거르기](docs/images/search.gif)
 
 ## 주요 기능
 
@@ -33,7 +30,7 @@
 - **다시 복사**: 카드를 더블클릭하거나 `Enter`를 누르면 클립보드에 복사되고 "복사됨" 알림이 톡 튀어오르듯 나타나고 효과음이 납니다. 붙여넣기는 원래 앱에서 직접 하면 됩니다.
 - **드래그 앤 드롭**: 카드를 끌면 카드가 커서를 따라 움직이고, 패널 밖으로 끌어내면 카드 모양 그대로 따라옵니다. 파일·이미지 카드는 Finder·데스크톱·다른 앱에 놓으면 복사되고(원본은 그대로), 이미지는 `Vee 2026-10-07 14.32.05.png`처럼 복사한 시각 이름의 PNG 파일로 놓입니다. 텍스트·링크 카드는 텍스트 편집기나 입력란에 놓으면 놓은 자리에 글자(서식 없는 텍스트, 링크는 URL)가 바로 들어갑니다. 어느 경우든 클립보드는 바뀌지 않고, 놓으면 "복사됨" 알림과 효과음이 나며 카드가 맨 앞으로 올라옵니다. 패널 안에서 놓으면 제자리로 돌아갑니다. 카드가 패널 밖으로 나가면 패널은 아래로 비켜납니다.
 - **드래그 변환**: 이미지 카드나 이미지 파일 카드를 끄는 중에 변환 키(기본 macOS `Option`, Windows `Ctrl`)를 누르면 커서 위치에 포맷 선택 도넛이 열립니다. 원하는 포맷(PNG, JPG, WebP, HEIC(macOS), TIFF, GIF, BMP, PDF) 위에 놓으면 커서 밑 폴더(데스크톱, Finder/탐색기 창)에 변환한 파일이 저장됩니다. 원본은 건드리지 않고, 같은 이름이 있으면 `이름 (1).png`처럼 번호를 붙입니다. 진행 상황은 카드에, 결과는 알림으로 보이며 실패하면 카드에서 다시 시도할 수 있습니다. 키를 떼면 도넛이 닫히고 평소처럼 복사됩니다.
-  - **영상 변환**: 영상 파일 카드(MP4, MOV, MKV, WEBM, AVI 등)는 MP4, WEBM, MOV, GIF, MP3, 720p MP4로 바꿀 수 있습니다. 영상 변환에는 FFmpeg가 필요하며, 설정의 변환 탭에서 **다운로드**를 누르면 FFmpeg 정적 빌드(GPL, Vee에 포함되지 않음)의 최신 정식 버전을 내려받습니다. macOS는 martin-riedl.de, Windows는 gyan.dev(GitHub 미러) 빌드를 쓰고, 받은 파일은 배포처가 공개한 SHA-256으로 확인합니다(설치 전에는 영상 포맷이 흐리게 보입니다). 변환 탭을 열 때마다 FFmpeg·rhwp의 최신 버전을 확인해, 설치된 버전과 다르면 **업데이트** 버튼이 나옵니다. 카드에 진행률과 남은 시간이 보이고 도중에 취소할 수 있습니다. 화질(작게/보통/원본)도 변환 탭에서 고릅니다. MP4·MOV·720p는 기본으로 하드웨어 가속(macOS VideoToolbox, Windows NVENC/QSV/AMF)을 쓰고, 실패하면 소프트웨어로 다시 변환합니다. 지금 쓰는 인코더는 변환 탭의 하드웨어 가속 옆에 표시되고, 소프트웨어로 넘어갔으면 `NVENC → CPU`처럼 보입니다.
+  - **영상 변환**: 영상 파일 카드(MP4, MOV, MKV, WEBM, AVI 등)는 MP4, WEBM, MOV, GIF, MP3, 720p MP4로 바꿀 수 있습니다. 영상 변환에는 FFmpeg가 필요하며, 설정의 변환 탭에서 **다운로드**를 누르면 FFmpeg 정적 빌드(GPL, Vee에 포함되지 않음)의 최신 정식 버전을 내려받습니다. 설치 전에는 영상 포맷이 흐리게 보입니다. 변환 탭을 열 때마다 FFmpeg·rhwp의 최신 버전을 확인해, 설치된 버전과 다르면 **업데이트** 버튼이 나옵니다. 카드에 진행률과 남은 시간이 보이고 도중에 취소할 수 있습니다. 화질(작게/보통/원본)도 변환 탭에서 고릅니다. MP4·MOV·720p는 기본으로 하드웨어 가속(macOS VideoToolbox, Windows NVENC/QSV/AMF)을 쓰고, 실패하면 소프트웨어로 다시 변환합니다. 지금 쓰는 인코더는 변환 탭의 하드웨어 가속 옆에 표시되고, 소프트웨어로 넘어갔으면 `NVENC → CPU`처럼 보입니다.
   - **HWP 변환**: HWP·HWPX 파일 카드는 PDF로, HWP는 HWPX로, HWPX는 HWP로 바꿀 수 있습니다. 변환 탭에서 **다운로드**를 누르면 GitHub에서 [rhwp](https://github.com/edwardkim/rhwp)를 내려받습니다(Vee에 포함되지 않음, 설치 전에는 흐리게 보입니다). Windows에서는 Microsoft Visual C++ 런타임이 필요합니다.
   - **문서 변환**: 워드 문서·텍스트·HTML(DOCX, DOC, ODT, RTF, TXT, HTML)은 PDF·DOCX·ODT·TXT·RTF·HTML로, 스프레드시트(XLSX, XLS, ODS)는 PDF·XLSX·ODS로, 프레젠테이션(PPTX, PPT, ODP)은 PDF·PPTX·ODP로 바꿉니다. 이 변환에는 사용자가 직접 설치한 [LibreOffice](https://www.libreoffice.org/)가 필요합니다(Vee가 내려받지 않으며, 없으면 흐리게 보이고 변환 탭의 버튼으로 다운로드 페이지를 엽니다).
 - **트레이 상주**: 창을 닫아도 종료되지 않고 메뉴바/트레이에 남습니다. 트레이 아이콘을 클릭하면 메뉴(열기 / 설정 / 업데이트 확인 / 종료)가 열리고, "열기"를 누르면 패널이 열립니다.
@@ -86,22 +83,14 @@
 
 ## 개인정보
 
-- 모든 히스토리는 **이 컴퓨터에만** 저장됩니다(SQLite). 외부로 보내지 않으며, Vee 자신은 업데이트 확인, 변환 탭을 열 때 FFmpeg·rhwp의 최신 버전 확인(GitHub·martin-riedl.de), 사용자가 다운로드를 누를 때만 네트워크를 씁니다. 단, HTML 파일을 LibreOffice로 변환할 때는 LibreOffice가 문서에 연결된 원격 이미지·스타일을 불러올 수 있습니다.
+- 모든 히스토리는 **이 컴퓨터에만** 저장됩니다. 외부로 보내지 않으며, Vee 자신은 업데이트 확인, 변환 탭을 열 때 FFmpeg·rhwp의 최신 버전 확인(GitHub·martin-riedl.de), 사용자가 다운로드를 누를 때만 네트워크를 씁니다. 단, HTML 파일을 LibreOffice로 변환할 때는 LibreOffice가 문서에 연결된 원격 이미지·스타일을 불러올 수 있습니다.
 - 비밀번호 관리자 등에서 "민감 정보"로 표시한 복사는 저장하지 않습니다.
 - 로그에는 복사한 내용이 기록되지 않습니다.
 
 | 항목 | macOS | Windows |
 |---|---|---|
-| 데이터 (DB, 이미지) | `~/Library/Application Support/com.bobpark.vee/` | `%APPDATA%\com.bobpark.vee\` |
+| 데이터 (기록, 이미지) | `~/Library/Application Support/com.bobpark.vee/` | `%APPDATA%\com.bobpark.vee\` |
 | 로그 | `~/Library/Logs/com.bobpark.vee/` | `%LOCALAPPDATA%\com.bobpark.vee\logs\` |
-
-## 문서
-
-- [개발 환경 구성과 빌드](docs/development.md)
-- [릴리스 절차](docs/release.md)
-- [에이전트용 규칙 (AGENTS.md)](AGENTS.md): 구조, 코딩 규칙, 브랜치·버전 규칙 (`docs/agents/`)
-- [설계 문서](docs/superpowers/specs/2026-10-07-vee-clipboard-history-design.md)
-- [v0.4.0 설계: 카드 UI · 앱 태그 검색 · 애니메이션](docs/superpowers/specs/2026-10-08-panel-animations-design.md)
 
 ## 라이선스
 
