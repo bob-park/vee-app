@@ -35,7 +35,7 @@ When the two disagree, ask the user. Do not invent a third style.
 - **Aurora Glass building blocks** live in `globals.css` ([tailwind-daisyui](./libs/tailwind-daisyui.md#globalscss-layout)): `.glass` surfaces, the `.aurora` band with `.aurora-blob` children, the `ease-spring` easing and `animate-spring-in` / `animate-pop` / `animate-ring` / `animate-drift` / `animate-bob`. A new animation must also stop under the reduced-motion block there.
 - **Reuse the settings building blocks** in `src/app/settings/_components/` before writing new ones:
   - `SettingSection` (glass card), `Row` (label/hint left, control right)
-  - `Segmented`: for a pick-one choice of 2–4 options, use this instead of a `<select>`
+  - `Segmented` (now in `src/shared/components/`): for a pick-one choice of 2–4 options, use this instead of a `<select>`
   - `Dropdown`: for longer lists (sounds, retention)
   - `Switch`: for on/off
   - `Button`, `ConfirmModal`, `ShortcutRecorder`

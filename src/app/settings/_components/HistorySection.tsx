@@ -4,7 +4,6 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import Button from '@/app/settings/_components/Button';
 import Row from '@/app/settings/_components/Row';
-import Segmented from '@/app/settings/_components/Segmented';
 import SettingSection from '@/app/settings/_components/SettingSection';
 import Switch from '@/app/settings/_components/Switch';
 import { clearHistory } from '@/domain/clip/apis/clip';
@@ -20,6 +19,7 @@ import {
   useExcludedApps,
   useKnownApps,
 } from '@/domain/source_app/queries/sourceApp';
+import Segmented from '@/shared/components/Segmented';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
 import { listen } from '@tauri-apps/api/event';

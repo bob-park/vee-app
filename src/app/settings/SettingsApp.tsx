@@ -8,7 +8,6 @@ import { HistorySection } from '@/app/settings/_components/HistorySection';
 import PermissionsSection from '@/app/settings/_components/PermissionsSection';
 import PositionPicker from '@/app/settings/_components/PositionPicker';
 import Row from '@/app/settings/_components/Row';
-import Segmented from '@/app/settings/_components/Segmented';
 import SettingSection from '@/app/settings/_components/SettingSection';
 import { ShortcutRecorder } from '@/app/settings/_components/ShortcutRecorder';
 import Switch from '@/app/settings/_components/Switch';
@@ -21,6 +20,7 @@ import { useSettingUpdate, useSettings } from '@/domain/settings/queries/setting
 import { checkUpdate, installUpdate } from '@/domain/updater/apis/updater';
 import { useUpdateStatus } from '@/domain/updater/queries/updater';
 import Aurora from '@/shared/components/Aurora';
+import Segmented from '@/shared/components/Segmented';
 import { type Dict, relativeTime } from '@/shared/i18n';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { errorText } from '@/utils/errorText';
