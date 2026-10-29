@@ -42,6 +42,7 @@ export const ko: Dict = {
   updateInstalling: '최신 버전 확인 중…',
   whatsNew: { title: '새로워진 Vee', ok: '확인' },
   editor: {
+    title: '이미지 편집',
     tabs: { crop: '자르기', rotate: '회전', resize: '크기', removeBg: '배경 제거', upscale: '업스케일' },
     cropHint: '이미지 위를 드래그해 영역을 고르세요',
     apply: '적용',

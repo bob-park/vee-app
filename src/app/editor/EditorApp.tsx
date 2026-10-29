@@ -232,7 +232,14 @@ export function EditorApp() {
     <main className="relative flex h-full flex-col">
       <Aurora className="inset-x-0 top-0 h-[110px]" />
       {/* macOS overlays the traffic lights on this row (`titleBarStyle: Overlay`); Windows keeps its native bar. */}
-      {isMac && <div className="relative z-1 h-7 shrink-0" data-tauri-drag-region />}
+      {isMac && (
+        <div
+          className="relative z-1 flex h-7 shrink-0 items-center justify-center font-semibold select-none"
+          data-tauri-drag-region
+        >
+          {t.editor.title}
+        </div>
+      )}
       <div className="relative z-1 flex shrink-0 justify-center pt-1 pb-3">
         {/* Disabled (natively, for every tab button) while an AI step renders. */}
         <fieldset className="glass rounded-xl p-0.5 disabled:opacity-60" disabled={!!aiPending && busy}>

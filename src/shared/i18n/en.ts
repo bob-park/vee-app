@@ -41,6 +41,7 @@ export const en = {
   updateInstalling: 'Getting the latest version…',
   whatsNew: { title: "What's new in Vee", ok: 'OK' },
   editor: {
+    title: 'Edit image',
     tabs: { crop: 'Crop', rotate: 'Rotate', resize: 'Resize', removeBg: 'Remove background', upscale: 'Upscale' },
     cropHint: 'Drag over the image to choose an area',
     apply: 'Apply',
