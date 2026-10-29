@@ -932,7 +932,7 @@ pub mod commands {
         if s.cancel.lock().unwrap().is_some() {
             return Err(AppError::InvalidInput(format!("{engine} is downloading")));
         }
-        crate::app::ai::forget(id);
+        crate::app::ai::forget(id)?;
         let removed = if s.dir.exists() { std::fs::remove_dir_all(&s.dir) } else { Ok(()) };
         // A partial removal may leave a broken dir: report what is really there.
         super::set(&app, id, super::current(&app, id, None));

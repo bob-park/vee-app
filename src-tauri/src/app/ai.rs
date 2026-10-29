@@ -5,9 +5,14 @@ use crate::app::engines::{self, EngineId};
 use crate::domain::edit::upscale_fallback;
 use crate::shared::error::{AppError, AppResult};
 use ::image::{DynamicImage, GrayImage, Luma, RgbaImage, imageops, imageops::FilterType};
-use ort::{environment::Environment, session::Session, value::Tensor};
+use ort::{
+    environment::Environment,
+    ep,
+    session::{Session, builder::GraphOptimizationLevel},
+    value::Tensor,
+};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, PoisonError, TryLockError};
 use std::time::Instant;
 use tauri::AppHandle;
 
@@ -17,10 +22,12 @@ const SIDE: u32 = 1024;
 const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 const STD: [f32; 3] = [0.229, 0.224, 0.225];
 
-/// ORT allows one environment per process, so it lives until exit once built (under `SESSION`'s lock).
+/// ORT allows one environment per process, so it lives until exit once built (under `RUN`'s lock).
 static ENV: OnceLock<Environment> = OnceLock::new();
-// ponytail: one global lock, so runs are serial and `forget` waits for a running cut; fine for one editor window.
-static SESSION: Mutex<Option<Session>> = Mutex::new(None);
+/// Held for a whole run. The session is not kept between runs: BiRefNet holds GBs while loaded,
+/// and reloading costs about a second.
+// ponytail: one global lock, so runs are serial; fine for one editor window.
+static RUN: Mutex<()> = Mutex::new(());
 
 fn ort_err(e: impl std::fmt::Display) -> AppError {
     AppError::Other(format!("onnx runtime: {e}"))
@@ -76,6 +83,23 @@ fn apply_mask(mut img: RgbaImage, mask: &GrayImage) -> RgbaImage {
     img
 }
 
+/// A CPU session tuned for peak memory: no arena, no memory pattern, at most 4 threads.
+fn load(env: &Environment, model: &Path) -> AppResult<Session> {
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(4);
+    Session::builder(env)
+        .map_err(ort_err)?
+        .with_execution_providers([ep::CPU::default().with_arena_allocator(false).build()])
+        .map_err(ort_err)?
+        .with_memory_pattern(false)
+        .map_err(ort_err)?
+        .with_intra_threads(threads)
+        .map_err(ort_err)?
+        .with_optimization_level(GraphOptimizationLevel::Level3)
+        .map_err(ort_err)?
+        .commit_from_file(model)
+        .map_err(ort_err)
+}
+
 /// Runs BiRefNet from `model` (loading `lib` and the session on first use) and returns `img` as
 /// RGBA with the mask as alpha.
 fn cut(lib: &Path, model: &Path, img: &DynamicImage) -> AppResult<DynamicImage> {
@@ -84,7 +108,8 @@ fn cut(lib: &Path, model: &Path, img: &DynamicImage) -> AppResult<DynamicImage> 
     }
     let data = to_input(img, SIDE);
     let mask = {
-        let mut slot = SESSION.lock().unwrap();
+        // The guard holds no data, so a panic in an earlier run leaves nothing to clean up.
+        let _run = RUN.lock().unwrap_or_else(PoisonError::into_inner);
         let env = match ENV.get() {
             Some(env) => env,
             None => {
@@ -92,17 +117,15 @@ fn cut(lib: &Path, model: &Path, img: &DynamicImage) -> AppResult<DynamicImage> 
                 ENV.get_or_init(|| env)
             }
         };
-        if slot.is_none() {
-            let start = Instant::now();
-            *slot = Some(Session::builder(env).map_err(ort_err)?.commit_from_file(model).map_err(ort_err)?);
-            log::info!("ai: loaded background model in {} ms", start.elapsed().as_millis());
-        }
-        let Some(session) = slot.as_mut() else { unreachable!("set above") };
+        let start = Instant::now();
+        let mut session = load(env, model)?;
+        log::info!("ai: loaded background model in {} ms", start.elapsed().as_millis());
         // Any ORT call (even building a tensor) needs the library loaded first, or ort panics.
         let input = Tensor::from_array(([1usize, 3, SIDE as usize, SIDE as usize], data)).map_err(ort_err)?;
         let start = Instant::now();
         let outputs = session.run(ort::inputs![input]).map_err(ort_err)?;
-        let (_, pred) = outputs[0].try_extract_tensor::<f32>().map_err(ort_err)?;
+        let out = outputs.values().next().ok_or_else(|| AppError::Other("onnx runtime: no output".into()))?;
+        let (_, pred) = out.try_extract_tensor::<f32>().map_err(ort_err)?;
         let mask = from_output(pred, SIDE);
         log::info!("ai: background removed from {}x{} in {} ms", img.width(), img.height(), start.elapsed().as_millis());
         mask
@@ -134,10 +157,15 @@ pub fn upscale(_app: &AppHandle, img: &DynamicImage, scale: u8) -> AppResult<Dyn
     Ok(upscale_fallback(img, scale))
 }
 
-/// Drops the cached session when `id`'s engine is removed. The ORT library stays loaded.
-pub fn forget(id: EngineId) {
-    if id == EngineId::Bgremove {
-        *SESSION.lock().unwrap() = None;
+/// Call before removing `id`'s engine files: errors while a run has the model open. No session
+/// outlives a run, so there is nothing else to drop; the ORT library stays loaded.
+pub fn forget(id: EngineId) -> AppResult<()> {
+    if id != EngineId::Bgremove {
+        return Ok(());
+    }
+    match RUN.try_lock() {
+        Err(TryLockError::WouldBlock) => Err(AppError::InvalidInput("bgremove is running".into())),
+        Ok(_) | Err(TryLockError::Poisoned(_)) => Ok(()),
     }
 }
 
@@ -200,9 +228,18 @@ mod tests {
         assert!(check_upscale(&img, 4).is_ok());
     }
 
+    #[test]
+    fn forget_refuses_while_running() {
+        assert!(forget(EngineId::Ffmpeg).is_ok());
+        let held = RUN.lock().unwrap_or_else(PoisonError::into_inner);
+        assert!(matches!(forget(EngineId::Bgremove), Err(AppError::InvalidInput(_))));
+        drop(held);
+        assert!(forget(EngineId::Bgremove).is_ok());
+    }
+
     /// Runs the real path on `product-*.png` in `VEE_AI_BENCH_DIR`, with `VEE_AI_ORT` (the ORT
     /// dylib) and `VEE_AI_MODEL` (BiRefNet `.onnx`), writing RGBA and on-magenta PNGs to `VEE_AI_OUT`.
-    /// Prints time and RSS per image, then RSS after `forget`.
+    /// Prints time and RSS after each image (the session is dropped at the end of each run).
     #[test]
     #[ignore]
     fn bench_models() {
@@ -227,7 +264,6 @@ mod tests {
             DynamicImage::ImageRgba8(bg).save(out.join(format!("{stem}.runtime.on-magenta.png"))).unwrap();
             println!("{stem}\t{}x{}\t{ms} ms\trss after {} KB", img.width(), img.height(), rss_kb());
         }
-        forget(EngineId::Bgremove);
-        println!("rss after forget {} KB", rss_kb());
+        println!("rss at end {} KB", rss_kb());
     }
 }
