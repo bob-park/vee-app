@@ -34,6 +34,8 @@ pub enum Format {
     Ods,
     Pptx,
     Odp,
+    /// Not a conversion: the slice that opens a single image in the editor.
+    Edit,
 }
 
 /// Image target formats, in the donut's slice order.
@@ -123,6 +125,8 @@ impl Format {
             Format::Ods => "ods",
             Format::Pptx => "pptx",
             Format::Odp => "odp",
+            // Never written: `run` refuses it before a file is named.
+            Format::Edit => "edit",
         }
     }
 

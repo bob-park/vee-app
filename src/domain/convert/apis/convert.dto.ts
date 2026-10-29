@@ -23,7 +23,9 @@ export type Format =
   | 'xlsx'
   | 'ods'
   | 'pptx'
-  | 'odp';
+  | 'odp'
+  /** Not a format: the slice that opens a single image in the editor. */
+  | 'edit';
 
 /** One donut slice; mirrors Rust `Slice`. `needs` names the engine still missing for it. */
 export interface Slice {

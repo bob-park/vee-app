@@ -140,8 +140,7 @@ fn join_err(e: impl std::fmt::Display) -> AppError {
     AppError::Other(e.to_string())
 }
 
-/// Opens `source` (a PNG) in the editor, replacing any open image.
-#[allow(dead_code)] // the convert donut calls it (Task 7)
+/// Opens `source` (any image the `image` crate reads here) in the editor, replacing any open image.
 pub fn open(app: &AppHandle, source: PathBuf) -> AppResult<()> {
     app.state::<EditorState>().set(Some(Session::load(&source)?));
     let _ = app.emit_to(EDITOR, "editor://opened", ());

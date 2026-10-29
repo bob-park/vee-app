@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 /// Slices every source can become, in target order, minus each source's own format.
 /// All images, all videos, or all one document family; empty when `paths` is empty, mixes families,
 /// or holds anything else. A slice needs its engine while `caps` lacks it; image slices never do.
+/// A single image the editor can open starts with `Edit`.
 pub fn formats_for(paths: &[PathBuf], caps: Caps) -> Vec<Slice> {
     if !paths.is_empty() && paths.iter().all(|p| is_video(p)) {
         let own: Vec<Format> = paths.iter().filter_map(|p| ext_of(p).and_then(video_container)).collect();
@@ -37,7 +38,12 @@ pub fn formats_for(paths: &[PathBuf], caps: Caps) -> Vec<Slice> {
             .collect();
     }
     let sources: Option<Vec<Format>> = paths.iter().map(|p| ext_of(p).and_then(Format::from_ext)).collect();
-    match sources {
+    // One image the editor can decode on this platform (the `image` crate's features differ per OS).
+    let editable = matches!((paths, &sources), ([p], Some(_)) if ext_of(p)
+        .and_then(::image::ImageFormat::from_extension)
+        .is_some_and(|f| f.reading_enabled()));
+    let edit = editable.then_some(Slice { format: Format::Edit, needs: None });
+    let targets: Vec<Slice> = match sources {
         // Without HEIC support (Windows) a HEIC source can't be read either.
         Some(sources) if !sources.is_empty() && (caps.heic || !sources.contains(&Format::Heic)) => IMAGE_TARGETS
             .into_iter()
@@ -45,7 +51,8 @@ pub fn formats_for(paths: &[PathBuf], caps: Caps) -> Vec<Slice> {
             .map(|format| Slice { format, needs: None })
             .collect(),
         _ => Vec::new(),
-    }
+    };
+    edit.into_iter().chain(targets).collect()
 }
 
 /// Whether `path` has a video extension (any case).
@@ -104,6 +111,9 @@ pub fn unique_path(dir: &Path, stem: &str, ext: &str) -> PathBuf {
 /// Video sources go through FFmpeg (`ctx.ffmpeg`, `Engine` when missing), images through the image engine.
 /// The source is never touched and the temp file never outlives the call (error and cancel included).
 pub fn run(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path, ctx: &mut Run) -> Result<PathBuf, JobError> {
+    if to == Format::Edit {
+        return Err(JobError::Engine);
+    }
     if !src.is_file() {
         return Err(JobError::Missing);
     }
@@ -604,7 +614,18 @@ mod tests {
     #[test]
     fn formats_leave_out_the_source_format() {
         let f = formats(&[PathBuf::from("/a/shot.PNG")], true);
-        assert_eq!(f, vec![Format::Jpg, Format::Webp, Format::Heic, Format::Ico, Format::Icns, Format::Gif, Format::Pdf]);
+        assert_eq!(f, vec![Format::Edit, Format::Jpg, Format::Webp, Format::Heic, Format::Ico, Format::Icns, Format::Gif, Format::Pdf]);
+    }
+
+    #[test]
+    fn only_a_single_image_can_be_edited() {
+        let one = formats(&[PathBuf::from("a.png")], true);
+        assert_eq!(one[0], Format::Edit);
+        assert_eq!(one[1..], IMAGE_TARGETS.into_iter().filter(|f| *f != Format::Png).collect::<Vec<_>>()[..]);
+        assert!(!formats(&[PathBuf::from("a.png"), PathBuf::from("b.png")], true).contains(&Format::Edit));
+        assert!(!formats_for(&[PathBuf::from("a.mp4")], ALL).iter().any(|s| s.format == Format::Edit));
+        // The editor can't decode HEIC.
+        assert!(!formats(&[PathBuf::from("a.heic")], true).contains(&Format::Edit));
     }
 
     #[test]
@@ -667,6 +688,8 @@ mod tests {
     fn run_reports_a_missing_source() {
         let d = tempfile::tempdir().unwrap();
         assert_eq!(run_image(&d.path().join("gone.png"), "gone", Format::Jpg, d.path(), d.path()), Err(JobError::Missing));
+        // The edit slice never reaches a conversion.
+        assert_eq!(run_image(&d.path().join("gone.png"), "gone", Format::Edit, d.path(), d.path()), Err(JobError::Engine));
     }
 
     #[test]

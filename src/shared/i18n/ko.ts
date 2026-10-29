@@ -48,6 +48,7 @@ export const ko: Dict = {
     remaining: (s: number) => (s >= 60 ? `남은 시간 약 ${Math.round(s / 60)}분` : `남은 시간 약 ${s}초`),
     cancel: '취소',
     dropHint: '놓을 포맷 선택',
+    edit: '편집',
     converting: (f: string) => `${f} 변환 중`,
     queued: (n: number) => `대기 중 · ${n}번째`,
     saved: (f: string) => `✓ ${f} 저장됨`,

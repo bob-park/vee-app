@@ -47,6 +47,7 @@ export const en = {
     remaining: (s: number) => (s >= 60 ? `About ${Math.round(s / 60)} min left` : `About ${s}s left`),
     cancel: 'Cancel',
     dropHint: 'Drop on a format',
+    edit: 'Edit',
     converting: (f: string) => `To ${f}…`,
     queued: (n: number) => `Waiting · #${n}`,
     saved: (f: string) => `✓ ${f} saved`,
