@@ -4,9 +4,9 @@
   "version": "1.4.4",
   "identifier": "com.bobpark.vee",
   "build": {
-    "beforeDevCommand": "yarn dev",
+    "beforeDevCommand": "node scripts/fetch-onnxruntime.mjs && yarn dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "yarn build",
+    "beforeBuildCommand": "node scripts/fetch-onnxruntime.mjs && yarn build",
     "frontendDist": "../dist"
   },
   "app": {

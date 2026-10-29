@@ -33,14 +33,38 @@ fn ort_err(e: impl std::fmt::Display) -> AppError {
     AppError::Other(format!("onnx runtime: {e}"))
 }
 
-/// `(runtime lib, model)` of an installed model engine in `dir`.
-fn session_paths(dir: &Path, id: EngineId) -> AppResult<(PathBuf, PathBuf)> {
-    let [lib, model] = id.spec().binaries else { return Err(AppError::Other("model missing".into())) };
-    let (lib, model) = (dir.join(lib), dir.join(model));
-    if !lib.is_file() || !model.is_file() {
+/// The model file of an installed model engine in `dir`.
+fn model_path(dir: &Path, id: EngineId) -> AppResult<PathBuf> {
+    let [model] = id.spec().binaries else { return Err(AppError::Other("model missing".into())) };
+    let model = dir.join(model);
+    if !model.is_file() {
         return Err(AppError::Other("model missing".into()));
     }
-    Ok((lib, model))
+    Ok(model)
+}
+
+/// The ONNX Runtime library the app ships (`scripts/fetch-onnxruntime.mjs`, bundled by `tauri.<os>.conf.json`).
+const ORT_LIB: &str = if cfg!(windows) { "onnxruntime.dll" } else { "libonnxruntime.dylib" };
+
+/// Where the bundle keeps the runtime: macOS `Contents/Frameworks/` (signed with the app, so the
+/// hardened runtime loads it), Windows the install dir beside the exe.
+fn bundled_runtime(exe_dir: &Path) -> PathBuf {
+    if cfg!(target_os = "macos") { exe_dir.join("../Frameworks").join(ORT_LIB) } else { exe_dir.join(ORT_LIB) }
+}
+
+/// The runtime as fetched into the source tree; what dev builds and tests load.
+pub(crate) fn vendor_runtime() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor/onnxruntime").join(ORT_LIB)
+}
+
+/// The bundled runtime, or in a debug build (not bundled on macOS) the vendored one.
+fn runtime_path() -> AppResult<PathBuf> {
+    let exe = std::env::current_exe().map_err(|e| AppError::Other(format!("onnx runtime: {e}")))?;
+    let mut candidates = vec![bundled_runtime(exe.parent().unwrap_or(Path::new(".")))];
+    if cfg!(debug_assertions) {
+        candidates.push(vendor_runtime());
+    }
+    candidates.into_iter().find(|p| p.is_file()).ok_or_else(|| AppError::Other("onnx runtime missing from the app".into()))
 }
 
 /// NCHW f32 at `side × side`, `(v / max - mean) / std` per channel (rembg's `normalize`).
@@ -134,11 +158,11 @@ fn cut(lib: &Path, model: &Path, img: &DynamicImage) -> AppResult<DynamicImage> 
 }
 
 /// `img` as RGBA with the background made transparent. `Other("model missing")` when the
-/// engine isn't installed.
+/// engine isn't installed; `Other` too when the app lacks its runtime.
 pub fn remove_background(app: &AppHandle, img: &DynamicImage) -> AppResult<DynamicImage> {
     let dir = engines::model_dir(app, EngineId::Bgremove).ok_or_else(|| AppError::Other("model missing".into()))?;
-    let (lib, model) = session_paths(&dir, EngineId::Bgremove)?;
-    cut(&lib, &model, img)
+    let model = model_path(&dir, EngineId::Bgremove)?;
+    cut(&runtime_path()?, &model, img)
 }
 
 fn check_upscale(img: &DynamicImage, scale: u8) -> AppResult<()> {
@@ -158,7 +182,7 @@ pub fn upscale(_app: &AppHandle, img: &DynamicImage, scale: u8) -> AppResult<Dyn
 }
 
 /// Call before removing `id`'s engine files: errors while a run has the model open. No session
-/// outlives a run, so there is nothing else to drop; the ORT library stays loaded.
+/// outlives a run, so there is nothing else to drop; the ORT library ships with the app and stays loaded.
 pub fn forget(id: EngineId) -> AppResult<()> {
     if id != EngineId::Bgremove {
         return Ok(());
@@ -187,8 +211,17 @@ mod tests {
     #[test]
     fn missing_model_is_reported() {
         let dir = tempfile::tempdir().unwrap();
-        let err = session_paths(dir.path(), EngineId::Bgremove).unwrap_err();
+        let err = model_path(dir.path(), EngineId::Bgremove).unwrap_err();
         assert_eq!(err.to_string(), "model missing");
+        std::fs::write(dir.path().join("model.onnx"), b"m").unwrap();
+        assert_eq!(model_path(dir.path(), EngineId::Bgremove).unwrap(), dir.path().join("model.onnx"));
+    }
+
+    #[test]
+    fn runtime_is_looked_up_in_the_bundle() {
+        let exe_dir = Path::new("/Applications/Vee.app/Contents/MacOS");
+        let expected = if cfg!(target_os = "macos") { exe_dir.join("../Frameworks/libonnxruntime.dylib") } else { exe_dir.join(ORT_LIB) };
+        assert_eq!(bundled_runtime(exe_dir), expected);
     }
 
     #[test]
@@ -237,15 +270,16 @@ mod tests {
         assert!(forget(EngineId::Bgremove).is_ok());
     }
 
-    /// Runs the real path on `product-*.png` in `VEE_AI_BENCH_DIR`, with `VEE_AI_ORT` (the ORT
-    /// dylib) and `VEE_AI_MODEL` (BiRefNet `.onnx`), writing RGBA and on-magenta PNGs to `VEE_AI_OUT`.
+    /// Runs the real path on `product-*.png` in `VEE_AI_BENCH_DIR`, with the vendored runtime
+    /// (`node scripts/fetch-onnxruntime.mjs`) and `VEE_AI_MODEL` (BiRefNet `.onnx`), writing RGBA and
+    /// on-magenta PNGs to `VEE_AI_OUT`.
     /// Prints time and RSS after each image (the session is dropped at the end of each run).
     #[test]
     #[ignore]
     fn bench_models() {
         let dir = env_path("VEE_AI_BENCH_DIR");
         let out = env_path("VEE_AI_OUT");
-        let (lib, model) = (env_path("VEE_AI_ORT"), env_path("VEE_AI_MODEL"));
+        let (lib, model) = (vendor_runtime(), env_path("VEE_AI_MODEL"));
         std::fs::create_dir_all(&out).unwrap();
         let mut files: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
         files.sort();

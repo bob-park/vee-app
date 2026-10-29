@@ -31,6 +31,7 @@ Always use Yarn 4.18.1 (mise). A global Yarn 1 rewrites `yarn.lock`; if `yarn --
 | `yarn tauri build` | bundles (`.app`, `.dmg`, NSIS) + updater artifacts; needs `TAURI_SIGNING_PRIVATE_KEY` (first `source scripts/load-updater-key-macos.sh` on macOS, `. scripts/load-updater-key-windows.ps1` on Windows) |
 | `scripts/release-macos.sh --build-only` | macOS `.app` + `.dmg` (Apple Silicon), Developer ID signed; both notarized and stapled with the App Store Connect API key; no upload ([configuration](./configuration.md#secrets)) |
 | `yarn build` | frontend only (`tsc` + `vite build`) |
+| `node scripts/fetch-onnxruntime.mjs` | downloads the pinned ONNX Runtime 1.31.0 library into `src-tauri/vendor/onnxruntime/` (gitignored), checks both SHA-256s; a no-op once the file is there. `beforeDevCommand` / `beforeBuildCommand` run it, so `yarn tauri dev` / `build` and the release scripts need no extra step |
 | `yarn lint` | ESLint over `src/` |
 | `yarn prettier` | format `src/**/*.{ts,tsx,css}` (writes files) |
 
@@ -43,6 +44,7 @@ Always use Yarn 4.18.1 (mise). A global Yarn 1 rewrites `yarn.lock`; if `yarn --
   ```
 - **The clipboard is live:** anything you copy while a dev build (or the installed Vee) runs is recorded. Don't seed test data through the real clipboard.
 - **The updater** only runs in release builds.
+- **ONNX Runtime is bundled:** `tauri.macos.conf.json` adds it to `bundle.macOS.frameworks` (copied into `Vee.app/Contents/Frameworks/` and signed with the app), `tauri.windows.conf.json` to `bundle.resources` (installed beside `Vee.exe`). On Windows `tauri-build` copies resources during `cargo build`, so run the fetch script once before a bare `cargo test` there. Unsigned local bundle: `yarn tauri build --bundles app --config '{"bundle":{"createUpdaterArtifacts":false}}'`.
 - **After adding a JS dependency:** the first dev load may show a transient "Invalid hook call" while Vite re-optimizes deps. It is gone after the automatic reload.
 - **React Query devtools** render only in the dev `settings` window (bottom-right button).
 - **Dev data** lives in `~/Library/Application Support/<identifier>/` (macOS) or `%APPDATA%\<identifier>\` (Windows): `vee.db` + `images/` + `engines/{ffmpeg,rhwp,bgremove}/` (once downloaded) + `lo-profile/` (after a LibreOffice conversion). Delete it to start fresh.

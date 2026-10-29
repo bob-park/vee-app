@@ -21,6 +21,9 @@ related:
 | `app.macOSPrivateApi` | `true`, for the transparent panel/toast windows |
 | `app.windows` | `panel`, `toast`, `convert`, `settings`, `whats-new`, all `create: false` (built in `setup` after state exists), all `visible: false` except `convert`: it is built visible at `-10000, -10000` and hidden right after, because wry only takes over drops on the WebView2 child windows that exist when the webview is built (Windows) |
 | `bundle.targets` | `app`, `dmg`, `nsis` |
+| `bundle.macOS.frameworks` (`tauri.macos.conf.json`) | `./vendor/onnxruntime/libonnxruntime.dylib`, copied into `Contents/Frameworks/` and signed with Vee's identity, so the hardened runtime (library validation) loads it. Platform files are JSON-merge-patched over `tauri.conf.json`: objects merge, arrays replace |
+| `bundle.resources` (`tauri.windows.conf.json`) | `vendor/onnxruntime/onnxruntime.dll` → `onnxruntime.dll` beside `Vee.exe` |
+| `build.beforeDevCommand` / `beforeBuildCommand` | run `node scripts/fetch-onnxruntime.mjs` (fetches the runtime above if missing), then `yarn dev` / `yarn build` |
 | `bundle.macOS.entitlements` | `Entitlements.plist` — `com.apple.security.automation.apple-events`, so the signed (hardened runtime) app may ask Finder for its folder |
 | `bundle.createUpdaterArtifacts` | `true` — full builds need the signing key |
 | `plugins.updater.pubkey` | public half of the updater key; same content as `src-tauri/updater.key.pub` ([release](../release.md)) |
@@ -34,6 +37,7 @@ related:
 
 ## Network and temp paths
 
+- Build-time network: `scripts/fetch-onnxruntime.mjs` downloads ONNX Runtime 1.31.0 from `microsoft/onnxruntime`'s GitHub release (pinned SHA-256 of the archive and of the extracted library).
 - Network use besides the updater (`app/engines.rs`): opening Settings → Convert looks up FFmpeg's and rhwp's latest releases (GitHub API for rhwp and gyan.dev's FFmpeg mirror, martin-riedl.de for macOS FFmpeg), and the downloads the user starts fetch them, checked against the SHA-256 the source publishes (not bundled). Both run the system `curl` (and `tar` to unpack), so no HTTP crate or capability is needed. LibreOffice is never downloaded; Settings only opens its download page.
 - Temp dirs: `<temp>/vee-<engine>-download-<identifier>` (`ffmpeg` / `rhwp` download) and `<temp>/vee-convert-<identifier>` (conversion output before the move, cleared at startup and exit).
 - App data: `<app data>/engines/{ffmpeg,rhwp}/` (installed engines) and `<app data>/lo-profile/` (LibreOffice's own profile for headless runs, so a LibreOffice the user has open doesn't block it). Run a dev build with its own identifier so it doesn't share these with the installed app ([build-run](./build-run.md)).

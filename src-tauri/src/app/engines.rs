@@ -86,11 +86,10 @@ impl Release {
 }
 
 /// The only places a release may point at.
-const SOURCES: [&str; 5] = [
+const SOURCES: [&str; 4] = [
     "https://github.com/edwardkim/rhwp/releases/download/",
     "https://github.com/GyanD/codexffmpeg/releases/download/",
     RIEDL_DOWNLOAD,
-    "https://github.com/microsoft/onnxruntime/releases/download/",
     "https://github.com/danielgatis/rembg/releases/download/",
 ];
 const RIEDL_DOWNLOAD: &str = "https://ffmpeg.martin-riedl.de/download/";
@@ -107,42 +106,22 @@ pub struct EngineSpec {
 pub const SPECS: [EngineSpec; 3] = [
     EngineSpec { dir_name: "ffmpeg", binaries: if cfg!(windows) { &["ffmpeg.exe", "ffprobe.exe"] } else { &["ffmpeg", "ffprobe"] } },
     EngineSpec { dir_name: "rhwp", binaries: if cfg!(windows) { &["rhwp.exe"] } else { &["rhwp"] } },
-    EngineSpec { dir_name: "bgremove", binaries: &[ORT_LIB, "model.onnx"] },
+    EngineSpec { dir_name: "bgremove", binaries: &["model.onnx"] },
 ];
 
 // ---- Pinned models ----
-// ONNX Runtime 1.31.0 (MIT, the version `ort` 2.0.0-rc.15 targets) plus the model (BiRefNet general,
-// swin-v1-tiny, MIT, from rembg's release). Checksums and sizes measured when pinning.
-// ponytail: ORT shipped per model engine; share one runtime engine if a second model arrives.
+// The model only (BiRefNet general, swin-v1-tiny, MIT, from rembg's release); checksum and size
+// measured when pinning. ONNX Runtime ships inside the app (`ai::runtime_path`), signed with Vee's
+// identity: the hardened runtime refuses a downloaded library signed by another team.
 
-/// The runtime's file name inside its archive. macOS: `libonnxruntime.dylib`, a regular file there, not
-/// the versioned `libonnxruntime.1.31.0.dylib`, which the archive's `.dSYM` also holds under that name.
-const ORT_LIB: &str = if cfg!(windows) { "onnxruntime.dll" } else { "libonnxruntime.dylib" };
+/// Bump when a pinned file changes; drives the update badge. 2: the runtime left the engine.
+const MODEL_VERSION: &str = "2";
 
-/// Bump when a pinned file changes; drives the update badge.
-const MODEL_VERSION: &str = "1";
-
-/// `(url, sha256, size)` of this platform's ONNX Runtime archive.
-fn ort_archive() -> Option<(&'static str, &'static str, u64)> {
-    if cfg!(target_os = "macos") {
-        Some((
-            "https://github.com/microsoft/onnxruntime/releases/download/v1.31.0/onnxruntime-osx-arm64-1.31.0.tgz",
-            "1031b36dd3bdaa8d976a6130d9cf2a05e9be320b93ae804f8427b91dc3432afc",
-            36_549_009,
-        ))
-    } else if cfg!(windows) {
-        Some((
-            "https://github.com/microsoft/onnxruntime/releases/download/v1.31.0/onnxruntime-win-x64-1.31.0.zip",
-            "3958d8a44984160692c1b4ffd0de3cb48f8c39f9d34bb31e433db06e30b82195",
-            82_887_349,
-        ))
-    } else {
-        None
-    }
-}
-
-/// The pinned release of a model engine; `None` for looked-up engines and unsupported platforms.
+/// The pinned release of a model engine; `None` for looked-up engines and platforms without a bundled runtime.
 fn pinned(id: EngineId) -> Option<Release> {
+    if !cfg!(any(target_os = "macos", windows)) {
+        return None;
+    }
     let model = match id {
         EngineId::Bgremove => (
             "https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
@@ -154,7 +133,7 @@ fn pinned(id: EngineId) -> Option<Release> {
     let asset = |(url, sha256, size): (&str, &str, u64), kind| Asset { url: url.into(), sha256: sha256.into(), size, kind };
     Some(Release {
         version: MODEL_VERSION.into(),
-        assets: vec![asset(ort_archive()?, AssetKind::Archive), asset(model, AssetKind::Raw { name: "model.onnx" })],
+        assets: vec![asset(model, AssetKind::Raw { name: "model.onnx" })],
     })
 }
 
@@ -629,7 +608,7 @@ pub fn ffmpeg(app: &AppHandle) -> Option<(PathBuf, PathBuf)> {
     Some((ffmpeg, ffprobe))
 }
 
-/// A model engine's install dir, when the runtime and the model are both installed.
+/// A model engine's install dir, when the model is installed.
 pub fn model_dir(app: &AppHandle, id: EngineId) -> Option<PathBuf> {
     engine_bin(app, id)?.pop()?.parent().map(Path::to_path_buf)
 }
@@ -1346,12 +1325,12 @@ mod tests {
     }
 
     #[test]
-    fn model_release_has_runtime_and_model() {
+    fn model_release_is_the_model_alone() {
         let r = pinned(EngineId::Bgremove).unwrap();
         let kinds: Vec<_> = r.assets.iter().map(|a| a.kind.clone()).collect();
-        assert_eq!(kinds, [AssetKind::Archive, AssetKind::Raw { name: "model.onnx" }]);
-        assert!(r.assets[0].url.contains("/onnxruntime-"));
-        assert_eq!(BGREMOVE[1], "model.onnx");
+        assert_eq!(kinds, [AssetKind::Raw { name: "model.onnx" }]);
+        assert_eq!(BGREMOVE, ["model.onnx"]);
+        assert!(!SOURCES.iter().any(|s| s.contains("onnxruntime")));
     }
 
     #[test]
@@ -1360,16 +1339,23 @@ mod tests {
     }
 
     #[test]
-    fn installs_a_model_beside_its_runtime() {
+    fn an_install_with_the_old_runtime_is_installed_and_updates() {
         let root = tempfile::tempdir().unwrap();
-        let (runtime, a) = archive(root.path(), |f| std::fs::write(f.join("rhwp").join(BGREMOVE[0]), b"ort").unwrap());
-        let model = root.path().join("dl/1.download");
+        let model = root.path().join("1.download");
         std::fs::write(&model, b"abc").unwrap();
-        let m = Asset { url: "test://m".into(), sha256: ABC.into(), size: 3, kind: AssetKind::Raw { name: BGREMOVE[1] } };
+        let m = Asset { url: "test://m".into(), sha256: ABC.into(), size: 3, kind: AssetKind::Raw { name: BGREMOVE[0] } };
         let dest = root.path().join("engines/bgremove");
-        install_from(BGREMOVE, &[(runtime, &a), (model, &m)], &dest, "1", 1, NONE).unwrap();
-        assert_eq!(std::fs::read(dest.join(BGREMOVE[0])).unwrap(), b"ort");
-        assert_eq!(std::fs::read(dest.join(BGREMOVE[1])).unwrap(), b"abc");
+        install_from(BGREMOVE, &[(model, &m)], &dest, "1", 1, NONE).unwrap();
+        // Version 1 also held the runtime here.
+        std::fs::write(dest.join("libonnxruntime.dylib"), b"ort").unwrap();
+        let latest = pinned(EngineId::Bgremove).unwrap();
+        assert!(matches!(on_disk(&SPECS[2], &dest, Some(&latest), None), EngineStatus::Installed { update: true, .. }));
+        // The update replaces the whole dir, runtime included.
+        let model = root.path().join("2.download");
+        std::fs::write(&model, b"abc").unwrap();
+        install_from(BGREMOVE, &[(model, &m)], &dest, &latest.version, 2, NONE).unwrap();
+        assert!(!dest.join("libonnxruntime.dylib").exists());
+        assert!(matches!(on_disk(&SPECS[2], &dest, Some(&latest), None), EngineStatus::Installed { update: false, .. }));
     }
 
     #[test]
@@ -1445,14 +1431,15 @@ mod tests {
         assert!(out.status.success());
     }
 
-    /// Downloads the pinned runtime and model (~260 MB on macOS) and loads them with `ort`:
+    /// Downloads the pinned model (~224 MB) and loads it with the vendored runtime (run
+    /// `node scripts/fetch-onnxruntime.mjs` first):
     /// `cargo test --lib installs_pinned_bgremove -- --ignored --nocapture`
     #[test]
     #[ignore]
     fn installs_pinned_bgremove() {
         let (_root, dest) = install_latest(EngineId::Bgremove);
-        let env = ort::init_from(dest.join(BGREMOVE[0])).expect("load ORT").build().unwrap();
-        let session = ort::session::Session::builder(&env).unwrap().commit_from_file(dest.join(BGREMOVE[1])).unwrap();
+        let env = ort::init_from(crate::app::ai::vendor_runtime()).expect("load ORT").build().unwrap();
+        let session = ort::session::Session::builder(&env).unwrap().commit_from_file(dest.join(BGREMOVE[0])).unwrap();
         assert_eq!(session.inputs().len(), 1);
     }
 
