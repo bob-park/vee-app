@@ -1,6 +1,7 @@
-//! Optional engines the user downloads from Settings: FFmpeg and rhwp, each kept under
-//! `<app data>/engines/<name>/`. The network is used to look up each engine's latest release when the
-//! Convert tab opens, and to download it when the user asks.
+//! Optional engines the user downloads from Settings: FFmpeg, rhwp and the background removal model,
+//! each kept under `<app data>/engines/<name>/`. The network is used to look up FFmpeg's and rhwp's
+//! latest release when the Convert tab opens, and to download an engine when the user asks. Model
+//! engines are pinned here instead of looked up.
 
 use crate::{
     app::state::now_ms,
@@ -25,10 +26,11 @@ const POLL: Duration = Duration::from_millis(250);
 pub enum EngineId {
     Ffmpeg,
     Rhwp,
+    Bgremove,
 }
 
 impl EngineId {
-    pub const ALL: [EngineId; 2] = [EngineId::Ffmpeg, EngineId::Rhwp];
+    pub const ALL: [EngineId; 3] = [EngineId::Ffmpeg, EngineId::Rhwp, EngineId::Bgremove];
 
     pub fn parse(s: &str) -> AppResult<Self> {
         Self::ALL.into_iter().find(|id| id.spec().dir_name == s).ok_or_else(|| AppError::InvalidInput(format!("unknown engine {s}")))
@@ -42,8 +44,7 @@ impl EngineId {
 /// How a downloaded file becomes the engine's binaries.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AssetKind {
-    /// The file is the executable, installed as `name`. No source ships these now; kept for the tests.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// The file itself, installed as `name` (a model).
     Raw { name: &'static str },
     /// A `tar -xf` readable archive; the engine's binaries are found by file name inside it.
     Archive,
@@ -85,10 +86,12 @@ impl Release {
 }
 
 /// The only places a release may point at.
-const SOURCES: [&str; 3] = [
+const SOURCES: [&str; 5] = [
     "https://github.com/edwardkim/rhwp/releases/download/",
     "https://github.com/GyanD/codexffmpeg/releases/download/",
     RIEDL_DOWNLOAD,
+    "https://github.com/microsoft/onnxruntime/releases/download/",
+    "https://github.com/danielgatis/rembg/releases/download/",
 ];
 const RIEDL_DOWNLOAD: &str = "https://ffmpeg.martin-riedl.de/download/";
 
@@ -101,10 +104,59 @@ pub struct EngineSpec {
 }
 
 /// Indexed by `EngineId as usize`.
-pub const SPECS: [EngineSpec; 2] = [
+pub const SPECS: [EngineSpec; 3] = [
     EngineSpec { dir_name: "ffmpeg", binaries: if cfg!(windows) { &["ffmpeg.exe", "ffprobe.exe"] } else { &["ffmpeg", "ffprobe"] } },
     EngineSpec { dir_name: "rhwp", binaries: if cfg!(windows) { &["rhwp.exe"] } else { &["rhwp"] } },
+    EngineSpec { dir_name: "bgremove", binaries: &[ORT_LIB, "model.onnx"] },
 ];
+
+// ---- Pinned models ----
+// ONNX Runtime 1.31.0 (MIT, the version `ort` 2.0.0-rc.15 targets) plus the model (BiRefNet general,
+// swin-v1-tiny, MIT, from rembg's release). Checksums and sizes measured when pinning.
+// ponytail: ORT shipped per model engine; share one runtime engine if a second model arrives.
+
+/// The runtime's file name inside its archive. macOS: `libonnxruntime.dylib`, a regular file there, not
+/// the versioned `libonnxruntime.1.31.0.dylib`, which the archive's `.dSYM` also holds under that name.
+const ORT_LIB: &str = if cfg!(windows) { "onnxruntime.dll" } else { "libonnxruntime.dylib" };
+
+/// Bump when a pinned file changes; drives the update badge.
+const MODEL_VERSION: &str = "1";
+
+/// `(url, sha256, size)` of this platform's ONNX Runtime archive.
+fn ort_archive() -> Option<(&'static str, &'static str, u64)> {
+    if cfg!(target_os = "macos") {
+        Some((
+            "https://github.com/microsoft/onnxruntime/releases/download/v1.31.0/onnxruntime-osx-arm64-1.31.0.tgz",
+            "1031b36dd3bdaa8d976a6130d9cf2a05e9be320b93ae804f8427b91dc3432afc",
+            36_549_009,
+        ))
+    } else if cfg!(windows) {
+        Some((
+            "https://github.com/microsoft/onnxruntime/releases/download/v1.31.0/onnxruntime-win-x64-1.31.0.zip",
+            "3958d8a44984160692c1b4ffd0de3cb48f8c39f9d34bb31e433db06e30b82195",
+            82_887_349,
+        ))
+    } else {
+        None
+    }
+}
+
+/// The pinned release of a model engine; `None` for looked-up engines and unsupported platforms.
+fn pinned(id: EngineId) -> Option<Release> {
+    let model = match id {
+        EngineId::Bgremove => (
+            "https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
+            "5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333",
+            224_005_088,
+        ),
+        EngineId::Ffmpeg | EngineId::Rhwp => return None,
+    };
+    let asset = |(url, sha256, size): (&str, &str, u64), kind| Asset { url: url.into(), sha256: sha256.into(), size, kind };
+    Some(Release {
+        version: MODEL_VERSION.into(),
+        assets: vec![asset(ort_archive()?, AssetKind::Archive), asset(model, AssetKind::Raw { name: "model.onnx" })],
+    })
+}
 
 // ---- Latest releases ----
 // FFmpeg: martin-riedl.de's static builds on macOS (one zip per binary), gyan.dev's essentials build
@@ -201,6 +253,7 @@ pub fn resolve(id: EngineId) -> Option<Release> {
     let release = match id {
         EngineId::Rhwp => resolve_rhwp(),
         EngineId::Ffmpeg => resolve_ffmpeg(),
+        EngineId::Bgremove => pinned(id),
     };
     let release = release.filter(Release::valid);
     if release.is_none() {
@@ -523,7 +576,7 @@ struct Slot {
 }
 
 /// Indexed by `EngineId as usize`.
-pub struct Engines([Slot; 2]);
+pub struct Engines([Slot; 3]);
 
 impl Engines {
     fn get(&self, id: EngineId) -> &Slot {
@@ -574,6 +627,12 @@ pub fn engine_bin(app: &AppHandle, id: EngineId) -> Option<Vec<PathBuf>> {
 pub fn ffmpeg(app: &AppHandle) -> Option<(PathBuf, PathBuf)> {
     let [ffmpeg, ffprobe]: [PathBuf; 2] = engine_bin(app, EngineId::Ffmpeg)?.try_into().ok()?;
     Some((ffmpeg, ffprobe))
+}
+
+/// A model engine's install dir, when the runtime and the model are both installed.
+#[allow(dead_code)] // used by `app::ai` from Task 5 on
+pub fn model_dir(app: &AppHandle, id: EngineId) -> Option<PathBuf> {
+    engine_bin(app, id)?.pop()?.parent().map(Path::to_path_buf)
 }
 
 /// The rhwp CLI when installed.
@@ -822,7 +881,7 @@ fn curl(app: &AppHandle, id: EngineId, url: &str, file: &Path, cancel: &AtomicBo
     }
 }
 
-/// Engine commands; `engine` is `"ffmpeg"` or `"rhwp"`.
+/// Engine commands; `engine` is `"ffmpeg"`, `"rhwp"` or `"bgremove"`.
 pub mod commands {
     use super::{EngineId, EngineStatus, Engines};
     use crate::shared::error::{AppError, AppResult};
@@ -834,7 +893,7 @@ pub mod commands {
         Ok(state.get(EngineId::parse(&engine)?).status.lock().unwrap().clone())
     }
 
-    /// Looks up both engines' latest releases and re-publishes their status (`update`, `downloadSize`)
+    /// Looks up every engine's latest release and re-publishes their status (`update`, `downloadSize`)
     /// as `engines://status`. Run when the Convert tab opens; a failed lookup changes nothing, and a call
     /// while one runs returns at once.
     #[tauri::command(async)]
@@ -887,6 +946,7 @@ mod tests {
     const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
     const FFMPEG: &[&str] = SPECS[0].binaries;
     const RHWP: &[&str] = SPECS[1].binaries;
+    const BGREMOVE: &[&str] = SPECS[2].binaries;
     const NONE: &dyn Fn() = &|| ();
 
     /// One downloaded file per FFmpeg binary, each holding `abc`.
@@ -1117,7 +1177,7 @@ mod tests {
     #[test]
     fn engines_install_side_by_side() {
         let root = tempfile::tempdir().unwrap();
-        let [ffmpeg, rhwp] = SPECS.each_ref().map(|s| install_dir(root.path(), s));
+        let [ffmpeg, rhwp, _] = SPECS.each_ref().map(|s| install_dir(root.path(), s));
         assert_ne!(ffmpeg, rhwp);
         installed(&ffmpeg, FFMPEG, "8.1.2");
         installed(&rhwp, RHWP, "0.8.7");
@@ -1280,6 +1340,39 @@ mod tests {
     }
 
     #[test]
+    fn model_releases_are_valid() {
+        assert!(pinned(EngineId::Bgremove).unwrap().valid());
+        assert_eq!(pinned(EngineId::Ffmpeg), None);
+    }
+
+    #[test]
+    fn model_release_has_runtime_and_model() {
+        let r = pinned(EngineId::Bgremove).unwrap();
+        let kinds: Vec<_> = r.assets.iter().map(|a| a.kind.clone()).collect();
+        assert_eq!(kinds, [AssetKind::Archive, AssetKind::Raw { name: "model.onnx" }]);
+        assert!(r.assets[0].url.contains("/onnxruntime-"));
+        assert_eq!(BGREMOVE[1], "model.onnx");
+    }
+
+    #[test]
+    fn engine_ids_round_trip() {
+        assert_eq!(EngineId::parse("bgremove").unwrap(), EngineId::Bgremove);
+    }
+
+    #[test]
+    fn installs_a_model_beside_its_runtime() {
+        let root = tempfile::tempdir().unwrap();
+        let (runtime, a) = archive(root.path(), |f| std::fs::write(f.join("rhwp").join(BGREMOVE[0]), b"ort").unwrap());
+        let model = root.path().join("dl/1.download");
+        std::fs::write(&model, b"abc").unwrap();
+        let m = Asset { url: "test://m".into(), sha256: ABC.into(), size: 3, kind: AssetKind::Raw { name: BGREMOVE[1] } };
+        let dest = root.path().join("engines/bgremove");
+        install_from(BGREMOVE, &[(runtime, &a), (model, &m)], &dest, "1", 1, NONE).unwrap();
+        assert_eq!(std::fs::read(dest.join(BGREMOVE[0])).unwrap(), b"ort");
+        assert_eq!(std::fs::read(dest.join(BGREMOVE[1])).unwrap(), b"abc");
+    }
+
+    #[test]
     fn a_release_from_elsewhere_or_with_a_bad_version_is_invalid() {
         let ok = parse_rhwp(RHWP_JSON, "macos-aarch64.tar.gz").unwrap();
         let with = |f: &dyn Fn(&mut Release)| {
@@ -1350,6 +1443,17 @@ mod tests {
         assert!(out.status.success());
         let out = std::process::Command::new(dest.join(FFMPEG[1])).arg("-version").output().unwrap();
         assert!(out.status.success());
+    }
+
+    /// Downloads the pinned runtime and model (~260 MB on macOS) and loads them with `ort`:
+    /// `cargo test --lib installs_pinned_bgremove -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn installs_pinned_bgremove() {
+        let (_root, dest) = install_latest(EngineId::Bgremove);
+        let env = ort::init_from(dest.join(BGREMOVE[0])).expect("load ORT").build().unwrap();
+        let session = ort::session::Session::builder(&env).unwrap().commit_from_file(dest.join(BGREMOVE[1])).unwrap();
+        assert_eq!(session.inputs().len(), 1);
     }
 
     /// `cargo test --lib installs_latest_rhwp -- --ignored --nocapture`
