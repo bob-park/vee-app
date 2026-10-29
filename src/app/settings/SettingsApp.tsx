@@ -84,6 +84,8 @@ function UpdateRow({ version }: { version: string }) {
   );
 }
 
+const isMac = navigator.userAgent.includes('Mac');
+
 /** Every recorder on the shortcuts tab; each refuses the others' combos. */
 const SHORTCUT_KEYS = [
   'shortcut',
@@ -146,6 +148,15 @@ export function SettingsApp() {
   return (
     <main className="relative flex h-full flex-col">
       <Aurora className="inset-x-0 top-0 h-[110px]" />
+      {/* macOS overlays the traffic lights on this row (`titleBarStyle: Overlay`); Windows keeps its native bar. */}
+      {isMac && (
+        <div
+          className="relative z-1 flex h-7 shrink-0 items-center justify-center font-semibold select-none"
+          data-tauri-drag-region
+        >
+          {s.title}
+        </div>
+      )}
       <Tabs value={tab} onChange={changeTab} />
       {/* Extra bottom room so the app picker's popup near the end never runs past the window. */}
       {/* Keyed by tab so its sections remount and spring in again on every switch. */}
