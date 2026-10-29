@@ -10,7 +10,7 @@ use tauri::{Manager, RunEvent, WindowEvent};
 pub fn run() {
     tauri::Builder::default()
         // Must be first: a second launch just opens the settings window.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| window::show_settings(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| window::show_settings(app, "general")))
         .plugin(tauri_plugin_log::Builder::new().level(log::LevelFilter::Info).build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())

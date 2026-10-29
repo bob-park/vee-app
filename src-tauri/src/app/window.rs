@@ -506,10 +506,11 @@ pub fn follow_active_space(app: &AppHandle) {
     let _ = app;
 }
 
-pub fn show_settings(app: &AppHandle) {
+/// Shows the settings window on `tab` (a `SettingsTab` name).
+pub fn show_settings(app: &AppHandle, tab: &str) {
     if let Some(window) = app.get_webview_window(SETTINGS) {
-        // Hidden, not destroyed, on close; tell the page to start over on the general tab.
-        let _ = app.emit_to(SETTINGS, "settings://opened", ());
+        // Hidden, not destroyed, on close; tell the page which tab to start over on.
+        let _ = app.emit_to(SETTINGS, "settings://opened", tab);
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -818,10 +819,11 @@ pub mod commands {
         super::reveal_panel(&app);
     }
 
+    /// `tab` is the settings tab to land on; the general tab when absent.
     #[tauri::command]
-    pub fn open_settings(app: AppHandle) {
+    pub fn open_settings(app: AppHandle, tab: Option<String>) {
         super::hide_panel(&app, false);
-        super::show_settings(&app);
+        super::show_settings(&app, tab.as_deref().unwrap_or("general"));
     }
 }
 

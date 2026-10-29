@@ -66,3 +66,20 @@ export function sizeAfter(base: Size, ops: EditOp[]): Size {
     }
   }, base);
 }
+
+/** `pan` (the view's top-left in `zoomed` px) kept so the view never leaves the image; `0` on an axis that fits. */
+export function clampPan(pan: Pt, zoomed: Size, view: Size): Pt {
+  return { x: clamp(pan.x, Math.max(0, zoomed.w - view.w)), y: clamp(pan.y, Math.max(0, zoomed.h - view.h)) };
+}
+
+/** The part of `zoomed` that `view` shows at `pan`, scaled onto a `map` of the whole image. */
+export function viewportRect(pan: Pt, zoomed: Size, view: Size, map: Size): Rect {
+  const sx = map.w / zoomed.w;
+  const sy = map.h / zoomed.h;
+  return {
+    x: pan.x * sx,
+    y: pan.y * sy,
+    w: Math.min(view.w, zoomed.w) * sx,
+    h: Math.min(view.h, zoomed.h) * sy,
+  };
+}

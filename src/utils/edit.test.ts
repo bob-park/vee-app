@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { cropFromDrag, resizeKeep, sizeAfter } from './edit.ts';
+import { clampPan, cropFromDrag, resizeKeep, sizeAfter, viewportRect } from './edit.ts';
 
 void test('cropFromDrag maps view to image px and clamps', () => {
   assert.deepEqual(cropFromDrag({ x: 10, y: 10 }, { x: 60, y: 35 }, { w: 100, h: 50 }, { w: 1000, h: 500 }), {
@@ -47,4 +47,32 @@ void test('sizeAfter applies crop (clamped like Rust) and resize in order', () =
   ] as const;
   assert.deepEqual(sizeAfter({ w: 100, h: 50 }, [ops[0]]), { w: 20, h: 10 });
   assert.deepEqual(sizeAfter({ w: 100, h: 50 }, [...ops]), { w: 40, h: 20 });
+});
+
+void test('clampPan keeps the view inside the zoomed image', () => {
+  const zoomed = { w: 1000, h: 600 };
+  const view = { w: 400, h: 300 };
+  assert.deepEqual(clampPan({ x: -50, y: -10 }, zoomed, view), { x: 0, y: 0 });
+  assert.deepEqual(clampPan({ x: 900, y: 500 }, zoomed, view), { x: 600, y: 300 });
+  assert.deepEqual(clampPan({ x: 120, y: 80 }, zoomed, view), { x: 120, y: 80 });
+  // Fit: the image is no larger than the view, so there is nothing to pan.
+  assert.deepEqual(clampPan({ x: 30, y: 40 }, { w: 400, h: 240 }, view), { x: 0, y: 0 });
+});
+
+void test('viewportRect maps the view onto the mini-map', () => {
+  const map = { w: 80, h: 48 };
+  // Half the image in each direction → half the map, offset by the pan.
+  assert.deepEqual(viewportRect({ x: 500, y: 300 }, { w: 1000, h: 600 }, { w: 500, h: 300 }, map), {
+    x: 40,
+    y: 24,
+    w: 40,
+    h: 24,
+  });
+  // A view larger than the image covers the whole map.
+  assert.deepEqual(viewportRect({ x: 0, y: 0 }, { w: 200, h: 120 }, { w: 500, h: 300 }, map), {
+    x: 0,
+    y: 0,
+    w: 80,
+    h: 48,
+  });
 });

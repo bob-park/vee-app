@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
+import CompareView from '@/app/editor/_components/CompareView';
 import CropBox from '@/app/editor/_components/CropBox';
 import Footer from '@/app/editor/_components/Footer';
+import ModelPrompt from '@/app/editor/_components/ModelPrompt';
 import ResizeForm from '@/app/editor/_components/ResizeForm';
 import RotatePanel from '@/app/editor/_components/RotatePanel';
+import { useEngineStatus } from '@/domain/convert/queries/engines';
 import { closeEditor, copyEdit, getEditSource, renderEdit } from '@/domain/edit/apis/edit';
 import type { EditImage, EditOp } from '@/domain/edit/apis/edit.dto';
 import Aurora from '@/shared/components/Aurora';
@@ -15,12 +18,20 @@ import { errorText } from '@/utils/errorText';
 import { listen } from '@tauri-apps/api/event';
 import cx from 'classnames';
 
-/** The editor's tools. `removeBg` and `upscale` show an empty panel until their AI tools land. */
+/** The editor's tools. `removeBg` and `upscale` show their result next to the original before it's applied. */
 export type EditorTab = 'crop' | 'rotate' | 'resize' | 'removeBg' | 'upscale';
 
 const TABS: EditorTab[] = ['crop', 'rotate', 'resize', 'removeBg', 'upscale'];
 
+const SCALES = ['2', '4'] as const;
+// A fresh object each time: a shown AI result is matched to its step by identity.
+const upscaleOp = (k: (typeof SCALES)[number]): EditOp => ({ type: 'upscale', scale: k === '4' ? 4 : 2 });
+const ZOOMS = ['fit', 'actual'] as const;
+
 const isMac = navigator.userAgent.includes('Mac');
+
+const APPLY =
+  'rounded-box bg-accent-subtle text-primary px-3.5 py-1.5 text-[12px] font-semibold disabled:cursor-default disabled:opacity-50';
 
 const sizeOf = (img: EditImage): Size => ({ w: img.width, h: img.height });
 
@@ -40,9 +51,21 @@ export function EditorApp() {
   const [stage, setStage] = useState<Size>({ w: 0, h: 0 });
   const [error, setError] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
+  /** The render of `[...ops, pending]` for an AI step, shown beside the preview before it's applied. */
+  const [result, setResult] = useState<{ img: EditImage; op: EditOp } | null>(null);
+  const [scale, setScale] = useState<(typeof SCALES)[number]>('2');
+  const [zoom, setZoom] = useState<(typeof ZOOMS)[number]>('fit');
 
   // hooks
   const { t } = useI18n();
+
+  // queries
+  const { status: bgStatus } = useEngineStatus('bgremove');
+
+  const bgReady = bgStatus?.state === 'installed';
+  const opsShown = preview?.ops === ops;
+  const aiPending = pending?.type === 'removeBg' || pending?.type === 'upscale' ? pending : null;
+  const shown = aiPending && result?.op === aiPending ? result.img : null;
 
   // useEffect
   useEffect(() => {
@@ -83,6 +106,29 @@ export function EditorApp() {
       stale = true;
     };
   }, [ops, source]);
+
+  // The model may be downloaded or removed in Settings while this tab is open.
+  useEffect(() => {
+    if (tab === 'removeBg') setPending(bgReady ? { type: 'removeBg' } : null);
+  }, [tab, bgReady]);
+
+  // An AI step renders once the steps before it have; a failure drops only the step, never `ops`.
+  useEffect(() => {
+    if (!aiPending || !opsShown) return;
+    let stale = false;
+    renderEdit([...ops, aiPending])
+      .then((img) => {
+        if (!stale) setResult({ img, op: aiPending });
+      })
+      .catch((e) => {
+        if (stale) return;
+        setError(errorText(e));
+        setPending(null);
+      });
+    return () => {
+      stale = true;
+    };
+  }, [aiPending, ops, opsShown]);
 
   useEffect(() => {
     const el = stageRef.current;
@@ -127,8 +173,13 @@ export function EditorApp() {
   };
 
   const handleTab = (next: EditorTab) => {
-    setPending(null);
+    setPending(next === 'upscale' ? upscaleOp(scale) : null);
     setTab(next);
+  };
+
+  const handleScale = (next: (typeof SCALES)[number]) => {
+    setScale(next);
+    setPending(upscaleOp(next));
   };
 
   const handleApply = (op: EditOp | null) => {
@@ -139,7 +190,8 @@ export function EditorApp() {
   };
 
   // A step waits for the render before it: until then the preview still has the old size.
-  const busy = preview?.ops !== ops;
+  // An AI step also waits for its own render, which can take seconds.
+  const busy = !opsShown || (!!aiPending && !shown);
   const all = pending ? [...ops, pending] : ops;
   // An unchanged image would only bump the original clip (same hash), so there is nothing to copy.
   const canCopy = !!source && all.length > 0 && !copying && !busy;
@@ -155,16 +207,27 @@ export function EditorApp() {
       {/* macOS overlays the traffic lights on this row (`titleBarStyle: Overlay`); Windows keeps its native bar. */}
       {isMac && <div className="relative z-1 h-7 shrink-0" data-tauri-drag-region />}
       <div className="relative z-1 flex shrink-0 justify-center pt-1 pb-3">
-        <div className="glass rounded-xl p-0.5">
+        {/* Disabled (natively, for every tab button) while an AI step renders. */}
+        <fieldset className="glass rounded-xl p-0.5 disabled:opacity-60" disabled={!!aiPending && busy}>
           <Segmented
             value={tab}
             onChange={handleTab}
             options={TABS.map((value) => ({ value, label: t.editor.tabs[value] }))}
           />
-        </div>
+        </fieldset>
       </div>
       <div ref={stageRef} className="relative z-1 mx-5 flex min-h-0 flex-1 items-center justify-center">
-        {preview && image && view && (
+        {preview && shown && (
+          <CompareView
+            key={`${zoom}-${shown.width}x${shown.height}`}
+            before={preview.img.dataUrl}
+            after={shown.dataUrl}
+            size={sizeOf(shown)}
+            zoom={tab === 'upscale' && zoom === 'actual' ? 1 : 'fit'}
+            stage={stage}
+          />
+        )}
+        {preview && !shown && image && view && (
           <div className="relative" style={{ width: view.w, height: view.h }}>
             <img
               src={preview.img.dataUrl}
@@ -172,6 +235,25 @@ export function EditorApp() {
               draggable={false}
               className={cx('size-full rounded-md transition-opacity duration-200 select-none', { 'opacity-60': busy })}
             />
+            {aiPending && busy && (
+              <div
+                className="absolute inset-0 flex items-center justify-center"
+                role="status"
+                aria-label={t.editor.working}
+              >
+                <span className="glass rounded-full p-2">
+                  <svg
+                    className="text-primary size-5 animate-spin motion-reduce:animate-none"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden
+                  >
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" />
+                    <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                  </svg>
+                </span>
+              </div>
+            )}
             {tab === 'crop' && (
               <CropBox
                 disabled={busy}
@@ -188,11 +270,7 @@ export function EditorApp() {
         {tab === 'crop' && (
           <div className="flex items-center gap-3">
             <span className="text-muted text-[12px]">{t.editor.cropHint}</span>
-            <button
-              className="rounded-box bg-accent-subtle text-primary px-3.5 py-1.5 text-[12px] font-semibold disabled:cursor-default disabled:opacity-50"
-              disabled={!crop || busy}
-              onClick={() => handleApply(crop)}
-            >
+            <button className={APPLY} disabled={!crop || busy} onClick={() => handleApply(crop)}>
               {t.editor.apply}
             </button>
           </div>
@@ -209,7 +287,38 @@ export function EditorApp() {
             onApply={() => handleApply(pending)}
           />
         )}
-        {/* removeBg / upscale: filled in with the AI tools. */}
+        {tab === 'removeBg' &&
+          (bgStatus && !bgReady ? (
+            <ModelPrompt />
+          ) : (
+            <div className="flex items-center gap-3">
+              <span className="text-muted text-[12px]">{t.editor.removeBgHint}</span>
+              <button className={APPLY} disabled={!aiPending || busy} onClick={() => handleApply(aiPending)}>
+                {t.editor.apply}
+              </button>
+            </div>
+          ))}
+        {tab === 'upscale' && (
+          <div className="flex items-center gap-2.5">
+            <div className="glass rounded-xl p-0.5">
+              <Segmented
+                value={scale}
+                onChange={handleScale}
+                options={SCALES.map((value) => ({ value, label: t.editor.scales[value] }))}
+              />
+            </div>
+            <div className="glass rounded-xl p-0.5">
+              <Segmented
+                value={zoom}
+                onChange={setZoom}
+                options={ZOOMS.map((value) => ({ value, label: t.editor.zoom[value] }))}
+              />
+            </div>
+            <button className={APPLY} disabled={!aiPending || busy} onClick={() => handleApply(aiPending)}>
+              {t.editor.apply}
+            </button>
+          </div>
+        )}
       </div>
       <Footer
         from={source ? sizeOf(source) : { w: 0, h: 0 }}

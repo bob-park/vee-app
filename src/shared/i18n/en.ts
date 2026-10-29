@@ -53,6 +53,14 @@ export const en = {
     rotateLabel: (turn: string) => `Rotate ${turn}`,
     cancel: 'Cancel',
     copy: 'Copy',
+    original: 'Original',
+    result: 'Result',
+    removeBgHint: 'Transparent PNG',
+    scales: { 2: '2×', 4: '4×' },
+    zoom: { fit: 'Fit', actual: '100%' },
+    working: 'Working…',
+    needsModel: 'Download the model in Settings',
+    openSettings: 'Open Settings',
   },
   convert: {
     needsFfmpeg: 'Needs FFmpeg',
@@ -216,6 +224,15 @@ export const en = {
         missingHint: (mb: number | null) =>
           mb ? `Needed to convert HWP and HWPX. About ${mb} MB` : 'Needed to convert HWP and HWPX.',
         removeConfirm: 'Remove rhwp? HWP conversion stops until you download it again.',
+      },
+      bgremove: {
+        caption: 'Background removal · AI model',
+        title: 'BiRefNet',
+        missingHint: (mb: number | null) =>
+          mb
+            ? `Needed to remove backgrounds in the editor. About ${mb} MB`
+            : 'Needed to remove backgrounds in the editor.',
+        removeConfirm: 'Remove the model? Remove background stops working until you download it again.',
       },
       libreoffice: {
         caption: 'LibreOffice · Document conversion',

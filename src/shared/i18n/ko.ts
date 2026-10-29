@@ -53,6 +53,14 @@ export const ko: Dict = {
     rotateLabel: (turn: string) => `${turn} 회전`,
     cancel: '취소',
     copy: '복사',
+    original: '원본',
+    result: '결과',
+    removeBgHint: '투명 배경 PNG',
+    scales: { 2: '2배', 4: '4배' },
+    zoom: { fit: '맞춤', actual: '100%' },
+    working: '처리 중…',
+    needsModel: '설정에서 모델을 내려받으세요',
+    openSettings: '설정 열기',
   },
   convert: {
     needsFfmpeg: 'FFmpeg 필요',
@@ -214,6 +222,13 @@ export const ko: Dict = {
         title: 'rhwp',
         missingHint: (mb: number | null) => (mb ? `HWP·HWPX 변환에 필요해요. 약 ${mb}MB` : 'HWP·HWPX 변환에 필요해요.'),
         removeConfirm: 'rhwp를 삭제할까요? 다시 내려받기 전까지 HWP 변환을 할 수 없어요.',
+      },
+      bgremove: {
+        caption: '배경 제거 · AI 모델',
+        title: 'BiRefNet',
+        missingHint: (mb: number | null) =>
+          mb ? `편집기에서 배경을 지울 때 필요해요. 약 ${mb}MB` : '편집기에서 배경을 지울 때 필요해요.',
+        removeConfirm: '모델을 삭제할까요? 다시 내려받기 전까지 배경 제거를 할 수 없어요.',
       },
       libreoffice: {
         caption: 'LibreOffice · 문서 변환',

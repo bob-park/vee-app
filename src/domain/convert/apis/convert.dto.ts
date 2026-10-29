@@ -66,7 +66,7 @@ export interface ConvertJob {
 export type FinderAccess = 'granted' | 'denied' | 'unknown';
 
 /** A downloadable engine; mirrors Rust `EngineId`. */
-export type EngineId = 'ffmpeg' | 'rhwp';
+export type EngineId = 'ffmpeg' | 'rhwp' | 'bgremove';
 
 /** Why the last engine download failed; mirrors Rust `InstallError`. */
 export type InstallError = 'network' | 'checksum' | 'unpack' | 'disk';

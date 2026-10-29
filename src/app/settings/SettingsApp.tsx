@@ -128,9 +128,9 @@ export function SettingsApp() {
   });
 
   // useEffect
-  // The window is only hidden on close, so state survives; every open starts on the general tab.
+  // The window is only hidden on close, so state survives; every open starts on the tab it names.
   useEffect(() => {
-    const unlisten = listen('settings://opened', () => changeTab('general'));
+    const unlisten = listen<SettingsTab>('settings://opened', (e) => changeTab(e.payload));
     return () => void unlisten.then((off) => off());
   }, []);
 
