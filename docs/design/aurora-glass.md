@@ -24,6 +24,7 @@ Radius: box 14px(`--radius-box: 0.875rem`), field 12px, selector 10px. daisyUI d
 
 | 토큰 | Light | Dark | 용도 |
 | ---- | ----- | ---- | ---- |
+| `--color-panel` | `#eeedf6` | `#1a1b22` | 패널 창 바탕 (`bg-panel`). 흰/검은 페이지 위에서도 테두리가 보이도록 `base-100`과 따로 둔다 |
 | `--color-glass` | `rgba(255,255,255,.58)` | `rgba(30,31,40,.55)` | 유리 채움 |
 | `--color-glass-edge` | `rgba(255,255,255,.85)` | `rgba(255,255,255,.08)` | 유리 1px 테두리 |
 | `--color-aurora-1` | `#a98bff` | `#5b3bd6` | 오로라 블롭 (보라) |
@@ -57,7 +58,7 @@ Radius: box 14px(`--radius-box: 0.875rem`), field 12px, selector 10px. daisyUI d
 ```
 
 - `<Aurora />`(`src/shared/components/Aurora.tsx`)는 `.aurora` 띠와 `.aurora-blob` 세 개를 그린다. `aria-hidden`.
-- `.aurora`는 positioned 부모의 **위쪽에 붙는 띠**다(`inset: 0 0 auto`). 높이는 쓰는 쪽이 정한다. 창 전체를 채우지 않는다 — 창 바탕은 단색 `bg-base-100`.
+- `.aurora`는 positioned 부모의 **위쪽에 붙는 띠**다(`inset: 0 0 auto`). 높이는 쓰는 쪽이 정한다. 창 전체를 채우지 않는다 — 창 바탕은 단색 `bg-base-100`(패널은 `bg-panel`).
 - 띠는 `z-index: 0`이므로 뒤에 오는 내용은 `relative`를 줘야 위에 그려진다.
 - 블롭은 aurora-1/2/3 색, `blur(46px)`, `opacity .4`, `animate-drift`(12s, alternate)를 -4s/-8s로 엇갈려 돈다. **세 개를 넘지 않는다**(`:nth-child(n+4)`는 숨김).
 

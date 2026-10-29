@@ -352,7 +352,7 @@ export function Card({
       {/* The source app's icon, faded in from the top-left corner like a watermark. */}
       {clip.appIcon && (
         <img
-          className="pointer-events-none absolute -top-3.5 -left-4.5 z-0 size-18 [mask-image:linear-gradient(135deg,#000_30%,transparent_85%)] opacity-16 [:root[data-theme=dark]_&]:opacity-22"
+          className="pointer-events-none absolute -top-3.5 -left-4.5 z-0 size-18 [mask-image:linear-gradient(135deg,#000_30%,transparent_85%)] opacity-45 [:root[data-theme=dark]_&]:opacity-50"
           src={clip.appIcon}
           alt=""
           aria-hidden

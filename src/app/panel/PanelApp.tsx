@@ -528,7 +528,7 @@ export function PanelApp() {
     <div
       className={cx(
         // Thumbnails must not start WebKit's own HTML drag.
-        'bg-base-100 relative flex h-full flex-col overflow-hidden rounded-[18px] border px-3 pt-2.5 pb-3 [&_img]:[-webkit-user-drag:none]',
+        'bg-panel relative flex h-full flex-col overflow-hidden rounded-[18px] border px-3 pt-2.5 pb-3 [&_img]:[-webkit-user-drag:none]',
         // While pinning plays, the border waits: the zip closing hands over to it.
         panelPinned && !pinPressing ? 'border-primary shadow-panel-pinned' : 'border-base-300',
         pinPressing && 'animate-pin-press',

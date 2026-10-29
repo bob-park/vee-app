@@ -97,6 +97,8 @@
 
 /* vee-app tokens daisyUI has no slot for. Use as bg-card, text-muted, border-divider, … */
 [data-theme='light'] {
+  /* The panel's own fill: a step darker than base-100 so it lifts off white pages. */
+  --vee-panel: #eeedf6;
   --vee-card: #ffffff;
   --vee-divider: #f0f0f4;
   --vee-subtle: rgba(148, 151, 169, 0.08);
@@ -127,6 +129,7 @@
 }
 
 [data-theme='dark'] {
+  --vee-panel: #1a1b22;
   --vee-card: #1f2027;
   --vee-divider: #2a2b33;
   --vee-subtle: rgba(148, 151, 169, 0.12);
@@ -155,6 +158,7 @@
 @theme inline {
   --font-sans: 'Pretendard Variable', Pretendard, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: Menlo, Consolas, monospace;
+  --color-panel: var(--vee-panel);
   --color-card: var(--vee-card);
   --color-divider: var(--vee-divider);
   --color-subtle: var(--vee-subtle);
