@@ -630,7 +630,7 @@ pub fn ffmpeg(app: &AppHandle) -> Option<(PathBuf, PathBuf)> {
 }
 
 /// A model engine's install dir, when the runtime and the model are both installed.
-#[allow(dead_code)] // used by `app::ai` from Task 5 on
+#[allow(dead_code)] // only `app::ai::remove_background` uses it; wired in by the editor (Task 6)
 pub fn model_dir(app: &AppHandle, id: EngineId) -> Option<PathBuf> {
     engine_bin(app, id)?.pop()?.parent().map(Path::to_path_buf)
 }
@@ -932,6 +932,7 @@ pub mod commands {
         if s.cancel.lock().unwrap().is_some() {
             return Err(AppError::InvalidInput(format!("{engine} is downloading")));
         }
+        crate::app::ai::forget(id);
         let removed = if s.dir.exists() { std::fs::remove_dir_all(&s.dir) } else { Ok(()) };
         // A partial removal may leave a broken dir: report what is really there.
         super::set(&app, id, super::current(&app, id, None));

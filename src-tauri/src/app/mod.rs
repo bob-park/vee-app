@@ -1,7 +1,7 @@
 //! App shell: windows, tray, updater, clipboard watcher, OS integration, shared state. Not a domain.
 
-#[cfg(test)]
-mod ai;
+#[allow(dead_code)] // wired in by the editor (Task 6)
+pub mod ai;
 pub mod autostart;
 pub mod convert;
 pub mod disk_access;
