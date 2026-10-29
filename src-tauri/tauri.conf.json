@@ -85,6 +85,20 @@
         "height": 640,
         "resizable": false,
         "center": true
+      },
+      {
+        "label": "editor",
+        "create": false,
+        "title": "Vee",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "visible": false,
+        "width": 760,
+        "height": 600,
+        "minWidth": 560,
+        "minHeight": 440,
+        "resizable": true,
+        "center": true
       }
     ],
     "security": {

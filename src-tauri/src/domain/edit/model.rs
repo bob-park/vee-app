@@ -8,7 +8,7 @@ pub const UPSCALE_CAP: u32 = 4096;
 pub const PREVIEW_SIDE: u32 = 2048;
 
 /// One step of an edit, as the editor window sends it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Op {
     Crop { x: u32, y: u32, w: u32, h: u32 },

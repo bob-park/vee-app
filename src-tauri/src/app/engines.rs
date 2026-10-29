@@ -630,7 +630,6 @@ pub fn ffmpeg(app: &AppHandle) -> Option<(PathBuf, PathBuf)> {
 }
 
 /// A model engine's install dir, when the runtime and the model are both installed.
-#[allow(dead_code)] // only `app::ai::remove_background` uses it; wired in by the editor (Task 6)
 pub fn model_dir(app: &AppHandle, id: EngineId) -> Option<PathBuf> {
     engine_bin(app, id)?.pop()?.parent().map(Path::to_path_buf)
 }

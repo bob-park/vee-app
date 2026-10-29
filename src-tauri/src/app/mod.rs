@@ -1,11 +1,11 @@
 //! App shell: windows, tray, updater, clipboard watcher, OS integration, shared state. Not a domain.
 
-#[allow(dead_code)] // wired in by the editor (Task 6)
 pub mod ai;
 pub mod autostart;
 pub mod convert;
 pub mod disk_access;
 pub mod drop_target;
+pub mod editor;
 pub mod engines;
 pub mod front_app;
 pub mod i18n;

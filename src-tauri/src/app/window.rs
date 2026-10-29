@@ -486,11 +486,11 @@ pub fn place_panel(app: &AppHandle) {
     }
 }
 
-/// macOS only: settings and what's-new open on the Space the user is looking at,
+/// macOS only: settings, what's-new and the editor open on the Space the user is looking at,
 /// instead of pulling them back to the one they were last shown on. Call once on the main thread.
 pub fn follow_active_space(app: &AppHandle) {
     #[cfg(target_os = "macos")]
-    for label in [SETTINGS, WHATS_NEW] {
+    for label in [SETTINGS, WHATS_NEW, crate::app::editor::EDITOR] {
         let Some(window) = app.get_webview_window(label) else { continue };
         match window.ns_window() {
             // SAFETY: Tauri hands out the live NSWindow; setup runs on the main thread.
@@ -558,7 +558,7 @@ pub(crate) fn show_toast(app: &AppHandle, payload: ToastPayload) {
 }
 
 /// Writes the clip's raw pasteboard formats when it has them, else its card content.
-fn write_clipboard(state: &AppState, content: &ClipContent, formats: Vec<(String, Vec<u8>)>) -> AppResult<()> {
+pub(crate) fn write_clipboard(state: &AppState, content: &ClipContent, formats: Vec<(String, Vec<u8>)>) -> AppResult<()> {
     use clipboard_rs::{Clipboard, ClipboardContent, ClipboardContext, RustImageData, common::RustImage};
     let ctx = ClipboardContext::new().map_err(|e| AppError::Other(e.to_string()))?;
     state.suppress_watcher();
@@ -610,7 +610,7 @@ pub fn copy_clip(app: &AppHandle, id: i64, plain: bool) -> AppResult<()> {
 }
 
 /// Bumps the clip, plays the copy sound and confirms with a toast.
-fn confirm_copy(app: &AppHandle, id: i64, content: &ClipContent, plain: bool) {
+pub(crate) fn confirm_copy(app: &AppHandle, id: i64, content: &ClipContent, plain: bool) {
     let state = app.state::<AppState>();
     let sound = {
         let conn = state.db.lock().unwrap();
