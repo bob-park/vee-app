@@ -1,5 +1,7 @@
 //! App shell: windows, tray, updater, clipboard watcher, OS integration, shared state. Not a domain.
 
+#[cfg(test)]
+mod ai;
 pub mod autostart;
 pub mod convert;
 pub mod disk_access;
