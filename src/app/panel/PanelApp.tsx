@@ -513,7 +513,12 @@ export function PanelApp() {
       }}
       onCopy={(plain) => copy(clip, plain)}
       onTogglePin={() => togglePin(clip)}
-      onDragOut={!clip.missing ? (card, x, y) => liftCard(clip, card, x, y) : undefined}
+      onDragOut={(card, x, y) =>
+        // A card whose file is gone isn't lifted; Rust refuses the drag and says why in a toast.
+        clip.missing
+          ? void startDrag(clip.id, dragFileName(clip.lastUsedAt), null).catch(() => {})
+          : liftCard(clip, card, x, y)
+      }
       confirming={clip.id === confirmingId}
       onConfirmDelete={() => {
         remove(clip);
