@@ -513,7 +513,12 @@ export function PanelApp() {
       }}
       onCopy={(plain) => copy(clip, plain)}
       onTogglePin={() => togglePin(clip)}
-      onDragOut={!clip.missing ? (card, x, y) => liftCard(clip, card, x, y) : undefined}
+      onDragOut={(card, x, y) =>
+        // A card whose file is gone isn't lifted; Rust refuses the drag and says why in a toast.
+        clip.missing
+          ? void startDrag(clip.id, dragFileName(clip.lastUsedAt), null).catch(() => {})
+          : liftCard(clip, card, x, y)
+      }
       confirming={clip.id === confirmingId}
       onConfirmDelete={() => {
         remove(clip);
@@ -528,7 +533,7 @@ export function PanelApp() {
     <div
       className={cx(
         // Thumbnails must not start WebKit's own HTML drag.
-        'bg-base-100 relative flex h-full flex-col overflow-hidden rounded-[18px] border px-3 pt-2.5 pb-3 [&_img]:[-webkit-user-drag:none]',
+        'bg-panel relative flex h-full flex-col overflow-hidden rounded-[18px] border px-3 pt-2.5 pb-3 [&_img]:[-webkit-user-drag:none]',
         // While pinning plays, the border waits: the zip closing hands over to it.
         panelPinned && !pinPressing ? 'border-primary shadow-panel-pinned' : 'border-base-300',
         pinPressing && 'animate-pin-press',

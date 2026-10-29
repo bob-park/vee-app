@@ -80,7 +80,9 @@ const THUMB = 'size-full rounded-md object-contain';
 const LAYER_TILT = [0, 5, -7];
 
 function FilesBody({ clip }: { clip: Clip }) {
-  const { stack } = clip;
+  // Files with no thumbnails still pile up like an image stack, one document card per layer.
+  const layers = clip.isDir ? 1 : Math.min(fileCount(clip), LAYER_TILT.length);
+  const stack = clip.stack.length === 0 && layers > 1 ? Array<string | null>(layers).fill(null) : clip.stack;
   if (stack.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -350,7 +352,7 @@ export function Card({
       {/* The source app's icon, faded in from the top-left corner like a watermark. */}
       {clip.appIcon && (
         <img
-          className="pointer-events-none absolute -top-3.5 -left-4.5 z-0 size-18 [mask-image:linear-gradient(135deg,#000_30%,transparent_85%)] opacity-16 [:root[data-theme=dark]_&]:opacity-22"
+          className="pointer-events-none absolute -top-3.5 -left-4.5 z-0 size-18 [mask-image:linear-gradient(135deg,#000_30%,transparent_85%)] opacity-45 [:root[data-theme=dark]_&]:opacity-50"
           src={clip.appIcon}
           alt=""
           aria-hidden

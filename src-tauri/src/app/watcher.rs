@@ -26,7 +26,7 @@ const CONCEALED_FORMATS: [&str; 3] = [
 ];
 pub(crate) const MAX_IMAGE_BYTES: usize = 50 * 1024 * 1024;
 const MAX_FORMATS_BYTES: usize = 50 * 1024 * 1024;
-const THUMB_SIZE: u32 = 320;
+pub(crate) const THUMB_SIZE: u32 = 320;
 
 pub fn text_clip(text: String) -> Option<NewClip> {
     (!text.trim().is_empty()).then_some(NewClip::Text(text))

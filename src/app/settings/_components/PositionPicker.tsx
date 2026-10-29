@@ -54,9 +54,10 @@ export default function PositionPicker({ value, onChange, labelledBy }: Readonly
             )}
             onClick={() => onChange(position)}
           >
+            {/* Explicit size (84 × 10/16): older WebKit can collapse an aspect-ratio box inside a button. */}
             <span
               className={cx(
-                'bg-subtle relative aspect-[16/10] overflow-hidden rounded-lg border-2 transition-colors',
+                'bg-subtle relative block h-[52.5px] w-full overflow-hidden rounded-lg border-2 transition-colors',
                 MOTION,
                 on ? 'border-primary' : 'border-base-300',
               )}

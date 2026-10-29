@@ -43,7 +43,7 @@ export default function ThemePicker({ value, onChange, labelledBy }: Readonly<Th
   };
 
   return (
-    <div className="flex gap-2" role="radiogroup" aria-labelledby={labelledBy} onKeyDown={handleKeyDown}>
+    <div className="flex shrink-0 gap-2" role="radiogroup" aria-labelledby={labelledBy} onKeyDown={handleKeyDown}>
       {THEMES.map((theme) => {
         const on = theme === value;
         return (
@@ -53,7 +53,7 @@ export default function ThemePicker({ value, onChange, labelledBy }: Readonly<Th
             aria-checked={on}
             tabIndex={on ? 0 : -1}
             className={cx(
-              'flex w-[74px] flex-col gap-1 text-[11px] transition-transform',
+              'flex w-[74px] shrink-0 flex-col gap-1 text-[11px] transition-transform',
               MOTION,
               on ? 'text-primary -translate-y-0.5 font-semibold' : 'text-muted',
             )}
@@ -61,7 +61,7 @@ export default function ThemePicker({ value, onChange, labelledBy }: Readonly<Th
           >
             <span
               className={cx(
-                'shadow-seg relative h-12 overflow-hidden rounded-[9px] border-2 transition-colors',
+                'shadow-seg relative block h-12 w-full overflow-hidden rounded-[9px] border-2 transition-colors',
                 MOTION,
                 PREVIEW[theme],
                 on ? 'border-primary' : 'border-transparent',

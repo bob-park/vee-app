@@ -5,7 +5,7 @@ import type { Slice } from '@/domain/convert/apis/convert.dto';
 import Aurora from '@/shared/components/Aurora';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { DONUT, dropPoint, labelAt, restPath, sliceAt, slicePath } from '@/utils/donut';
-import { formatLabel } from '@/utils/formatLabel';
+import { formatLabel, isEdit } from '@/utils/formatLabel';
 
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -155,7 +155,7 @@ export default function ConvertApp() {
                   active ? 'fill-primary-content' : 'fill-base-content',
                 )}
               >
-                {formatLabel(format)}
+                {isEdit(format) ? t.convert.edit : formatLabel(format)}
               </text>
               {needs && (
                 <text x={l.x} y={l.y + 11} textAnchor="middle" className="fill-muted text-[8.5px]">

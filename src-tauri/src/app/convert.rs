@@ -3,7 +3,7 @@
 use crate::{
     app::{
         drop_target::{self, DropFolder},
-        engines, office,
+        editor, engines, office,
         state::{AppState, now_ms},
         window::{self, PANEL, Rect, ToastPayload, USES_POINTS},
     },
@@ -47,7 +47,7 @@ struct Session {
     clip_id: i64,
     files: Vec<PathBuf>,
     slices: Vec<Slice>,
-    /// The folder under the last key-down; set when the overlay opens.
+    /// The folder under the last key-down; set when the overlay opens. `None` while it offers only `Edit`.
     dir: Option<PathBuf>,
     /// A "not a folder" / "unsupported" toast was already shown this drag.
     noted: bool,
@@ -60,26 +60,38 @@ fn of_drag(slot: &mut Option<Session>, generation: u64) -> Option<&mut Session> 
     slot.as_mut().filter(|s| s.generation == generation)
 }
 
-/// After a drag ends: keep the session for the overlay's drop only if it landed there with a folder.
+/// After a drag ends: keep the session for the overlay's drop only if it landed there with a folder,
+/// or on the edit-only donut.
 fn mark_drop(slot: &mut Option<Session>, on_overlay: bool) {
     match slot.as_mut() {
-        Some(s) if on_overlay && s.dir.is_some() => s.dropped = true,
+        Some(s) if on_overlay && (s.dir.is_some() || has_edit(&s.slices)) => s.dropped = true,
         _ => *slot = None,
     }
 }
 
 /// Takes the session for a drop on the slice with id `format`; anything else leaves it alone.
-/// A slice that still needs an engine is rejected, like one that isn't there.
-fn take_drop(slot: &mut Option<Session>, format: &str) -> AppResult<(Session, Format, PathBuf)> {
-    let Some(s) = slot.as_ref().filter(|s| s.dropped && s.dir.is_some()) else {
+/// A slice that still needs an engine is rejected, like one that isn't there; so is a conversion
+/// without a folder. The folder is `None` only for `Edit`.
+fn take_drop(slot: &mut Option<Session>, format: &str) -> AppResult<(Session, Format, Option<PathBuf>)> {
+    let Some(s) = slot.as_ref().filter(|s| s.dropped) else {
         return Err(AppError::InvalidInput("no convert drop pending".into()));
     };
-    let Some(format) = s.slices.iter().find(|x| x.format.id() == format && x.needs.is_none()).map(|x| x.format) else {
+    let usable = |x: &&Slice| x.format.id() == format && x.needs.is_none() && (x.format == Format::Edit || s.dir.is_some());
+    let Some(format) = s.slices.iter().find(usable).map(|x| x.format) else {
         return Err(AppError::InvalidInput(format!("can't convert to {format}")));
     };
     let mut s = slot.take().expect("checked above");
-    let dir = s.dir.take().expect("checked above");
+    let dir = s.dir.take();
     Ok((s, format, dir))
+}
+
+fn has_edit(slices: &[Slice]) -> bool {
+    slices.iter().any(|s| s.format == Format::Edit)
+}
+
+/// The slices the donut shows: all of them over a folder, elsewhere only `Edit` (none without it).
+fn donut_slices(slices: &[Slice], over_folder: bool) -> Vec<Slice> {
+    slices.iter().filter(|s| over_folder || s.format == Format::Edit).copied().collect()
 }
 
 /// Whether the donut is open, and which open the latest close belongs to.
@@ -196,6 +208,7 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
 }
 
 /// Looks up the folder under the cursor and opens the overlay there, or says why not (once per drag).
+/// Away from a folder a single image still gets a donut with only the edit slice.
 fn open_at(app: &AppHandle, generation: u64) {
     let Some(point) = window::cursor_at(app) else { return };
     let c = app.state::<Convert>();
@@ -203,19 +216,25 @@ fn open_at(app: &AppHandle, generation: u64) {
     let note = if unsupported {
         ConvertNote::Unsupported
     } else {
-        match drop_target::folder_at(point, window::pinned(app)) {
-            DropFolder::Folder(dir) => {
-                let open = of_drag(&mut c.session.lock().unwrap(), generation).map(|s| {
-                    s.dir = Some(dir);
-                    Open { slices: s.slices.clone(), name: file_name(&s.files[0]) }
-                });
-                if let Some(open) = open {
-                    show(app, generation, point, open);
-                }
-                return;
+        let (dir, note) = match drop_target::folder_at(point, window::pinned(app)) {
+            DropFolder::Folder(dir) => (Some(dir), None),
+            DropFolder::NotFolder => (None, Some(ConvertNote::NotFolder { finder_blocked: false })),
+            DropFolder::FinderBlocked => (None, Some(ConvertNote::NotFolder { finder_blocked: true })),
+        };
+        let open = of_drag(&mut c.session.lock().unwrap(), generation).and_then(|s| {
+            let slices = donut_slices(&s.slices, dir.is_some());
+            if slices.is_empty() {
+                return None;
             }
-            DropFolder::NotFolder => ConvertNote::NotFolder { finder_blocked: false },
-            DropFolder::FinderBlocked => ConvertNote::NotFolder { finder_blocked: true },
+            // Cleared off a folder too, so an earlier key-down's folder can't take a conversion.
+            s.dir = dir;
+            Some(Open { slices, name: file_name(&s.files[0]) })
+        });
+        match (open, note) {
+            (Some(open), _) => return show(app, generation, point, open),
+            (None, Some(note)) => note,
+            // The drag ended.
+            (None, None) => return,
         }
     };
     let (first, files) = match of_drag(&mut c.session.lock().unwrap(), generation) {
@@ -321,10 +340,24 @@ pub fn dropped_on_overlay(app: &AppHandle) -> bool {
     hit
 }
 
-/// Queues the dragged card for `format` into the folder the overlay opened over.
+/// Queues the dragged card for `format` into the folder the overlay opened over,
+/// or opens it in the editor for `Edit`.
 fn drop_on(app: &AppHandle, format: &str) -> AppResult<()> {
     let c = app.state::<Convert>();
     let (s, format, dir) = take_drop(&mut c.session.lock().unwrap(), format)?;
+    if format == Format::Edit {
+        let (app, source) = (app.clone(), s.files[0].clone());
+        // `open` decodes the image, which stays off the main thread.
+        std::thread::spawn(move || {
+            if let Err(e) = editor::open(&app, source) {
+                log::warn!("convert: opening the editor failed: {e}");
+                // From this worker thread as the job runner does; window calls hop to the main thread.
+                window::show_toast(&app, ToastPayload::failed());
+            }
+        });
+        return Ok(());
+    }
+    let dir = dir.ok_or_else(|| AppError::InvalidInput("no folder to convert into".into()))?;
     let id = {
         let mut jobs = c.jobs.lock().unwrap();
         jobs.next_id += 1;
@@ -722,8 +755,34 @@ mod tests {
         assert!(take_drop(&mut slot, "nope").is_err());
         assert!(slot.is_some());
         let (s, format, dir) = take_drop(&mut slot, "jpg").unwrap();
-        assert_eq!((s.clip_id, format, dir), (1, Format::Jpg, PathBuf::from("/out")));
+        assert_eq!((s.clip_id, format, dir), (1, Format::Jpg, Some(PathBuf::from("/out"))));
         assert!(slot.is_none());
+    }
+
+    fn edit_session(dir: Option<&str>) -> Option<Session> {
+        let mut slot = session(1, dir);
+        slot.as_mut().unwrap().slices.insert(0, Slice { format: Format::Edit, needs: None });
+        slot
+    }
+
+    #[test]
+    fn an_edit_drop_needs_no_folder() {
+        let mut slot = edit_session(None);
+        mark_drop(&mut slot, true);
+        assert!(slot.as_ref().is_some_and(|s| s.dropped));
+        // Without a folder only the edit slice takes the drop.
+        assert!(take_drop(&mut slot, "jpg").is_err());
+        let (s, format, dir) = take_drop(&mut slot, "edit").unwrap();
+        assert_eq!((s.files[0].clone(), format, dir), (PathBuf::from("/a/p.png"), Format::Edit, None));
+        assert!(slot.is_none());
+    }
+
+    #[test]
+    fn off_a_folder_the_donut_offers_only_edit() {
+        let slices = edit_session(None).unwrap().slices;
+        assert_eq!(donut_slices(&slices, true), slices);
+        assert_eq!(donut_slices(&slices, false), vec![Slice { format: Format::Edit, needs: None }]);
+        assert!(donut_slices(&session(1, None).unwrap().slices, false).is_empty());
     }
 
     #[test]

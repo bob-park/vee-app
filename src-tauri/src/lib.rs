@@ -2,7 +2,7 @@ mod app;
 mod domain;
 mod shared;
 
-use app::{autostart, convert, disk_access, drop_target, engines, ocr, office, retention, shortcut, state::AppState, tray, updater, watcher, window};
+use app::{autostart, convert, disk_access, drop_target, editor, engines, ocr, office, retention, shortcut, state::AppState, tray, updater, watcher, window};
 use domain::{clip, settings, source_app, whats_new};
 use std::sync::atomic::Ordering;
 use tauri::{Manager, RunEvent, WindowEvent};
@@ -10,13 +10,14 @@ use tauri::{Manager, RunEvent, WindowEvent};
 pub fn run() {
     tauri::Builder::default()
         // Must be first: a second launch just opens the settings window.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| window::show_settings(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| window::show_settings(app, "general")))
         .plugin(tauri_plugin_log::Builder::new().level(log::LevelFilter::Info).build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updater::UpdateState::default())
+        .manage(editor::EditorState::default())
         .setup(|app| {
             // No "DLL not found" system dialog: a child missing the VC++ runtime exits with a code instead (inherited).
             #[cfg(windows)]
@@ -73,6 +74,10 @@ pub fn run() {
             (window::SETTINGS, WindowEvent::CloseRequested { api, .. }) => {
                 api.prevent_close();
                 let _ = window.hide();
+            }
+            (editor::EDITOR, WindowEvent::CloseRequested { api, .. }) => {
+                api.prevent_close();
+                editor::close(window.app_handle());
             }
             (window::WHATS_NEW, WindowEvent::CloseRequested { api, .. }) => {
                 api.prevent_close();
@@ -138,7 +143,11 @@ pub fn run() {
             updater::get_update_status,
             updater::install_update_and_restart,
             whats_new::commands::get_whats_new,
-            whats_new::commands::dismiss_whats_new
+            whats_new::commands::dismiss_whats_new,
+            editor::commands::get_edit_source,
+            editor::commands::render_edit,
+            editor::commands::copy_edit,
+            editor::commands::close_editor
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -46,7 +46,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => window::show_panel(app),
-            "settings" => window::show_settings(app),
+            "settings" => window::show_settings(app, "general"),
             "update" => {
                 if app.state::<UpdateState>().ready_version().is_some() {
                     let app = app.clone();

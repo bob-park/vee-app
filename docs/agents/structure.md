@@ -25,19 +25,20 @@ src/
 │   │   └── _components/      # Card, Toolbar, ResizeHandle, ConfirmButton, FileIcon, motion.ts, cardImage.ts
 │   ├── settings/
 │   │   ├── SettingsApp.tsx   # `settings` window
-│   │   └── _components/      # Tabs, SettingSection, Row, Segmented, Switch, Button, Dropdown, ShortcutRecorder,
+│   │   └── _components/      # Tabs, SettingSection, Row, Switch, Button, Dropdown, ShortcutRecorder,
 │   │                         # HistorySection, ConvertSection, AppPicker, ConfirmModal
 │   ├── toast/ToastApp.tsx    # `toast` window
 │   ├── convert/ConvertApp.tsx  # `convert` window (format donut)
-│   └── whats-new/WhatsNewApp.tsx  # `whats-new` window
-├── domain/<name>/            # clip, source_app, settings, whats_new, convert, updater, panel
+│   ├── whats-new/WhatsNewApp.tsx  # `whats-new` window
+│   └── editor/EditorApp.tsx  # `editor` window (crop / rotate / resize) + _components/
+├── domain/<name>/            # clip, source_app, settings, whats_new, convert, updater, panel, edit
 │   ├── apis/                 # <name>.ts (call() per command) + <name>.dto.ts (wire types)
 │   ├── queries/              # <name>.tsx — React Query hooks
 │   ├── components/           # domain-scoped components (all empty today: .gitkeep)
 │   └── store/                # Zustand slice (slice.ts + <name>.state.ts), or .gitkeep
 ├── shared/
 │   ├── api/                  # call<T>() (index.ts) + AppError (common.dto.ts)
-│   ├── components/           # cross-screen UI: suggest/Suggest (the `@app` list), highlight, queries/RQProvider
+│   ├── components/           # cross-screen UI: suggest/Suggest (the `@app` list), highlight, Segmented, Aurora, RotateIcon, queries/RQProvider
 │   ├── i18n/                 # en.ts (base Dict), ko.ts, locale.ts, index.ts (dicts, relativeTime)
 │   ├── providers/            # theme/ThemeProvider, i18n/I18nProvider (+ useI18n)
 │   ├── queries/              # QueryMutationHandle

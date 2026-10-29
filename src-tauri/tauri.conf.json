@@ -4,9 +4,9 @@
   "version": "1.4.4",
   "identifier": "com.bobpark.vee",
   "build": {
-    "beforeDevCommand": "yarn dev",
+    "beforeDevCommand": "node scripts/fetch-onnxruntime.mjs && yarn dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "yarn build",
+    "beforeBuildCommand": "node scripts/fetch-onnxruntime.mjs && yarn build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -68,6 +68,8 @@
         "label": "settings",
         "create": false,
         "title": "Vee",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "visible": false,
         "width": 520,
         "height": 600,
@@ -82,6 +84,20 @@
         "width": 520,
         "height": 640,
         "resizable": false,
+        "center": true
+      },
+      {
+        "label": "editor",
+        "create": false,
+        "title": "Vee",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "visible": false,
+        "width": 760,
+        "height": 600,
+        "minWidth": 560,
+        "minHeight": 440,
+        "resizable": true,
         "center": true
       }
     ],

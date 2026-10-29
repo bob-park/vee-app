@@ -23,7 +23,9 @@ export type Format =
   | 'xlsx'
   | 'ods'
   | 'pptx'
-  | 'odp';
+  | 'odp'
+  /** Not a format: the slice that opens a single image in the editor. */
+  | 'edit';
 
 /** One donut slice; mirrors Rust `Slice`. `needs` names the engine still missing for it. */
 export interface Slice {
@@ -64,7 +66,7 @@ export interface ConvertJob {
 export type FinderAccess = 'granted' | 'denied' | 'unknown';
 
 /** A downloadable engine; mirrors Rust `EngineId`. */
-export type EngineId = 'ffmpeg' | 'rhwp';
+export type EngineId = 'ffmpeg' | 'rhwp' | 'bgremove';
 
 /** Why the last engine download failed; mirrors Rust `InstallError`. */
 export type InstallError = 'network' | 'checksum' | 'unpack' | 'disk';

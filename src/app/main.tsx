@@ -3,6 +3,7 @@ import { StrictMode } from 'react';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 
 import ConvertApp from '@/app/convert/ConvertApp';
+import { EditorApp } from '@/app/editor/EditorApp';
 import { PanelApp } from '@/app/panel/PanelApp';
 import { SettingsApp } from '@/app/settings/SettingsApp';
 import { ToastApp } from '@/app/toast/ToastApp';
@@ -30,7 +31,9 @@ const View =
         ? ConvertApp
         : label === 'whats-new'
           ? WhatsNewApp
-          : SettingsApp;
+          : label === 'editor'
+            ? EditorApp
+            : SettingsApp;
 
 // Seed settings before the first paint so there is no flash of the wrong theme or language.
 // On failure the query fetches (and retries) on mount instead.

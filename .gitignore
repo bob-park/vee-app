@@ -82,3 +82,6 @@ dist/
 src-tauri/binaries/
 src-tauri/gen/
 *.tsbuildinfo
+
+# ONNX Runtime fetched at build time (scripts/fetch-onnxruntime.mjs)
+src-tauri/vendor/onnxruntime/

@@ -3,7 +3,6 @@ import { useState } from 'react';
 import Button from '@/app/settings/_components/Button';
 import { ConfirmModal } from '@/app/settings/_components/ConfirmModal';
 import Row from '@/app/settings/_components/Row';
-import Segmented from '@/app/settings/_components/Segmented';
 import SettingSection from '@/app/settings/_components/SettingSection';
 import Switch from '@/app/settings/_components/Switch';
 import { BADGE, BADGE_OFF } from '@/app/settings/_components/badge';
@@ -21,6 +20,7 @@ import {
   useVideoEncoder,
 } from '@/domain/convert/queries/engines';
 import type { SettingKey, Settings } from '@/domain/settings/apis/settings.dto';
+import Segmented from '@/shared/components/Segmented';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
 const isMac = navigator.userAgent.includes('Mac');
@@ -92,7 +92,8 @@ export default function ConvertSection({ settings, run, updateSetting }: Props) 
         </Row>
       </EngineSection>
       <EngineSection engine="rhwp" index={2} run={run} />
-      <LibreOfficeSection index={3} run={run} />
+      <EngineSection engine="bgremove" index={3} run={run} />
+      <LibreOfficeSection index={4} run={run} />
     </>
   );
 }

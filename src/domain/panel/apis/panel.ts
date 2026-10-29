@@ -31,6 +31,7 @@ export async function revealPanel() {
   return call<void>('reveal_panel');
 }
 
-export async function openSettings() {
-  return call<void>('open_settings');
+/** Shows Settings on `tab` (a `SettingsTab` name), the general tab by default. */
+export async function openSettings(tab?: string) {
+  return call<void>('open_settings', { tab });
 }

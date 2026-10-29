@@ -23,6 +23,7 @@ export const en = {
   unpinPanel: 'Unpin panel',
   copyFailed: "Couldn't copy",
   copyFailedDetail: 'The original is gone',
+  dragMissing: "Can't drag this card",
   /** Toast when a left/right panel has more pinned cards than fit above its history. */
   sidePinsTitle: 'Pinned cards cover the history',
   sidePinsFit: (n: number) =>
@@ -40,6 +41,30 @@ export const en = {
   updateFailed: "Couldn't update",
   updateInstalling: 'Getting the latest version…',
   whatsNew: { title: "What's new in Vee", ok: 'OK' },
+  editor: {
+    title: 'Edit image',
+    tabs: { crop: 'Crop', rotate: 'Rotate', resize: 'Resize', removeBg: 'Remove background', upscale: 'Upscale' },
+    cropHint: 'Drag over the image to choose an area',
+    apply: 'Apply',
+    width: 'Width',
+    height: 'Height',
+    keepRatio: 'Keep ratio',
+    sizeHint: (max: number) => `Enter 1–${max.toLocaleString('en')} px`,
+    turns: { ccw: '-90°', cw: '+90°' },
+    /** Contains the visible `turns` text (label in name). */
+    rotateLabel: (turn: string) => `Rotate ${turn}`,
+    cancel: 'Cancel',
+    copy: 'Copy',
+    original: 'Original',
+    result: 'Result',
+    removeBgHint: 'Transparent PNG',
+    scales: { 2: '2×', 4: '4×' },
+    zoom: { fit: 'Fit', actual: (pct: number) => `${pct}%` },
+    retry: 'Try again',
+    working: 'Working…',
+    needsModel: 'Download the model in Settings',
+    openSettings: 'Open Settings',
+  },
   convert: {
     needsFfmpeg: 'Needs FFmpeg',
     needsRhwp: 'Needs rhwp',
@@ -47,6 +72,7 @@ export const en = {
     remaining: (s: number) => (s >= 60 ? `About ${Math.round(s / 60)} min left` : `About ${s}s left`),
     cancel: 'Cancel',
     dropHint: 'Drop on a format',
+    edit: 'Edit',
     converting: (f: string) => `To ${f}…`,
     queued: (n: number) => `Waiting · #${n}`,
     saved: (f: string) => `✓ ${f} saved`,
@@ -201,6 +227,15 @@ export const en = {
         missingHint: (mb: number | null) =>
           mb ? `Needed to convert HWP and HWPX. About ${mb} MB` : 'Needed to convert HWP and HWPX.',
         removeConfirm: 'Remove rhwp? HWP conversion stops until you download it again.',
+      },
+      bgremove: {
+        caption: 'Background removal · AI model',
+        title: 'BiRefNet',
+        missingHint: (mb: number | null) =>
+          mb
+            ? `Needed to remove backgrounds in the editor. About ${mb} MB`
+            : 'Needed to remove backgrounds in the editor.',
+        removeConfirm: 'Remove the model? Remove background stops working until you download it again.',
       },
       libreoffice: {
         caption: 'LibreOffice · Document conversion',

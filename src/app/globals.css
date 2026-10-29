@@ -4,13 +4,14 @@
   themes: false;
   /*
    * Root background, scroll lock/gutter and scrollbar colors would change the transparent panel/toast
-   * and the scrollbars. vee uses no daisyUI component (`card` in Card.tsx is only a marker class) and
-   * of the utilities only `radius` (rounded-box); the scanner picks names up from any word in the source
-   * (`toast` is a window label), so keep every component excluded or it ships as dead CSS.
+   * and the scrollbars. vee uses one daisyUI component, `diff` (the editor's compare view; `card` in
+   * Card.tsx is only a marker class), and of the utilities only `radius` (rounded-box); the scanner picks
+   * names up from any word in the source (`toast` is a window label), so keep every other component
+   * excluded or it ships as dead CSS.
    */
   exclude:
     rootcolor, rootscrollgutter, rootscrolllock, scrollbar, alert, aura, avatar, badge, breadcrumbs, button, calendar,
-    card, carousel, chat, checkbox, collapse, countdown, diff, divider, dock, drawer, dropdown, fab, fieldset,
+    card, carousel, chat, checkbox, collapse, countdown, divider, dock, drawer, dropdown, fab, fieldset,
     fileinput, filter, footer, hero, hover3d, hovergallery, indicator, input, kbd, label, link, list, loading, mask,
     megamenu, menu, mockup, modal, navbar, otp, progress, radialprogress, radio, range, rating, select, skeleton, stack,
     stat, status, steps, swap, tab, table, textarea, textrotate, timeline, toast, toggle, tooltip, validator, glass,
@@ -97,6 +98,8 @@
 
 /* vee-app tokens daisyUI has no slot for. Use as bg-card, text-muted, border-divider, … */
 [data-theme='light'] {
+  /* The panel's own fill: a step darker than base-100 so it lifts off white pages. */
+  --vee-panel: #eeedf6;
   --vee-card: #ffffff;
   --vee-divider: #f0f0f4;
   --vee-subtle: rgba(148, 151, 169, 0.08);
@@ -124,9 +127,13 @@
   --vee-aurora-1: #a98bff;
   --vee-aurora-2: #7fd4ff;
   --vee-aurora-3: #ffb3d9;
+  /* The two squares behind a transparent image. */
+  --vee-checker-a: #ffffff;
+  --vee-checker-b: #e6e6ec;
 }
 
 [data-theme='dark'] {
+  --vee-panel: #1a1b22;
   --vee-card: #1f2027;
   --vee-divider: #2a2b33;
   --vee-subtle: rgba(148, 151, 169, 0.12);
@@ -150,11 +157,14 @@
   --vee-aurora-1: #5b3bd6;
   --vee-aurora-2: #1f6f9e;
   --vee-aurora-3: #7a2d63;
+  --vee-checker-a: #2a2b33;
+  --vee-checker-b: #1f2027;
 }
 
 @theme inline {
   --font-sans: 'Pretendard Variable', Pretendard, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: Menlo, Consolas, monospace;
+  --color-panel: var(--vee-panel);
   --color-card: var(--vee-card);
   --color-divider: var(--vee-divider);
   --color-subtle: var(--vee-subtle);
@@ -273,6 +283,11 @@
 
 @utility shadow-card-confirm {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-error) 14%, transparent);
+}
+
+/* Behind a transparent image: 16px squares in two shades. */
+@utility bg-checker {
+  background: repeating-conic-gradient(var(--vee-checker-a) 0 25%, var(--vee-checker-b) 0 50%) 0 0 / 16px 16px;
 }
 
 @utility shadow-stack {
