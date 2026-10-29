@@ -80,7 +80,9 @@ const THUMB = 'size-full rounded-md object-contain';
 const LAYER_TILT = [0, 5, -7];
 
 function FilesBody({ clip }: { clip: Clip }) {
-  const { stack } = clip;
+  // Files with no thumbnails still pile up like an image stack, one document card per layer.
+  const layers = clip.isDir ? 1 : Math.min(fileCount(clip), LAYER_TILT.length);
+  const stack = clip.stack.length === 0 && layers > 1 ? Array<string | null>(layers).fill(null) : clip.stack;
   if (stack.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
