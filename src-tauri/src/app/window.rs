@@ -66,34 +66,41 @@ pub struct ToastPayload {
     pub convert: Option<ConvertNote>,
     /// Set when warning that pinned cards hide a side panel's history: how many fit with history below.
     pub pins_fit: Option<usize>,
+    /// Set when a dragged card's file is gone, so it can't be dragged.
+    pub drag_missing: bool,
 }
 
 impl ToastPayload {
     fn copied(content: &ClipContent, plain: bool) -> Self {
         match content {
             ClipContent::Text(t) => {
-                Self { ok: true, kind: classify_text(t), text: Some(toast_preview(t)), files: 0, plain, convert: None, pins_fit: None }
+                Self { ok: true, kind: classify_text(t), text: Some(toast_preview(t)), files: 0, plain, convert: None, pins_fit: None, drag_missing: false }
             }
-            ClipContent::Image(_) => Self { ok: true, kind: Kind::Image, text: None, files: 0, plain: false, convert: None, pins_fit: None },
+            ClipContent::Image(_) => Self { ok: true, kind: Kind::Image, text: None, files: 0, plain: false, convert: None, pins_fit: None, drag_missing: false },
             ClipContent::Files(f) => {
-                Self { ok: true, kind: Kind::Files, text: None, files: f.len(), plain: false, convert: None, pins_fit: None }
+                Self { ok: true, kind: Kind::Files, text: None, files: f.len(), plain: false, convert: None, pins_fit: None, drag_missing: false }
             }
         }
     }
 
     pub(crate) fn failed() -> Self {
-        Self { ok: false, kind: Kind::Text, text: None, files: 0, plain: false, convert: None, pins_fit: None }
+        Self { ok: false, kind: Kind::Text, text: None, files: 0, plain: false, convert: None, pins_fit: None, drag_missing: false }
     }
 
     /// A convert note; `ok` only for a saved file.
     pub(crate) fn convert(note: ConvertNote, kind: Kind) -> Self {
         let ok = matches!(note, ConvertNote::Saved { .. });
-        Self { ok, kind, text: None, files: 0, plain: false, convert: Some(note), pins_fit: None }
+        Self { ok, kind, text: None, files: 0, plain: false, convert: Some(note), pins_fit: None, drag_missing: false }
+    }
+
+    /// A dragged card whose file no longer exists.
+    fn drag_missing(kind: Kind) -> Self {
+        Self { ok: false, kind, text: None, files: 0, plain: false, convert: None, pins_fit: None, drag_missing: true }
     }
 
     /// The side-panel warning: more cards are pinned than fit above the history.
     pub(crate) fn pins_fit(n: usize) -> Self {
-        Self { ok: false, kind: Kind::Text, text: None, files: 0, plain: false, convert: None, pins_fit: Some(n) }
+        Self { ok: false, kind: Kind::Text, text: None, files: 0, plain: false, convert: None, pins_fit: Some(n), drag_missing: false }
     }
 }
 
@@ -698,6 +705,15 @@ fn stage_image(src: &Path, dir: &Path, name: &str) -> std::io::Result<PathBuf> {
     Ok(dest)
 }
 
+/// An image or files clip whose file is gone from disk.
+fn source_missing(content: &ClipContent) -> bool {
+    match content {
+        ClipContent::Files(paths) => paths.iter().any(|p| !Path::new(p).exists()),
+        ClipContent::Image(path) => !path.exists(),
+        ClipContent::Text(_) => false,
+    }
+}
+
 /// Starts dragging any clip out of the panel. Drops always copy.
 /// `name` names the dropped file for image clips. `image` is the card itself as a base64 PNG
 /// laid out for this platform (see `dragImageLayout` in motion.ts); without it the clip's
@@ -709,13 +725,13 @@ pub fn start_drag(app: &AppHandle, id: i64, name: &str, image: Option<&str>) -> 
         let content = clip::content(&conn, id)?.ok_or_else(|| AppError::Other("clip no longer exists".into()))?;
         (content, clip::preview_png(&conn, id)?)
     };
+    if source_missing(&content) {
+        let kind = if matches!(content, ClipContent::Image(_)) { Kind::Image } else { Kind::Files };
+        show_toast(app, ToastPayload::drag_missing(kind));
+        return Err(AppError::Other("a copied file no longer exists".into()));
+    }
     let item = match &content {
-        ClipContent::Files(paths) => {
-            if paths.iter().any(|p| !Path::new(p).exists()) {
-                return Err(AppError::Other("a copied file no longer exists".into()));
-            }
-            DragItem::Files(paths.iter().map(PathBuf::from).collect())
-        }
+        ClipContent::Files(paths) => DragItem::Files(paths.iter().map(PathBuf::from).collect()),
         ClipContent::Image(path) => DragItem::Files(vec![
             stage_image(path, &std::env::temp_dir().join("vee-drag"), name)?,
         ]),
@@ -1045,5 +1061,19 @@ mod tests {
         let long = "x".repeat(41);
         assert_eq!(toast_preview(&long), format!("{}…", "x".repeat(40)));
         assert_eq!(toast_preview(&"가".repeat(40)), "가".repeat(40));
+    }
+
+    #[test]
+    fn a_clip_with_a_deleted_file_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let here = dir.path().join("a.png");
+        std::fs::write(&here, b"x").unwrap();
+        let gone = dir.path().join("gone.png");
+        assert!(!source_missing(&ClipContent::Image(here.clone())));
+        assert!(source_missing(&ClipContent::Image(gone.clone())));
+        let path = |p: &std::path::Path| p.to_string_lossy().into_owned();
+        assert!(!source_missing(&ClipContent::Files(vec![path(&here)])));
+        assert!(source_missing(&ClipContent::Files(vec![path(&here), path(&gone)])));
+        assert!(!source_missing(&ClipContent::Text("hi".into())));
     }
 }

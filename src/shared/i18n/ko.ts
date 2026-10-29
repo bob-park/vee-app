@@ -25,6 +25,7 @@ export const ko: Dict = {
   unpinPanel: '패널 고정 해제',
   copyFailed: '복사하지 못했어요',
   copyFailedDetail: '원본이 없어요',
+  dragMissing: '이 카드는 끌 수 없어요',
   sidePinsTitle: '고정 카드가 기록을 가리고 있어요',
   sidePinsFit: (n: number) =>
     n === 0

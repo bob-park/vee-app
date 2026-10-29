@@ -23,6 +23,7 @@ export const en = {
   unpinPanel: 'Unpin panel',
   copyFailed: "Couldn't copy",
   copyFailedDetail: 'The original is gone',
+  dragMissing: "Can't drag this card",
   /** Toast when a left/right panel has more pinned cards than fit above its history. */
   sidePinsTitle: 'Pinned cards cover the history',
   sidePinsFit: (n: number) =>

@@ -52,16 +52,18 @@ export function ToastApp() {
     ? convertLines(p.convert, t)
     : p.pinsFit !== null
       ? [t.sidePinsTitle, t.sidePinsFit(p.pinsFit)]
-      : [
-          p.ok ? (p.plain ? t.copiedPlain : t.copied) : t.copyFailed,
-          !p.ok
-            ? t.copyFailedDetail
-            : p.kind === 'image'
-              ? t.kinds.image
-              : p.kind === 'files'
-                ? t.filesCount(p.files)
-                : p.text,
-        ];
+      : p.dragMissing
+        ? [t.dragMissing, t.copyFailedDetail]
+        : [
+            p.ok ? (p.plain ? t.copiedPlain : t.copied) : t.copyFailed,
+            !p.ok
+              ? t.copyFailedDetail
+              : p.kind === 'image'
+                ? t.kinds.image
+                : p.kind === 'files'
+                  ? t.filesCount(p.files)
+                  : p.text,
+          ];
   return (
     // The window is larger than the card; the margin is room for the card's shadow.
     <div

@@ -38,4 +38,6 @@ export interface ToastPayload {
   convert: ConvertNote | null;
   /** Set when warning that pinned cards hide a side panel's history: how many fit with history below. */
   pinsFit: number | null;
+  /** Set when a dragged card's file is gone, so it can't be dragged. */
+  dragMissing: boolean;
 }
