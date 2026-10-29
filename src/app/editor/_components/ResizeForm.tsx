@@ -15,13 +15,15 @@ const parseSide = (v: string) => {
 interface ResizeFormProps {
   /** The image's current full-res size; the ratio follows it. */
   size: Size;
+  /** Apply waits while the image re-renders. */
+  disabled: boolean;
   /** The typed size as a resize op, or null when it's invalid or unchanged. */
   onPending: (op: EditOp | null) => void;
   onApply: () => void;
 }
 
 /** Width × height inputs with a keep-ratio toggle (on by default). */
-export default function ResizeForm({ size, onPending, onApply }: ResizeFormProps) {
+export default function ResizeForm({ size, disabled, onPending, onApply }: ResizeFormProps) {
   // state
   const [w, setW] = useState(String(size.w));
   const [h, setH] = useState(String(size.h));
@@ -56,13 +58,13 @@ export default function ResizeForm({ size, onPending, onApply }: ResizeFormProps
         min={1}
         max={MAX_SIDE}
         className={cx(
-          'bg-card text-base-content w-20 rounded-md border px-2 py-1 outline-none',
+          'bg-card text-base-content w-20 rounded-md border px-2 py-1',
           parseSide(side === 'w' ? w : h) === null ? 'border-error' : 'border-base-300 focus:border-primary',
         )}
         value={side === 'w' ? w : h}
         onChange={(e) => handleSide(side, e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && changed) onApply();
+          if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && changed && !disabled) onApply();
         }}
       />
     </label>
@@ -86,7 +88,7 @@ export default function ResizeForm({ size, onPending, onApply }: ResizeFormProps
         </button>
         <button
           className="rounded-box bg-accent-subtle text-primary px-3.5 py-1.5 text-[12px] font-semibold disabled:cursor-default disabled:opacity-50"
-          disabled={!changed}
+          disabled={!changed || disabled}
           onClick={onApply}
         >
           {t.editor.apply}

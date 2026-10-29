@@ -13,6 +13,7 @@ import { type Size, sizeAfter } from '@/utils/edit';
 import { errorText } from '@/utils/errorText';
 
 import { listen } from '@tauri-apps/api/event';
+import cx from 'classnames';
 
 /** The editor's tools. `removeBg` and `upscale` show an empty panel until their AI tools land. */
 export type EditorTab = 'crop' | 'rotate' | 'resize' | 'removeBg' | 'upscale';
@@ -29,8 +30,8 @@ export function EditorApp() {
 
   // state
   const [source, setSource] = useState<EditImage | null>(null);
-  /** The preview of `ops`: what the tools work on. */
-  const [preview, setPreview] = useState<EditImage | null>(null);
+  /** The last finished render and the `ops` it shows; the tools work on it. */
+  const [preview, setPreview] = useState<{ img: EditImage; ops: EditOp[] } | null>(null);
   /** Applied steps, oldest first. */
   const [ops, setOps] = useState<EditOp[]>([]);
   /** The current tab's step, not applied yet (a drawn crop, a typed size). Copy includes it. */
@@ -49,7 +50,6 @@ export function EditorApp() {
       void getEditSource()
         .then((img) => {
           setSource(img);
-          setPreview(img);
           setOps([]);
           setPending(null);
           setTab('crop');
@@ -65,18 +65,19 @@ export function EditorApp() {
   useEffect(() => {
     if (!source) return;
     if (ops.length === 0) {
-      setPreview(source);
+      setPreview({ img: source, ops });
       return;
     }
     let stale = false;
     renderEdit(ops)
       .then((img) => {
-        if (stale) return;
-        setPreview(img);
-        setError(null);
+        if (!stale) setPreview({ img, ops });
       })
       .catch((e) => {
-        if (!stale) setError(errorText(e));
+        if (stale) return;
+        // Roll the failed step back so `ops` never runs ahead of the preview.
+        setError(errorText(e));
+        setOps(ops.slice(0, -1));
       });
     return () => {
       stale = true;
@@ -100,7 +101,7 @@ export function EditorApp() {
       if (e.key === 'Escape') handleCancel();
       else if (mod && e.key === 'Enter') handleCopy();
       // Inside an input, ⌘Z undoes the typing instead.
-      else if (mod && e.code === 'KeyZ' && !(e.target instanceof HTMLInputElement)) handleUndo();
+      else if (mod && !e.shiftKey && e.code === 'KeyZ' && !(e.target instanceof HTMLInputElement)) handleUndo();
       else return;
       e.preventDefault();
     };
@@ -109,10 +110,6 @@ export function EditorApp() {
   });
 
   // handle
-  const all = pending ? [...ops, pending] : ops;
-  // An unchanged image would only bump the original clip (same hash), so there is nothing to copy.
-  const canCopy = !!source && all.length > 0 && !copying;
-
   const handleCancel = () => void closeEditor();
 
   const handleCopy = () => {
@@ -124,6 +121,7 @@ export function EditorApp() {
   };
 
   const handleUndo = () => {
+    setError(null);
     setPending(null);
     setOps((cur) => cur.slice(0, -1));
   };
@@ -133,13 +131,19 @@ export function EditorApp() {
     setTab(next);
   };
 
-  const apply = (op: EditOp | null) => {
-    if (!op) return;
+  const handleApply = (op: EditOp | null) => {
+    if (!op || busy) return;
+    setError(null);
     setPending(null);
     setOps((cur) => [...cur, op]);
   };
 
-  const image = preview && sizeOf(preview);
+  // A step waits for the render before it: until then the preview still has the old size.
+  const busy = preview?.ops !== ops;
+  const all = pending ? [...ops, pending] : ops;
+  // An unchanged image would only bump the original clip (same hash), so there is nothing to copy.
+  const canCopy = !!source && all.length > 0 && !copying && !busy;
+  const image = preview && sizeOf(preview.img);
   // Fit the full-res aspect into the stage, never above 1 CSS px per image px.
   const fit = image && Math.min(stage.w / image.w, stage.h / image.h, 1);
   const view = image && fit ? { w: image.w * fit, h: image.h * fit } : null;
@@ -162,9 +166,15 @@ export function EditorApp() {
       <div ref={stageRef} className="relative z-1 mx-5 flex min-h-0 flex-1 items-center justify-center">
         {preview && image && view && (
           <div className="relative" style={{ width: view.w, height: view.h }}>
-            <img src={preview.dataUrl} alt="" draggable={false} className="size-full rounded-md select-none" />
+            <img
+              src={preview.img.dataUrl}
+              alt=""
+              draggable={false}
+              className={cx('size-full rounded-md transition-opacity duration-200 select-none', { 'opacity-60': busy })}
+            />
             {tab === 'crop' && (
               <CropBox
+                disabled={busy}
                 view={view}
                 image={image}
                 rect={crop}
@@ -180,20 +190,23 @@ export function EditorApp() {
             <span className="text-muted text-[12px]">{t.editor.cropHint}</span>
             <button
               className="rounded-box bg-accent-subtle text-primary px-3.5 py-1.5 text-[12px] font-semibold disabled:cursor-default disabled:opacity-50"
-              disabled={!crop}
-              onClick={() => apply(crop)}
+              disabled={!crop || busy}
+              onClick={() => handleApply(crop)}
             >
               {t.editor.apply}
             </button>
           </div>
         )}
-        {tab === 'rotate' && <RotatePanel onRotate={(quarter) => apply({ type: 'rotate', quarter })} />}
+        {tab === 'rotate' && (
+          <RotatePanel disabled={busy} onRotate={(quarter) => handleApply({ type: 'rotate', quarter })} />
+        )}
         {tab === 'resize' && image && (
           <ResizeForm
             key={`${image.w}x${image.h}`}
             size={image}
+            disabled={busy}
             onPending={setPending}
-            onApply={() => apply(pending)}
+            onApply={() => handleApply(pending)}
           />
         )}
         {/* removeBg / upscale: filled in with the AI tools. */}

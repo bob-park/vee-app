@@ -48,8 +48,9 @@ export const en = {
     height: 'Height',
     keepRatio: 'Keep ratio',
     sizeHint: (max: number) => `Enter 1–${max.toLocaleString('en')} px`,
-    rotateLeft: 'Rotate left',
-    rotateRight: 'Rotate right',
+    turns: { ccw: '-90°', cw: '+90°' },
+    /** Contains the visible `turns` text (label in name). */
+    rotateLabel: (turn: string) => `Rotate ${turn}`,
     cancel: 'Cancel',
     copy: 'Copy',
   },

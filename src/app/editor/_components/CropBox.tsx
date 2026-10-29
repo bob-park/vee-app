@@ -2,6 +2,8 @@ import { useRef } from 'react';
 
 import { type Pt, type Rect, type Size, cropFromDrag } from '@/utils/edit';
 
+import cx from 'classnames';
+
 /** Handle sides: -1 moves the left/top edge, 1 the right/bottom, 0 leaves that axis alone. */
 const HANDLES: { hx: -1 | 0 | 1; hy: -1 | 0 | 1; cursor: string }[] = [
   { hx: -1, hy: -1, cursor: 'nwse-resize' },
@@ -14,7 +16,15 @@ const HANDLES: { hx: -1 | 0 | 1; hy: -1 | 0 | 1; cursor: string }[] = [
   { hx: -1, hy: 0, cursor: 'ew-resize' },
 ];
 
+/** The pointer in px from the element's top-left. */
+const pointIn = (e: React.PointerEvent<HTMLDivElement>): Pt => {
+  const r = e.currentTarget.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+};
+
 interface CropBoxProps {
+  /** Ignores the pointer while the image under it is re-rendering. */
+  disabled?: boolean;
   /** Displayed size of the image, in CSS px. */
   view: Size;
   /** Full-resolution size the rect is in. */
@@ -24,23 +34,15 @@ interface CropBoxProps {
 }
 
 /** Drag over the image to draw a crop box; its 8 handles move its edges. Outside the box is dimmed. */
-export default function CropBox({ view, image, rect, onChange }: CropBoxProps) {
+export default function CropBox({ disabled, view, image, rect, onChange }: CropBoxProps) {
   // ref
   /** Maps the pointer to the drag's two corners while a drag is on. */
   const drag = useRef<((p: Pt) => [Pt, Pt]) | null>(null);
 
-  const scale = view.w / image.w;
-  const box = rect && { x: rect.x * scale, y: rect.y * scale, w: rect.w * scale, h: rect.h * scale };
-
   // handle
-  const point = (e: React.PointerEvent<HTMLDivElement>): Pt => {
-    const r = e.currentTarget.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
-  };
-
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
-    const p0 = point(e);
+    const p0 = pointIn(e);
     const handle = (e.target as HTMLElement).dataset.handle;
     if (handle && box) {
       const [hx, hy] = handle.split(',').map(Number);
@@ -55,7 +57,7 @@ export default function CropBox({ view, image, rect, onChange }: CropBoxProps) {
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!drag.current) return;
-    const [start, end] = drag.current(point(e));
+    const [start, end] = drag.current(pointIn(e));
     const next = cropFromDrag(start, end, view, image);
     onChange(next.w > 0 && next.h > 0 ? next : null);
   };
@@ -64,9 +66,14 @@ export default function CropBox({ view, image, rect, onChange }: CropBoxProps) {
     drag.current = null;
   };
 
+  const scale = view.w / image.w;
+  const box = rect && { x: rect.x * scale, y: rect.y * scale, w: rect.w * scale, h: rect.h * scale };
+
   return (
     <div
-      className="absolute inset-0 cursor-crosshair touch-none overflow-hidden"
+      className={cx('absolute inset-0 cursor-crosshair touch-none overflow-hidden', {
+        'pointer-events-none': disabled,
+      })}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
