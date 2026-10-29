@@ -11,7 +11,7 @@ import Row from '@/app/settings/_components/Row';
 import SettingSection from '@/app/settings/_components/SettingSection';
 import { ShortcutRecorder } from '@/app/settings/_components/ShortcutRecorder';
 import Switch from '@/app/settings/_components/Switch';
-import { type SettingsTab, Tabs } from '@/app/settings/_components/Tabs';
+import { type SettingsTab, Tabs, isSettingsTab } from '@/app/settings/_components/Tabs';
 import ThemePicker from '@/app/settings/_components/ThemePicker';
 import { resetPanelSize } from '@/domain/panel/apis/panel';
 import { previewSound, setAutostart, setSetting, setShortcut } from '@/domain/settings/apis/settings';
@@ -130,7 +130,9 @@ export function SettingsApp() {
   // useEffect
   // The window is only hidden on close, so state survives; every open starts on the tab it names.
   useEffect(() => {
-    const unlisten = listen<SettingsTab>('settings://opened', (e) => changeTab(e.payload));
+    const unlisten = listen<unknown>('settings://opened', (e) =>
+      changeTab(isSettingsTab(e.payload) ? e.payload : 'general'),
+    );
     return () => void unlisten.then((off) => off());
   }, []);
 

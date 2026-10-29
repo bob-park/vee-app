@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 
 import MiniMap from '@/app/editor/_components/MiniMap';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
-import { type Pt, type Size, clampPan } from '@/utils/edit';
+import { type Pt, type Size, clampPan, previewScale } from '@/utils/edit';
 
 import cx from 'classnames';
 
@@ -11,7 +11,7 @@ interface CompareViewProps {
   after: string;
   /** Full-resolution size of `after`; `before` is stretched to match. */
   size: Size;
-  /** `1` shows one CSS px per image px and pans by dragging. */
+  /** `1` shows one CSS px per preview px (full-res up to 2048 px) and pans by dragging. */
   zoom: 'fit' | 1;
   /** Room for the view, in CSS px. */
   stage: Size;
@@ -22,7 +22,9 @@ const TAG =
 
 /** The image's displayed size at `zoom` and the part of it the stage shows. */
 function layout(size: Size, zoom: CompareViewProps['zoom'], stage: Size) {
-  const k = zoom === 'fit' ? Math.min(stage.w / size.w, stage.h / size.h, 1) : 1;
+  // Never above the preview's own px, so nothing is stretched.
+  const actual = previewScale(size);
+  const k = zoom === 'fit' ? Math.min(stage.w / size.w, stage.h / size.h, actual) : actual;
   const zoomed = { w: size.w * k, h: size.h * k };
   return { zoomed, view: { w: Math.min(zoomed.w, stage.w), h: Math.min(zoomed.h, stage.h) } };
 }
@@ -82,6 +84,7 @@ export default function CompareView({ before, after, size, zoom, stage }: Compar
   return (
     <div className="relative" style={{ width: view.w, height: view.h }}>
       <figure
+        tabIndex={0}
         className={cx('diff rounded-md', { 'cursor-grab active:cursor-grabbing': zoom === 1 })}
         style={{ width: view.w, height: view.h }}
         onPointerDown={handlePointerDown}
@@ -89,7 +92,7 @@ export default function CompareView({ before, after, size, zoom, stage }: Compar
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
       >
-        <div className="diff-item-1" role="img" aria-label={t.editor.original}>
+        <div className="diff-item-1" role="img" tabIndex={0} aria-label={t.editor.original}>
           {img(before)}
         </div>
         <div className="diff-item-2 [&>div]:bg-checker" role="img" aria-label={t.editor.result}>

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { clampPan, cropFromDrag, resizeKeep, sizeAfter, viewportRect } from './edit.ts';
+import { clampPan, cropFromDrag, previewScale, resizeKeep, sizeAfter, viewportRect } from './edit.ts';
 
 void test('cropFromDrag maps view to image px and clamps', () => {
   assert.deepEqual(cropFromDrag({ x: 10, y: 10 }, { x: 60, y: 35 }, { w: 100, h: 50 }, { w: 1000, h: 500 }), {
@@ -47,6 +47,11 @@ void test('sizeAfter applies crop (clamped like Rust) and resize in order', () =
   ] as const;
   assert.deepEqual(sizeAfter({ w: 100, h: 50 }, [ops[0]]), { w: 20, h: 10 });
   assert.deepEqual(sizeAfter({ w: 100, h: 50 }, [...ops]), { w: 40, h: 20 });
+});
+
+void test('previewScale is 1 up to the preview cap, then shrinks to it', () => {
+  assert.equal(previewScale({ w: 2048, h: 1000 }), 1);
+  assert.equal(previewScale({ w: 1000, h: 4096 }), 0.5);
 });
 
 void test('clampPan keeps the view inside the zoomed image', () => {

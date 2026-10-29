@@ -14,6 +14,8 @@ export type Rect = Pt & Size;
 
 /** Largest side a resize may ask for; mirrors Rust `MAX_SIDE`. */
 export const MAX_SIDE = 16384;
+/** Largest long side of a rendered preview; mirrors Rust `PREVIEW_SIDE`. */
+const PREVIEW_SIDE = 2048;
 /** Largest long side an upscale produces; mirrors Rust `UPSCALE_CAP`. */
 const UPSCALE_CAP = 4096;
 
@@ -65,6 +67,11 @@ export function sizeAfter(base: Size, ops: EditOp[]): Size {
         return s;
     }
   }, base);
+}
+
+/** Preview px per full-res px for an image of `size`: below 1 once its long side passes `PREVIEW_SIDE`. */
+export function previewScale(size: Size): number {
+  return Math.min(1, PREVIEW_SIDE / Math.max(size.w, size.h));
 }
 
 /** `pan` (the view's top-left in `zoomed` px) kept so the view never leaves the image; `0` on an axis that fits. */

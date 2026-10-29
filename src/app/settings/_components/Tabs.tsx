@@ -69,6 +69,8 @@ const ALL_TABS: { value: SettingsTab; icon: ReactNode }[] = [
 // Both permissions are macOS-only, so Windows would get an empty tab.
 const TABS = ALL_TABS.filter((tab) => isMac || tab.value !== 'permissions');
 
+export const isSettingsTab = (v: unknown): v is SettingsTab => TABS.some((tab) => tab.value === v);
+
 export function Tabs({ value, onChange }: { value: SettingsTab; onChange: (tab: SettingsTab) => void }) {
   // hooks
   const labels = useI18n().t.settings.tabs;
