@@ -625,7 +625,8 @@ pub(crate) fn confirm_copy(app: &AppHandle, id: i64, content: &ClipContent, plai
     show_toast(app, ToastPayload::copied(content, plain));
 }
 
-const DRAG_ICON: &[u8] = include_bytes!("../../icons/128x128.png");
+/// Vee's own icon: the drag fallback and the source-app icon of clips Vee makes itself.
+pub(crate) const DRAG_ICON: &[u8] = include_bytes!("../../icons/128x128.png");
 const DRAG_IMAGE_SIZE: u32 = 96;
 
 /// A small PNG to show under the cursor while dragging.

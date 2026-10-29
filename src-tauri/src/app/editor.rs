@@ -10,6 +10,7 @@ use crate::{
     domain::{
         clip::{self, NewClip},
         edit::{self, Op, PREVIEW_SIDE},
+        source_app,
     },
     shared::{
         error::{AppError, AppResult},
@@ -182,7 +183,9 @@ fn copy_to_history(app: &AppHandle, img: &DynamicImage) -> AppResult<(i64, clip:
     let (id, content) = {
         let conn = state.db.lock().unwrap();
         let clip = NewClip::Image { png, thumb_png, width: img.width(), height: img.height() };
-        let id = clip::upsert(&conn, &state.images_dir, clip, None, now_ms())?;
+        // An edit is Vee's own clip, so its card shows Vee as the source app.
+        let vee = source_app::upsert_app(&conn, &app.config().identifier, &app.package_info().name, Some(window::DRAG_ICON))?;
+        let id = clip::upsert(&conn, &state.images_dir, clip, Some(vee), now_ms())?;
         (id, clip::content(&conn, id)?.ok_or_else(|| AppError::Other("clip no longer exists".into()))?)
     };
     if let Err(e) = window::write_clipboard(&state, &content, Vec::new()) {
