@@ -27,10 +27,11 @@ pub enum EngineId {
     Ffmpeg,
     Rhwp,
     Bgremove,
+    Sam,
 }
 
 impl EngineId {
-    pub const ALL: [EngineId; 3] = [EngineId::Ffmpeg, EngineId::Rhwp, EngineId::Bgremove];
+    pub const ALL: [EngineId; 4] = [EngineId::Ffmpeg, EngineId::Rhwp, EngineId::Bgremove, EngineId::Sam];
 
     pub fn parse(s: &str) -> AppResult<Self> {
         Self::ALL.into_iter().find(|id| id.spec().dir_name == s).ok_or_else(|| AppError::InvalidInput(format!("unknown engine {s}")))
@@ -103,38 +104,57 @@ pub struct EngineSpec {
 }
 
 /// Indexed by `EngineId as usize`.
-pub const SPECS: [EngineSpec; 3] = [
+pub const SPECS: [EngineSpec; 4] = [
     EngineSpec { dir_name: "ffmpeg", binaries: if cfg!(windows) { &["ffmpeg.exe", "ffprobe.exe"] } else { &["ffmpeg", "ffprobe"] } },
     EngineSpec { dir_name: "rhwp", binaries: if cfg!(windows) { &["rhwp.exe"] } else { &["rhwp"] } },
     EngineSpec { dir_name: "bgremove", binaries: &["model.onnx"] },
+    EngineSpec { dir_name: "sam", binaries: &["encoder.onnx", "decoder.onnx"] },
 ];
 
 // ---- Pinned models ----
-// The model only (BiRefNet general, swin-v1-tiny, MIT, from rembg's release); checksum and size
-// measured when pinning. ONNX Runtime ships inside the app (`ai::runtime_path`), signed with Vee's
+// The model files only (BiRefNet general, swin-v1-tiny, MIT; SAM ViT-B quantized encoder and
+// decoder, Apache-2.0; both from rembg's release); checksums and sizes measured when pinning. ONNX Runtime ships inside the app (`ai::runtime_path`), signed with Vee's
 // identity: the hardened runtime refuses a downloaded library signed by another team.
 
-/// Bump when a pinned file changes; drives the update badge. 2: the runtime left the engine.
-const MODEL_VERSION: &str = "2";
+/// Bump an engine's version when its pinned files change; drives the update badge.
+/// Bgremove 2: the runtime left the engine.
 
 /// The pinned release of a model engine; `None` for looked-up engines and platforms without a bundled runtime.
 fn pinned(id: EngineId) -> Option<Release> {
     if !cfg!(any(target_os = "macos", windows)) {
         return None;
     }
-    let model = match id {
+    let raw = |url: &str, sha256: &str, size, name| Asset { url: url.into(), sha256: sha256.into(), size, kind: AssetKind::Raw { name } };
+    let (version, assets) = match id {
         EngineId::Bgremove => (
-            "https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
-            "5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333",
-            224_005_088,
+            "2",
+            vec![raw(
+                "https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
+                "5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333",
+                224_005_088,
+                "model.onnx",
+            )],
+        ),
+        EngineId::Sam => (
+            "1",
+            vec![
+                raw(
+                    "https://github.com/danielgatis/rembg/releases/download/v0.0.0/sam_vit_b_01ec64.encoder.quant.onnx",
+                    "181301ce3500a86c38450b56e2b71dab8008a13b1812a0d6cc812f22651e143a",
+                    108_836_115,
+                    "encoder.onnx",
+                ),
+                raw(
+                    "https://github.com/danielgatis/rembg/releases/download/v0.0.0/sam_vit_b_01ec64.decoder.quant.onnx",
+                    "b11465135b7c93a1fd65141a4e2a96f1ddf2e3dab09b5eeab640bdf5f10aadbe",
+                    8_755_366,
+                    "decoder.onnx",
+                ),
+            ],
         ),
         EngineId::Ffmpeg | EngineId::Rhwp => return None,
     };
-    let asset = |(url, sha256, size): (&str, &str, u64), kind| Asset { url: url.into(), sha256: sha256.into(), size, kind };
-    Some(Release {
-        version: MODEL_VERSION.into(),
-        assets: vec![asset(model, AssetKind::Raw { name: "model.onnx" })],
-    })
+    Some(Release { version: version.into(), assets })
 }
 
 // ---- Latest releases ----
@@ -232,7 +252,7 @@ pub fn resolve(id: EngineId) -> Option<Release> {
     let release = match id {
         EngineId::Rhwp => resolve_rhwp(),
         EngineId::Ffmpeg => resolve_ffmpeg(),
-        EngineId::Bgremove => pinned(id),
+        EngineId::Bgremove | EngineId::Sam => pinned(id),
     };
     let release = release.filter(Release::valid);
     if release.is_none() {
@@ -555,7 +575,7 @@ struct Slot {
 }
 
 /// Indexed by `EngineId as usize`.
-pub struct Engines([Slot; 3]);
+pub struct Engines([Slot; 4]);
 
 impl Engines {
     fn get(&self, id: EngineId) -> &Slot {
@@ -1156,7 +1176,7 @@ mod tests {
     #[test]
     fn engines_install_side_by_side() {
         let root = tempfile::tempdir().unwrap();
-        let [ffmpeg, rhwp, _] = SPECS.each_ref().map(|s| install_dir(root.path(), s));
+        let [ffmpeg, rhwp, ..] = SPECS.each_ref().map(|s| install_dir(root.path(), s));
         assert_ne!(ffmpeg, rhwp);
         installed(&ffmpeg, FFMPEG, "8.1.2");
         installed(&rhwp, RHWP, "0.8.7");
@@ -1321,6 +1341,7 @@ mod tests {
     #[test]
     fn model_releases_are_valid() {
         assert!(pinned(EngineId::Bgremove).unwrap().valid());
+        assert_eq!(pinned(EngineId::Bgremove).unwrap().version, "2");
         assert_eq!(pinned(EngineId::Ffmpeg), None);
     }
 
@@ -1336,6 +1357,18 @@ mod tests {
     #[test]
     fn engine_ids_round_trip() {
         assert_eq!(EngineId::parse("bgremove").unwrap(), EngineId::Bgremove);
+        assert_eq!(EngineId::parse("sam").unwrap(), EngineId::Sam);
+    }
+
+    #[test]
+    #[cfg(any(target_os = "macos", windows))]
+    fn sam_release_is_encoder_and_decoder() {
+        let r = pinned(EngineId::Sam).unwrap();
+        assert!(r.valid());
+        assert_eq!(r.assets.len(), 2);
+        assert_eq!(r.size(), 108_836_115 + 8_755_366);
+        let kinds: Vec<_> = r.assets.iter().map(|a| a.kind.clone()).collect();
+        assert_eq!(kinds, [AssetKind::Raw { name: "encoder.onnx" }, AssetKind::Raw { name: "decoder.onnx" }]);
     }
 
     #[test]

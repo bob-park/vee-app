@@ -33,14 +33,13 @@ fn ort_err(e: impl std::fmt::Display) -> AppError {
     AppError::Other(format!("onnx runtime: {e}"))
 }
 
-/// The model file of an installed model engine in `dir`.
-fn model_path(dir: &Path, id: EngineId) -> AppResult<PathBuf> {
-    let [model] = id.spec().binaries else { return Err(AppError::Other("model missing".into())) };
-    let model = dir.join(model);
-    if !model.is_file() {
+/// Every model file of an installed model engine in `dir`, in `binaries` order.
+fn model_paths(dir: &Path, id: EngineId) -> AppResult<Vec<PathBuf>> {
+    let paths: Vec<PathBuf> = id.spec().binaries.iter().map(|b| dir.join(b)).collect();
+    if !paths.iter().all(|p| p.is_file()) {
         return Err(AppError::Other("model missing".into()));
     }
-    Ok(model)
+    Ok(paths)
 }
 
 /// The ONNX Runtime library the app ships (`scripts/fetch-onnxruntime.mjs`, bundled by `tauri.<os>.conf.json`).
@@ -161,7 +160,7 @@ fn cut(lib: &Path, model: &Path, img: &DynamicImage) -> AppResult<DynamicImage> 
 /// engine isn't installed; `Other` too when the app lacks its runtime.
 pub fn remove_background(app: &AppHandle, img: &DynamicImage) -> AppResult<DynamicImage> {
     let dir = engines::model_dir(app, EngineId::Bgremove).ok_or_else(|| AppError::Other("model missing".into()))?;
-    let model = model_path(&dir, EngineId::Bgremove)?;
+    let [model] = model_paths(&dir, EngineId::Bgremove)?.try_into().map_err(|_| AppError::Other("model missing".into()))?;
     cut(&runtime_path()?, &model, img)
 }
 
@@ -184,11 +183,11 @@ pub fn upscale(_app: &AppHandle, img: &DynamicImage, scale: u8) -> AppResult<Dyn
 /// Call before removing `id`'s engine files: errors while a run has the model open. No session
 /// outlives a run, so there is nothing else to drop; the ORT library ships with the app and stays loaded.
 pub fn forget(id: EngineId) -> AppResult<()> {
-    if id != EngineId::Bgremove {
+    if !matches!(id, EngineId::Bgremove | EngineId::Sam) {
         return Ok(());
     }
     match RUN.try_lock() {
-        Err(TryLockError::WouldBlock) => Err(AppError::InvalidInput("bgremove is running".into())),
+        Err(TryLockError::WouldBlock) => Err(AppError::InvalidInput(format!("{} is running", id.spec().dir_name))),
         Ok(_) | Err(TryLockError::Poisoned(_)) => Ok(()),
     }
 }
@@ -211,10 +210,15 @@ mod tests {
     #[test]
     fn missing_model_is_reported() {
         let dir = tempfile::tempdir().unwrap();
-        let err = model_path(dir.path(), EngineId::Bgremove).unwrap_err();
+        let err = model_paths(dir.path(), EngineId::Bgremove).unwrap_err();
         assert_eq!(err.to_string(), "model missing");
         std::fs::write(dir.path().join("model.onnx"), b"m").unwrap();
-        assert_eq!(model_path(dir.path(), EngineId::Bgremove).unwrap(), dir.path().join("model.onnx"));
+        assert_eq!(model_paths(dir.path(), EngineId::Bgremove).unwrap(), [dir.path().join("model.onnx")]);
+        // Every file of a multi-file model must be there.
+        std::fs::write(dir.path().join("encoder.onnx"), b"e").unwrap();
+        assert_eq!(model_paths(dir.path(), EngineId::Sam).unwrap_err().to_string(), "model missing");
+        std::fs::write(dir.path().join("decoder.onnx"), b"d").unwrap();
+        assert_eq!(model_paths(dir.path(), EngineId::Sam).unwrap(), [dir.path().join("encoder.onnx"), dir.path().join("decoder.onnx")]);
     }
 
     #[test]
@@ -266,8 +270,10 @@ mod tests {
         assert!(forget(EngineId::Ffmpeg).is_ok());
         let held = RUN.lock().unwrap_or_else(PoisonError::into_inner);
         assert!(matches!(forget(EngineId::Bgremove), Err(AppError::InvalidInput(_))));
+        assert!(matches!(forget(EngineId::Sam), Err(AppError::InvalidInput(_))));
         drop(held);
         assert!(forget(EngineId::Bgremove).is_ok());
+        assert!(forget(EngineId::Sam).is_ok());
     }
 
     /// Runs the real path on `product-*.png` in `VEE_AI_BENCH_DIR`, with the vendored runtime
