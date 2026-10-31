@@ -231,67 +231,152 @@ fn point_in_lasso(lasso: &[[u32; 2]], x: u32, y: u32) -> bool {
     xs.iter().filter(|&&cx| cx <= x as f32 + 0.5).count() % 2 == 1
 }
 
-/// `w × h`, 255 inside `lasso` (even-odd scanline fill at pixel centres, so a self-crossing path
-/// works) dilated by a `margin` px square, 0 elsewhere. Each filled span is widened by `margin`
-/// as it's drawn, then a running per-column count over `2 · margin + 1` rows does the vertical
-/// part, so it's O(w · h) whatever the margin.
-fn lasso_mask(lasso: &[[u32; 2]], w: u32, h: u32, margin: u32) -> GrayImage {
-    let (wu, hu, r) = (w as usize, h as usize, margin as usize);
-    let mut rows = vec![0u8; wu * hu];
+/// The pixels whose centres `x + 0.5` lie in `[a, b)` of one even-odd crossing pair, clamped to
+/// `w`, then (if any) widened by `r` and clamped again. A pair holding no centre in the image
+/// stays empty, so it doesn't grow into a span.
+fn span(pair: &[f32], w: u32, r: u32) -> (usize, usize) {
+    let a = (pair[0] - 0.5).ceil().clamp(0.0, w as f32) as usize;
+    let b = (pair[1] - 0.5).ceil().clamp(0.0, w as f32) as usize;
+    if b <= a {
+        return (a, a);
+    }
+    let r = r as usize;
+    (a.saturating_sub(r), (b + r).min(w as usize))
+}
+
+/// Whether `lasso`'s even-odd fill holds any pixel centre of a `w × h` image, without a buffer.
+fn lasso_fills_any(lasso: &[[u32; 2]], w: u32, h: u32) -> bool {
     let mut xs = Vec::new();
-    for (y, row) in rows.chunks_exact_mut(wu.max(1)).enumerate() {
+    (0..h).any(|y| {
+        crossings(lasso, y as f32 + 0.5, &mut xs);
+        xs.sort_by(f32::total_cmp);
+        xs.chunks_exact(2).any(|pair| {
+            let (a, b) = span(pair, w, 0);
+            b > a
+        })
+    })
+}
+
+/// `w × h` alpha for the lasso clip: 255 inside `lasso` (even-odd scanline fill at pixel centres,
+/// so a self-crossing path works) dilated by a `margin` px square, then a linear fade to 0 over
+/// about `feather` px. It's the fill dilated by `margin + feather`, box-blurred with radius
+/// `feather / 2` (the window shrinks at the image's sides, so a lasso off the image doesn't fade
+/// there). Only the lasso's box padded by that reach is touched. Everything happens in the one
+/// returned buffer plus row-sized scratch, and each pass is O(w · h) whatever the margin.
+fn lasso_mask(lasso: &[[u32; 2]], w: u32, h: u32, margin: u32, feather: u32) -> GrayImage {
+    let (wu, hu, r, k) = (w as usize, h as usize, (margin + feather) as usize, feather as usize / 2);
+    let mut buf = vec![0u8; wu * hu];
+    let [lx0, ly0, lx1, ly1] = lasso_box(lasso).map(|v| v as usize);
+    let pad = r + k + 1;
+    let (x0, x1) = (lx0.saturating_sub(pad).min(wu), (lx1 + pad + 1).min(wu));
+    let (y0, y1) = (ly0.saturating_sub(pad).min(hu), (ly1 + pad + 1).min(hu));
+    if x0 >= x1 || y0 >= y1 {
+        return GrayImage::from_raw(w, h, buf).expect("w × h buffer");
+    }
+    let bw = x1 - x0;
+    // The box's part of row `y`.
+    let seg = |y: usize| y * wu + x0..y * wu + x1;
+    // Fill, each span widened by `r` (the horizontal dilation); spans stay inside the box.
+    let mut xs = Vec::new();
+    for y in y0..y1 {
         crossings(lasso, y as f32 + 0.5, &mut xs);
         xs.sort_by(f32::total_cmp);
         for pair in xs.chunks_exact(2) {
-            // Centres `x + 0.5` in `[a, b)`, widened by `r`.
-            let a = ((pair[0] - 0.5).ceil() - r as f32).clamp(0.0, w as f32) as usize;
-            let b = ((pair[1] - 0.5).ceil() + r as f32).clamp(0.0, w as f32) as usize;
-            row[a..b.max(a)].fill(255);
+            let (a, b) = span(pair, w, r as u32);
+            buf[y * wu + a..y * wu + b].fill(255);
         }
     }
-    if r == 0 || wu == 0 {
-        return GrayImage::from_raw(w, h, rows).expect("w × h buffer");
-    }
-    let mut out = vec![0u8; wu * hu];
-    let mut count = vec![0u32; wu];
-    let add = |count: &mut [u32], row: &[u8], d: i32| {
-        for (c, &v) in count.iter_mut().zip(row) {
-            *c = c.wrapping_add_signed(d * (v != 0) as i32);
-        }
-    };
-    for y in 0..r.min(hu) {
-        add(&mut count, &rows[y * wu..(y + 1) * wu], 1);
-    }
-    for y in 0..hu {
-        if y + r < hu {
-            add(&mut count, &rows[(y + r) * wu..(y + r + 1) * wu], 1);
-        }
-        for (o, &c) in out[y * wu..(y + 1) * wu].iter_mut().zip(&count) {
-            *o = if c > 0 { 255 } else { 0 };
-        }
-        if y >= r {
-            add(&mut count, &rows[(y - r) * wu..(y - r + 1) * wu], -1);
+    // Vertical dilation in place, leaving 0/1. Down pass: a pixel within `r` below a filled (255)
+    // one turns 1, which doesn't spread further. Up pass: the same from below, then every non-zero
+    // pixel becomes 1 (pixels above it still hold the down pass's 255 / 1 / 0).
+    let mut near = vec![usize::MAX; bw];
+    for y in y0..y1 {
+        for (v, n) in buf[seg(y)].iter_mut().zip(near.iter_mut()) {
+            if *v == 255 {
+                *n = y;
+            } else if *n != usize::MAX && y - *n <= r {
+                *v = 1;
+            }
         }
     }
-    GrayImage::from_raw(w, h, out).expect("w × h buffer")
+    near.fill(usize::MAX);
+    for y in (y0..y1).rev() {
+        for (v, n) in buf[seg(y)].iter_mut().zip(near.iter_mut()) {
+            if *v == 255 {
+                *n = y;
+                *v = 1;
+            } else if *v == 1 || n.wrapping_sub(y) <= r {
+                *v = 1;
+            }
+        }
+    }
+    // Vertical box blur in place: a running per-column count over rows `y - k ..= y + k`, scaled to
+    // 0–255 through a table. A row has been overwritten by the time it leaves the window, so the
+    // last `k + 1` originals are kept in a ring (slot `y % (k + 1)`).
+    let scale = |n: usize| -> Vec<u8> { (0..=n).map(|s| ((s * 255 + n / 2) / n) as u8).collect() };
+    let mut sums = vec![0u32; bw];
+    let mut ring = vec![0u8; (k + 1) * bw];
+    for y in y0..(y0 + k).min(y1) {
+        sums.iter_mut().zip(&buf[seg(y)]).for_each(|(s, &v)| *s += v as u32);
+    }
+    let (mut lut, zero) = (Vec::new(), vec![0u8; bw]);
+    for y in y0..y1 {
+        let n = (y + k).min(hu - 1) + 1 - y.saturating_sub(k);
+        if lut.len() != n + 1 {
+            lut = scale(n);
+        }
+        let slot = y % (k + 1);
+        // Row `y` (written) and, from the rest, row `y + k` (entering; with `k = 0`, row `y`'s copy).
+        let (head, tail) = buf.split_at_mut((y + 1) * wu);
+        let row = &mut head[y * wu + x0..y * wu + x1];
+        ring[slot * bw..(slot + 1) * bw].copy_from_slice(row);
+        let add = match y + k {
+            e if e >= y1 => &zero[..],
+            _ if k == 0 => &ring[slot * bw..(slot + 1) * bw],
+            e => &tail[(e - y - 1) * wu + x0..(e - y - 1) * wu + x1],
+        };
+        // Row `y - k` (leaving), from the ring.
+        let sub = match y.checked_sub(k).filter(|&o| o >= y0) {
+            Some(o) => &ring[o % (k + 1) * bw..(o % (k + 1) + 1) * bw],
+            None => &zero[..],
+        };
+        for (((v, s), &a), &d) in row.iter_mut().zip(sums.iter_mut()).zip(add).zip(sub) {
+            *s += a as u32;
+            *v = lut[*s as usize];
+            *s -= d as u32;
+        }
+    }
+    // Horizontal box blur, row by row: a running sum over a copy of the row's box part, padded
+    // with `k` zeros a side (outside the box is 0). `ns` is each column's in-image window size.
+    let ns: Vec<u32> = (x0..x1).map(|x| ((x + k).min(wu - 1) + 1 - x.saturating_sub(k)) as u32).collect();
+    let mut src = vec![0u8; bw + 2 * k];
+    for y in y0..y1 {
+        let row = &mut buf[seg(y)];
+        src[k..k + bw].copy_from_slice(row);
+        let mut s: u32 = src[..2 * k].iter().map(|&v| v as u32).sum();
+        for (((v, &n), &add), &sub) in row.iter_mut().zip(&ns).zip(&src[2 * k..]).zip(&src) {
+            s += add as u32;
+            *v = ((s + n / 2) / n) as u8;
+            s -= sub as u32;
+        }
+    }
+    GrayImage::from_raw(w, h, buf).expect("w × h buffer")
 }
 
-/// `img` with `mask` as alpha, then, with a `lasso`, alpha cleared outside it plus `clip_margin`,
-/// unless a keep point lies outside the lasso (the user marked something it misses) or the lasso
-/// holds no pixel centre (a flat one would otherwise blank the image).
+/// `img` with `mask` as alpha, then, with a `lasso`, alpha faded out past it plus `clip_margin`
+/// (`lasso_mask`), unless a keep point lies outside the lasso (the user marked something it
+/// misses) or the lasso holds no pixel centre (a flat one would otherwise blank the image).
 fn finish_cut(img: RgbaImage, mask: &GrayImage, points: &[SubjectPoint], lasso: Option<&[[u32; 2]]>) -> RgbaImage {
     let mut img = apply_mask(img, mask);
     let (w, h) = img.dimensions();
-    // ponytail: a second full-size fill just to test emptiness; scan only the bbox rows if it shows up in profiles.
     if let Some(lasso) = lasso
         && points.iter().all(|p| !p.keep || point_in_lasso(lasso, p.x, p.y))
-        && lasso_mask(lasso, w, h, 0).pixels().any(|p| p[0] != 0)
+        && lasso_fills_any(lasso, w, h)
     {
-        let clip = lasso_mask(lasso, w, h, clip_margin(w, h));
+        let margin = clip_margin(w, h);
+        let clip = lasso_mask(lasso, w, h, margin, (margin / 2).max(4));
         for (p, c) in img.pixels_mut().zip(clip.pixels()) {
-            if c[0] == 0 {
-                p[3] = 0;
-            }
+            p[3] = ((p[3] as u32 * c[0] as u32 + 127) / 255) as u8;
         }
     }
     img
@@ -593,30 +678,79 @@ mod tests {
 
     #[test]
     fn lasso_clip_square() {
-        let m = lasso_mask(&SQUARE, 100, 100, 8);
-        assert_eq!((m.get_pixel(50, 50)[0], m.get_pixel(85, 50)[0]), (255, 255));
+        let m = lasso_mask(&SQUARE, 100, 100, 8, 4);
+        assert_eq!((m.get_pixel(50, 50)[0], m.get_pixel(85, 50)[0], m.get_pixel(88, 88)[0]), (255, 255, 255));
         assert_eq!((m.get_pixel(5, 5)[0], m.get_pixel(95, 50)[0]), (0, 0));
         assert!(point_in_lasso(&SQUARE, 50, 50) && !point_in_lasso(&SQUARE, 85, 50));
+    }
+
+    /// Full alpha out to the dilated edge, then a linear fade to 0 over the feather.
+    #[test]
+    fn lasso_soft_edge() {
+        let sq = [[50, 50], [150, 50], [150, 150], [50, 150]];
+        let m = lasso_mask(&sq, 200, 200, 8, 4);
+        assert_eq!((m.get_pixel(100, 100)[0], m.get_pixel(158, 100)[0]), (255, 255));
+        assert!((1..255).contains(&m.get_pixel(160, 100)[0]));
+        assert_eq!(m.get_pixel(170, 100)[0], 0);
+        let row: Vec<u8> = (158..=170).map(|x| m.get_pixel(x, 100)[0]).collect();
+        assert!(row.windows(2).all(|p| p[0] >= p[1]), "{row:?}");
+    }
+
+    /// The in-place passes match a naive blur of a naive dilation, for a self-crossing lasso that
+    /// runs off the image.
+    #[test]
+    fn lasso_mask_matches_naive() {
+        let (w, h, margin, feather) = (60i64, 50i64, 3u32, 6u32);
+        let lasso = [[5, 5], [70, 40], [40, 2], [10, 45]];
+        let fill = lasso_mask(&lasso, w as u32, h as u32, 0, 0);
+        let (r, k) = ((margin + feather) as i64, (feather / 2) as i64);
+        let hit = |x: i64, y: i64| (0..w).contains(&x) && (0..h).contains(&y) && fill.get_pixel(x as u32, y as u32)[0] != 0;
+        let dil: Vec<bool> = (0..h * w).map(|i| (i / w - r..=i / w + r).any(|yy| (i % w - r..=i % w + r).any(|xx| hit(xx, yy)))).collect();
+        let on = |x: i64, y: i64| dil[(y * w + x) as usize];
+        let d = lasso_mask(&lasso, w as u32, h as u32, margin + feather, 0);
+        assert!(d.pixels().zip(&dil).all(|(p, &o)| (p[0] != 0) == o), "dilation");
+        let m = lasso_mask(&lasso, w as u32, h as u32, margin, feather);
+        for y in 0..h {
+            for x in 0..w {
+                // Vertical then horizontal, each rounded, as the passes do.
+                let col = |x: i64| {
+                    let ys = (y - k).max(0)..=(y + k).min(h - 1);
+                    let n = ys.clone().count() as i64;
+                    (ys.filter(|&yy| on(x, yy)).count() as i64 * 255 + n / 2) / n
+                };
+                let xs = (x - k).max(0)..=(x + k).min(w - 1);
+                let n = xs.clone().count() as i64;
+                let want = (xs.map(col).sum::<i64>() + n / 2) / n;
+                assert_eq!(m.get_pixel(x as u32, y as u32)[0] as i64, want, "({x}, {y})");
+            }
+        }
+    }
+
+    /// The fade doesn't darken a lasso that runs off the image.
+    #[test]
+    fn lasso_soft_edge_at_border() {
+        let m = lasso_mask(&[[0, 0], [60, 0], [60, 60], [0, 60]], 100, 100, 8, 4);
+        assert_eq!(m.get_pixel(0, 0)[0], 255);
     }
 
     /// A figure-8 crossing at (50, 50): even-odd keeps the left and right lobes, not the gaps above and below the crossing.
     #[test]
     fn lasso_fill_self_crossing() {
         let eight = [[10, 10], [90, 90], [90, 10], [10, 90]];
-        let m = lasso_mask(&eight, 100, 100, 0);
+        let m = lasso_mask(&eight, 100, 100, 0, 0);
         assert_eq!((m.get_pixel(20, 50)[0], m.get_pixel(80, 50)[0]), (255, 255));
         assert_eq!((m.get_pixel(50, 20)[0], m.get_pixel(50, 80)[0], m.get_pixel(5, 50)[0]), (0, 0, 0));
-        assert_eq!(lasso_mask(&eight, 100, 100, 8).get_pixel(50, 20)[0], 0);
+        assert_eq!(lasso_mask(&eight, 100, 100, 8, 0).get_pixel(50, 20)[0], 0);
     }
 
     #[test]
     fn lasso_clip_clamped_polygon() {
         let edge = [[0, 10], [99, 10], [99, 90], [0, 90]];
-        let m = lasso_mask(&edge, 100, 100, 0);
+        let m = lasso_mask(&edge, 100, 100, 0, 0);
         assert_eq!((m.get_pixel(0, 50)[0], m.get_pixel(98, 50)[0], m.get_pixel(50, 5)[0]), (255, 255, 0));
-        assert_eq!(lasso_mask(&edge, 100, 100, 8).get_pixel(99, 50)[0], 255);
+        assert_eq!(lasso_mask(&edge, 100, 100, 8, 4).get_pixel(99, 50)[0], 255);
         // Points past the image don't panic either.
-        lasso_mask(&[[0, 0], [500, 0], [500, 500]], 100, 100, 8);
+        lasso_mask(&[[0, 0], [500, 0], [500, 500]], 100, 100, 8, 4);
     }
 
     #[test]
@@ -631,6 +765,8 @@ mod tests {
         // Inside points: the clip runs, colour stays.
         let out = finish_cut(img.clone(), &mask, &[point(50, 50, true), point(95, 50, false)], Some(&SQUARE));
         assert_eq!((out.get_pixel(50, 50)[3], out.get_pixel(95, 50).0), (200, [10, 20, 30, 0]));
+        // In the fade (dilated to x = 91, blur radius 2): 4 of 5 on → 204 → alpha 200 · 204 / 255.
+        assert_eq!(out.get_pixel(90, 50)[3], 160);
         // A keep point outside the lasso: no clip.
         let out = finish_cut(img.clone(), &mask, &[point(95, 50, true)], Some(&SQUARE));
         assert_eq!(out.get_pixel(95, 50)[3], 200);
@@ -649,7 +785,7 @@ mod tests {
     #[test]
     fn point_in_lasso_matches_fill_on_edge() {
         for tri in [[[0, 0], [100, 100], [0, 100]], [[0, 0], [100, 0], [100, 100]]] {
-            let m = lasso_mask(&tri, 100, 100, 0);
+            let m = lasso_mask(&tri, 100, 100, 0, 0);
             for (x, y) in [(50, 50), (20, 20), (49, 50), (51, 50)] {
                 assert_eq!(point_in_lasso(&tri, x, y), m.get_pixel(x, y)[0] == 255, "{tri:?} ({x}, {y})");
             }
@@ -665,7 +801,7 @@ mod tests {
             })
             .collect();
         let start = Instant::now();
-        let m = lasso_mask(&circle, 6000, 4000, clip_margin(6000, 4000));
+        let m = lasso_mask(&circle, 6000, 4000, clip_margin(6000, 4000), clip_margin(6000, 4000) / 2);
         let ms = start.elapsed().as_millis();
         println!("lasso_mask 6000x4000, 400 points: {ms} ms");
         assert!(ms < 1000, "{ms} ms");
