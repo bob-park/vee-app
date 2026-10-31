@@ -5,11 +5,7 @@ import { type Pt, type Size, brushRadius, thinPoints, toImagePx } from '@/utils/
 
 import cx from 'classnames';
 
-/** The pointer in px from the element's top-left. */
-const pointIn = (e: React.PointerEvent<HTMLElement>): Pt => {
-  const r = e.currentTarget.getBoundingClientRect();
-  return { x: e.clientX - r.left, y: e.clientY - r.top };
-};
+import { pointIn } from './pointer';
 
 interface BrushLayerProps {
   /** Displayed size of the image, in CSS px. */

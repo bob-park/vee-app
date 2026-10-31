@@ -5,14 +5,10 @@ import { type Pt, type Size, capPoints, classifyGesture, isFlatLasso, thinPoints
 
 import cx from 'classnames';
 
+import { pointIn } from './pointer';
+
 /** Most lasso points sent to Rust; the AI worker's frame header is capped at 64 KiB. */
 const LASSO_MAX = 1000;
-
-/** The pointer in px from the element's top-left. */
-const pointIn = (e: React.PointerEvent<HTMLElement>): Pt => {
-  const r = e.currentTarget.getBoundingClientRect();
-  return { x: e.clientX - r.left, y: e.clientY - r.top };
-};
 
 interface SubjectLayerProps {
   /** Displayed size of the image, in CSS px. */
