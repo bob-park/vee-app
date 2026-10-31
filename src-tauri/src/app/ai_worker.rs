@@ -7,10 +7,11 @@
 //! `header.bytes` raw bytes. Images are RGBA8 with `w`/`h` in the header. Model files are sent as
 //! absolute paths in each request (only the main process can resolve them through the `AppHandle`).
 
-use crate::domain::edit::SubjectPoint;
+use crate::domain::edit::{MAX_SIDE, SubjectPoint};
 use crate::shared::error::{AppError, AppResult};
-use ::image::RgbaImage;
+use ::image::{DynamicImage, RgbaImage};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::borrow::Cow;
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -31,6 +32,39 @@ impl Request {
     fn size(&self) -> (u32, u32) {
         match self {
             Request::RemoveBg { w, h, .. } | Request::Subject { w, h, .. } => (*w, *h),
+        }
+    }
+}
+
+/// Largest JSON header a frame may carry.
+const MAX_HEADER: usize = 64 * 1024;
+
+/// A message body that says how many payload bytes follow it, so a frame is checked before
+/// its payload is allocated.
+trait Body {
+    fn payload_len(&self) -> io::Result<usize>;
+}
+
+/// `w × h × 4`, or an error when a side is over `MAX_SIDE`.
+fn rgba_len(w: u32, h: u32) -> io::Result<usize> {
+    if w > MAX_SIDE || h > MAX_SIDE {
+        return Err(io::Error::other(format!("image {w}×{h} is over {MAX_SIDE} px")));
+    }
+    Ok(w as usize * h as usize * 4)
+}
+
+impl Body for Request {
+    fn payload_len(&self) -> io::Result<usize> {
+        let (w, h) = self.size();
+        rgba_len(w, h)
+    }
+}
+
+impl Body for Response {
+    fn payload_len(&self) -> io::Result<usize> {
+        match self {
+            Response::Ok { w, h } => rgba_len(*w, *h),
+            Response::Err { .. } => Ok(0),
         }
     }
 }
@@ -59,16 +93,24 @@ fn write_frame<T: Serialize>(w: &mut impl Write, body: &T, payload: &[u8]) -> io
     w.flush()
 }
 
-/// The next message, or `None` on a clean EOF before it.
-fn read_frame<T: DeserializeOwned>(r: &mut impl Read) -> io::Result<Option<(T, Vec<u8>)>> {
+/// The next message, or `None` on a clean EOF before it. A header over `MAX_HEADER`, or a payload
+/// length that isn't what the body says, is an error before anything that size is allocated.
+fn read_frame<T: DeserializeOwned + Body>(r: &mut impl Read) -> io::Result<Option<(T, Vec<u8>)>> {
     let mut len = [0u8; 4];
     match r.read_exact(&mut len) {
         Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
         res => res?,
     }
-    let mut header = vec![0u8; u32::from_le_bytes(len) as usize];
+    let len = u32::from_le_bytes(len) as usize;
+    if len > MAX_HEADER {
+        return Err(io::Error::other(format!("frame header is {len} bytes")));
+    }
+    let mut header = vec![0u8; len];
     r.read_exact(&mut header)?;
     let header: Header<T> = serde_json::from_slice(&header)?;
+    if header.bytes != header.body.payload_len()? {
+        return Err(io::Error::other("frame payload doesn't match its header"));
+    }
     let mut payload = vec![0u8; header.bytes];
     r.read_exact(&mut payload)?;
     Ok(Some((header.body, payload)))
@@ -204,15 +246,17 @@ fn exchange(p: &mut Pipes, req: &Request, img: &RgbaImage) -> io::Result<AppResu
 
 /// Sends `req` with `img` to the worker, spawning it if needed and `enable`d (else
 /// `InvalidInput("no image is open")`). On any pipe failure the worker is dropped and
-/// `Other("ai worker failed")` returned; the next call respawns it.
-pub fn call(req: &Request, img: &RgbaImage) -> AppResult<RgbaImage> {
+/// `Other("ai worker failed")` returned; the next call respawns it. `img` is converted to RGBA
+/// only once `PIPES` is held, so queued requests don't each keep a full-res copy.
+pub fn call(req: &Request, img: &DynamicImage) -> AppResult<RgbaImage> {
     let mut pipes = PIPES.lock().unwrap_or_else(PoisonError::into_inner);
     {
         let mut slot = CHILD.lock().unwrap_or_else(PoisonError::into_inner);
         let enabled = slot.enabled;
         ensure(&mut slot.child, enabled, &mut pipes, || spawn_at(&std::env::current_exe()?))?;
     }
-    match exchange(pipes.as_mut().expect("spawned"), req, img) {
+    let rgba = img.as_rgba8().map_or_else(|| Cow::Owned(img.to_rgba8()), Cow::Borrowed);
+    match exchange(pipes.as_mut().expect("spawned"), req, &rgba) {
         Ok(res) => res,
         Err(e) => {
             log::error!("ai worker: {e}");
@@ -300,21 +344,36 @@ mod tests {
     fn serve_dispatches() {
         let input = frames(&[(bg(2, 1), vec![9; 8]), (bg(1, 1), vec![0; 4]), (bg(1, 1), vec![0; 3])]);
         let mut out = Vec::new();
-        serve(&input[..], &mut out, |req, img| match req {
+        // A payload that doesn't match `w × h` is a pipe error: it never reaches the handler.
+        let res = serve(&input[..], &mut out, |req, img| match req {
             Request::RemoveBg { w: 2, .. } => {
                 assert_eq!(img.as_raw(), &[9; 8]);
                 Ok(RgbaImage::from_pixel(1, 1, Rgba([1, 2, 3, 4])))
             }
             _ => Err(AppError::InvalidInput("nope".into())),
-        })
-        .unwrap();
+        });
+        assert!(res.is_err());
         let mut r = &out[..];
         assert_eq!(read_frame::<Response>(&mut r).unwrap(), Some((Response::Ok { w: 1, h: 1 }, vec![1, 2, 3, 4])));
         let invalid = Response::Err { invalid: true, message: "nope".into() };
         assert_eq!(read_frame::<Response>(&mut r).unwrap(), Some((invalid, vec![])));
-        // A payload that doesn't match `w × h` never reaches the handler.
-        let Some((Response::Err { invalid: true, .. }, _)) = read_frame::<Response>(&mut r).unwrap() else { panic!() };
         assert_eq!(read_frame::<Response>(&mut r).unwrap(), None);
+    }
+
+    #[test]
+    fn oversized_frames_are_errors() {
+        // A 4 GiB header length is refused before it's allocated.
+        let mut r = &u32::MAX.to_le_bytes()[..];
+        assert!(read_frame::<Response>(&mut r).is_err());
+        // So are sides over MAX_SIDE and a byte count that isn't w × h × 4, with no payload sent.
+        for (w, h, bytes) in [(MAX_SIDE + 1, 1, 4 * (MAX_SIDE as usize + 1)), (1, 1, usize::MAX)] {
+            let header = serde_json::to_vec(&Header { body: Response::Ok { w, h }, bytes }).unwrap();
+            let mut buf = (header.len() as u32).to_le_bytes().to_vec();
+            buf.extend(header);
+            assert!(read_frame::<Response>(&mut &buf[..]).is_err());
+        }
+        let mut r = &frames(&[(bg(MAX_SIDE + 1, 1), vec![])])[..];
+        assert!(read_frame::<Request>(&mut r).is_err());
     }
 
     #[test]

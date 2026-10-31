@@ -80,8 +80,9 @@ fn ai_key(session: &Session, prefix: &[Op]) -> u64 {
 }
 
 /// Applies `ops` to the session's source in order. AI ops go through `ai` with the key of the ops
-/// before them. RemoveBg/Upscale results are cached; Subject results aren't, so each click doesn't
-/// keep another full-res image (the worker keeps the embedding for that key instead).
+/// before them, and their results are cached by prefix. A trailing Subject isn't cached, so each
+/// click on the live step doesn't keep another full-res image (the worker keeps the embedding for
+/// that key instead); once a later op follows it, it's cached like RemoveBg.
 fn render(
     session: &Session,
     ops: &[Op],
@@ -93,28 +94,30 @@ fn render(
             return Err(AppError::InvalidInput("empty image".into()));
         }
         img = match op {
-            Op::RemoveBg | Op::Upscale { .. } => {
+            Op::RemoveBg | Op::Upscale { .. } | Op::Subject { .. } => {
                 if let Op::Upscale { scale } = op
                     && !matches!(scale, 2 | 4)
                 {
                     return Err(AppError::InvalidInput(format!("bad upscale {scale}")));
                 }
+                if let Op::Subject { points } = op
+                    && points.is_empty()
+                {
+                    return Err(AppError::InvalidInput("no subject points".into()));
+                }
+                let live = matches!(op, Op::Subject { .. }) && i + 1 == ops.len();
                 let key = ai_key(session, &ops[..=i]);
                 let hit = session.cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key).cloned();
                 match hit {
                     Some(done) => done,
                     None => {
                         let done = Arc::new(ai(&img, op, ai_key(session, &ops[..i]))?);
-                        session.cache.lock().unwrap_or_else(|e| e.into_inner()).insert(key, done.clone());
+                        if !live {
+                            session.cache.lock().unwrap_or_else(|e| e.into_inner()).insert(key, done.clone());
+                        }
                         done
                     }
                 }
-            }
-            Op::Subject { points } => {
-                if points.is_empty() {
-                    return Err(AppError::InvalidInput("no subject points".into()));
-                }
-                Arc::new(ai(&img, op, ai_key(session, &ops[..i]))?)
             }
             _ => Arc::new(edit::apply_geometric(Arc::unwrap_or_clone(img), op)?),
         };
@@ -258,7 +261,7 @@ pub mod commands {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::edit::SubjectPoint;
+    use crate::domain::edit::{BrushMode, Stroke, SubjectPoint};
     use ::image::RgbaImage;
     use std::cell::Cell;
 
@@ -359,6 +362,29 @@ mod tests {
         assert_eq!(s.cache.lock().unwrap().len(), 0);
         assert!(matches!(render(&s, &[subject(0)], counting(&calls)), Err(AppError::InvalidInput(_))));
         assert_eq!(calls.get(), 3);
+    }
+
+    /// An applied Subject followed by a live one: the first runs once, the live one every click.
+    #[test]
+    fn applied_subject_is_cached_once() {
+        let s = Session::new(blank(10, 10));
+        let calls = Cell::new(0);
+        for n in 1..=3 {
+            render(&s, &[subject(1), subject(n)], counting(&calls)).unwrap();
+        }
+        assert_eq!(calls.get(), 4);
+        assert_eq!(s.cache.lock().unwrap().len(), 1);
+    }
+
+    /// Brush strokes after an applied Subject don't re-run SAM.
+    #[test]
+    fn brush_after_subject_skips_ai() {
+        let s = Session::new(blank(10, 10));
+        let calls = Cell::new(0);
+        let stroke = |x| Op::Brush { strokes: vec![Stroke { mode: BrushMode::Erase, radius: 2, points: vec![[x, x]] }] };
+        render(&s, &[subject(1), stroke(1)], counting(&calls)).unwrap();
+        render(&s, &[subject(1), stroke(2)], counting(&calls)).unwrap();
+        assert_eq!(calls.get(), 1);
     }
 
     #[test]

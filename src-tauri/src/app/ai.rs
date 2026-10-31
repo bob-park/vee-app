@@ -309,7 +309,7 @@ fn installed(app: &AppHandle, id: EngineId) -> AppResult<Vec<PathBuf>> {
 pub fn remove_background(app: &AppHandle, img: &DynamicImage) -> AppResult<DynamicImage> {
     let [model] = installed(app, EngineId::Bgremove)?.try_into().map_err(|_| AppError::Other("model missing".into()))?;
     let req = Request::RemoveBg { model, w: img.width(), h: img.height() };
-    ai_worker::call(&req, &img.to_rgba8()).map(DynamicImage::ImageRgba8)
+    ai_worker::call(&req, img).map(DynamicImage::ImageRgba8)
 }
 
 /// `img` as RGBA with everything but the subject at `points` transparent. `key` names `img`: the
@@ -318,7 +318,7 @@ pub fn remove_background(app: &AppHandle, img: &DynamicImage) -> AppResult<Dynam
 pub fn subject(app: &AppHandle, img: &DynamicImage, key: u64, points: &[SubjectPoint]) -> AppResult<DynamicImage> {
     let [encoder, decoder] = installed(app, EngineId::Sam)?.try_into().map_err(|_| AppError::Other("model missing".into()))?;
     let req = Request::Subject { encoder, decoder, key, points: points.to_vec(), w: img.width(), h: img.height() };
-    ai_worker::call(&req, &img.to_rgba8()).map(DynamicImage::ImageRgba8)
+    ai_worker::call(&req, img).map(DynamicImage::ImageRgba8)
 }
 
 fn check_upscale(img: &DynamicImage, scale: u8) -> AppResult<()> {
