@@ -163,9 +163,11 @@ pub fn open(app: &AppHandle, source: PathBuf) -> AppResult<()> {
 }
 
 /// Drops the session, stops the AI worker (giving its memory back to the OS) and hides the window.
+/// `editor://closed` tells the page to drop its images too, since the hidden window stays alive.
 pub fn close(app: &AppHandle) {
     app.state::<EditorState>().set(None);
     ai_worker::disable();
+    let _ = app.emit_to(EDITOR, "editor://closed", ());
     if let Some(window) = app.get_webview_window(EDITOR) {
         let _ = window.hide();
     }

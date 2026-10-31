@@ -64,6 +64,11 @@ export const ko: Dict = {
     working: '처리 중…',
     needsModel: '설정에서 모델을 내려받으세요',
     openSettings: '설정 열기',
+    bgTools: { auto: '자동', subject: '피사체 선택', brush: '브러시' },
+    subjectHint: (mac: boolean) => `남길 대상을 클릭하세요 · ${mac ? '⌥' : 'Alt+'}클릭으로 빼기`,
+    subjectReset: '초기화',
+    brushModes: { erase: '지우기', restore: '복원' },
+    brushSize: '크기',
   },
   convert: {
     needsFfmpeg: 'FFmpeg 필요',

@@ -63,6 +63,7 @@ export async function setSetting(key: SettingKey, value: string) {
 | `convert://close` | — | `app/convert.rs` (to `convert` only) | `ConvertApp` |
 | `convert://jobs` | `ConvertJob[]` | `app/convert.rs` (to `panel` only) | `useConvertJobs` (`domain/convert/queries`) |
 | `engines://status` | `{ engine, status: EngineStatus }` | `app/engines.rs` (every status change, download progress every 250 ms) | `useEngineStatus(engine)` (Settings Convert tab) |
+| `editor://closed` | — | `app/editor.rs` `close` (every close path, to `editor` only) | `EditorApp` (reset all state, freeing the images) |
 | `update://status` | `UpdateStatus` | `updater::set_status` | `useUpdateStatus` |
 
 - Name new events `<domain>://<event>` in kebab-case. Use `emit_to(<label>, …)` when only one window cares.

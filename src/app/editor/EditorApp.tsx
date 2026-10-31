@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 
+import BgToolRail, { type BgTool } from '@/app/editor/_components/BgToolRail';
+import BrushLayer from '@/app/editor/_components/BrushLayer';
 import CompareView from '@/app/editor/_components/CompareView';
 import CropBox from '@/app/editor/_components/CropBox';
 import Footer from '@/app/editor/_components/Footer';
 import ModelPrompt from '@/app/editor/_components/ModelPrompt';
 import ResizeForm from '@/app/editor/_components/ResizeForm';
 import RotatePanel from '@/app/editor/_components/RotatePanel';
+import SubjectLayer from '@/app/editor/_components/SubjectLayer';
 import { TOOL_BUTTON } from '@/app/editor/_components/button';
 import { useEngineStatus } from '@/domain/convert/queries/engines';
 import { closeEditor, copyEdit, getEditSource, renderEdit } from '@/domain/edit/apis/edit';
-import type { EditImage, EditOp } from '@/domain/edit/apis/edit.dto';
+import type { BrushMode, EditImage, EditOp } from '@/domain/edit/apis/edit.dto';
 import Aurora from '@/shared/components/Aurora';
 import Segmented from '@/shared/components/Segmented';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
@@ -28,8 +31,15 @@ const SCALES = ['2', '4'] as const;
 // A fresh object each time: a shown AI result is matched to its step by identity.
 const upscaleOp = (k: (typeof SCALES)[number]): EditOp => ({ type: 'upscale', scale: k === '4' ? 4 : 2 });
 const ZOOMS = ['fit', 'actual'] as const;
+const BRUSH_MODES: BrushMode[] = ['erase', 'restore'];
+/** Brush radius in CSS px: default, range and the `[` / `]` step. */
+const BRUSH = { size: 16, min: 2, max: 80, step: 2 };
 
 const isMac = navigator.userAgent.includes('Mac');
+
+/** The neutral button beside Apply, like the footer's Cancel. */
+const RESET_BUTTON =
+  'rounded-box bg-subtle text-base-content px-3.5 py-1.5 text-[12px] font-semibold disabled:cursor-default disabled:opacity-50';
 
 const sizeOf = (img: EditImage): Size => ({ w: img.width, h: img.height });
 
@@ -49,40 +59,72 @@ export function EditorApp() {
   const [stage, setStage] = useState<Size>({ w: 0, h: 0 });
   const [error, setError] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
-  /** The render of `[...ops, pending]` for an AI step, shown beside the preview before it's applied. */
-  const [result, setResult] = useState<{ img: EditImage; op: EditOp } | null>(null);
+  /** The render of `[...ops, pending]` for a live step, shown before it's applied; `ops` is the base it was made on. */
+  const [result, setResult] = useState<{ img: EditImage; op: EditOp; ops: EditOp[] } | null>(null);
   /** The last AI step failed to render; its tab offers to try again. */
   const [aiFailed, setAiFailed] = useState(false);
   const [scale, setScale] = useState<(typeof SCALES)[number]>('2');
   const [zoom, setZoom] = useState<(typeof ZOOMS)[number]>('fit');
+  const [bgTool, setBgTool] = useState<BgTool>('auto');
+  const [brushMode, setBrushMode] = useState<BrushMode>('erase');
+  /** Brush radius in CSS px. */
+  const [brushSize, setBrushSize] = useState(BRUSH.size);
 
   // hooks
   const { t } = useI18n();
 
   // queries
   const { status: bgStatus } = useEngineStatus('bgremove');
+  const { status: samStatus } = useEngineStatus('sam');
 
   const bgReady = bgStatus?.state === 'installed';
+  const samReady = samStatus?.state === 'installed';
   const opsShown = preview?.ops === ops;
-  const aiPending = pending?.type === 'removeBg' || pending?.type === 'upscale' ? pending : null;
-  const shown = aiPending && result?.op === aiPending ? result.img : null;
+  /** A Subject or Brush step being built; never empty (the last item removed makes `pending` null). */
+  const live = pending?.type === 'subject' || pending?.type === 'brush' ? pending : null;
+  /** A step rendered before it's applied. */
+  const aiPending = pending?.type === 'removeBg' || pending?.type === 'upscale' ? pending : live;
+  const fresh = result?.ops === ops ? result : null;
+  const shown = aiPending && fresh?.op === aiPending ? fresh.img : null;
+  // A live step keeps showing its last render while the next click or stroke renders.
+  const liveImg = live && fresh?.op.type === live.type ? fresh.img : null;
+  // Only a slow render blocks: Auto, Upscale and a subject's first click (it embeds the image), never a stroke.
+  const spinner = !!aiPending && !shown && aiPending.type !== 'brush' && !liveImg;
 
   // useEffect
   useEffect(() => {
+    /** Back to a fresh editor; on close this lets go of every image so the hidden window holds no memory. */
+    const reset = () => {
+      setSource(null);
+      setPreview(null);
+      setResult(null);
+      setOps([]);
+      setPending(null);
+      setTab('crop');
+      setError(null);
+      setAiFailed(false);
+      setScale('2');
+      setZoom('fit');
+      setBgTool('auto');
+      setBrushMode('erase');
+      setBrushSize(BRUSH.size);
+    };
     const load = () =>
       void getEditSource()
         .then((img) => {
+          reset();
           setSource(img);
-          setOps([]);
-          setPending(null);
-          setTab('crop');
-          setError(null);
         })
         .catch((e) => setError(errorText(e)));
     // The window may have been opened before this listener existed, so load once on mount too.
     load();
-    const off = listen('editor://opened', load);
-    return () => void off.then((f) => f());
+    const offOpened = listen('editor://opened', load);
+    // Every close path (Cancel, Esc, the window's close button, a finished copy) goes through Rust `close`.
+    const offClosed = listen('editor://closed', reset);
+    return () => {
+      void offOpened.then((f) => f());
+      void offClosed.then((f) => f());
+    };
   }, []);
 
   useEffect(() => {
@@ -109,8 +151,12 @@ export function EditorApp() {
 
   // The model may be downloaded or removed in Settings while this tab is open.
   useEffect(() => {
-    if (tab === 'removeBg') setPending(bgReady ? { type: 'removeBg' } : null);
-  }, [tab, bgReady]);
+    if (tab === 'removeBg' && bgTool === 'auto') setPending(bgReady ? { type: 'removeBg' } : null);
+  }, [tab, bgTool, bgReady]);
+
+  useEffect(() => {
+    if (tab === 'removeBg' && bgTool === 'subject' && !samReady) setPending(null);
+  }, [tab, bgTool, samReady]);
 
   // An AI step renders once the steps before it have; a failure drops only the step, never `ops`.
   useEffect(() => {
@@ -119,7 +165,7 @@ export function EditorApp() {
     let stale = false;
     renderEdit([...ops, aiPending])
       .then((img) => {
-        if (!stale) setResult({ img, op: aiPending });
+        if (!stale) setResult({ img, op: aiPending, ops });
       })
       .catch((e) => {
         if (stale) return;
@@ -146,10 +192,13 @@ export function EditorApp() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = isMac ? e.metaKey : e.ctrlKey;
+      // Inside a text field, ⌘Z undoes the typing instead.
+      const typing = e.target instanceof HTMLInputElement && e.target.type !== 'range';
       if (e.key === 'Escape') handleCancel();
       else if (mod && e.key === 'Enter') handleCopy();
-      // Inside an input, ⌘Z undoes the typing instead.
-      else if (mod && !e.shiftKey && e.code === 'KeyZ' && !(e.target instanceof HTMLInputElement)) handleUndo();
+      else if (mod && !e.shiftKey && e.code === 'KeyZ' && !typing) handleUndoKey();
+      else if (brushOn && !mod && (e.code === 'BracketLeft' || e.code === 'BracketRight'))
+        handleBrushSize(brushSize + (e.code === 'BracketRight' ? BRUSH.step : -BRUSH.step));
       else return;
       e.preventDefault();
     };
@@ -170,7 +219,11 @@ export function EditorApp() {
 
   /** The step an AI tab offers on its own; `null` on the other tabs or without the model. */
   const aiStep = (on: EditorTab): EditOp | null =>
-    on === 'upscale' ? upscaleOp(scale) : on === 'removeBg' && bgReady ? { type: 'removeBg' } : null;
+    on === 'upscale'
+      ? upscaleOp(scale)
+      : on === 'removeBg' && bgTool === 'auto' && bgReady
+        ? { type: 'removeBg' }
+        : null;
 
   const handleUndo = () => {
     if (busy) return;
@@ -180,10 +233,35 @@ export function EditorApp() {
     setOps((cur) => cur.slice(0, -1));
   };
 
+  /** ⌘Z: before a live step is applied, it takes back its last click or stroke. */
+  const handleUndoKey = () => {
+    if (!live) return handleUndo();
+    if (live.type === 'subject') {
+      const points = live.points.slice(0, -1);
+      setPending(points.length > 0 ? { type: 'subject', points } : null);
+    } else {
+      const strokes = live.strokes.slice(0, -1);
+      setPending(strokes.length > 0 ? { type: 'brush', strokes } : null);
+    }
+  };
+
   const handleTab = (next: EditorTab) => {
+    if (next === tab) return;
+    // Clicks or strokes become a step on the way out; Auto's result was only a preview.
+    handleApply(live);
     setPending(next === 'upscale' ? upscaleOp(scale) : null);
+    if (next === 'removeBg') setBgTool('auto');
     setTab(next);
   };
+
+  const handleBgTool = (next: BgTool) => {
+    if (next === bgTool) return;
+    handleApply(live);
+    setPending(null);
+    setBgTool(next);
+  };
+
+  const handleBrushSize = (next: number) => setBrushSize(Math.min(Math.max(next, BRUSH.min), BRUSH.max));
 
   const handleRetry = () => {
     setError(null);
@@ -203,8 +281,11 @@ export function EditorApp() {
   };
 
   // A step waits for the render before it: until then the preview still has the old size.
-  // An AI step also waits for its own render, which can take seconds.
-  const busy = !opsShown || (!!aiPending && !shown);
+  // A slow AI step also waits for its own render, which can take seconds.
+  const busy = !opsShown || spinner;
+  const bgOn = tab === 'removeBg';
+  const subjectOn = bgOn && bgTool === 'subject';
+  const brushOn = bgOn && bgTool === 'brush';
   const all = pending ? [...ops, pending] : ops;
   // An unchanged image would only bump the original clip (same hash), so there is nothing to copy.
   const canCopy = !!source && all.length > 0 && !copying && !busy;
@@ -228,6 +309,12 @@ export function EditorApp() {
       </button>
     );
 
+  const liveApply = (
+    <button className={TOOL_BUTTON} disabled={!live || busy} onClick={() => handleApply(live)}>
+      {t.editor.apply}
+    </button>
+  );
+
   return (
     <main className="relative flex h-full flex-col">
       <Aurora className="inset-x-0 top-0 h-[110px]" />
@@ -241,8 +328,8 @@ export function EditorApp() {
         </div>
       )}
       <div className="relative z-1 flex shrink-0 justify-center pt-1 pb-3">
-        {/* Disabled (natively, for every tab button) while an AI step renders. */}
-        <fieldset className="glass rounded-xl p-0.5 disabled:opacity-60" disabled={!!aiPending && busy}>
+        {/* Disabled (natively, for every tab button) while a slow AI step renders. */}
+        <fieldset className="glass rounded-xl p-0.5 disabled:opacity-60" disabled={spinner}>
           <Segmented
             value={tab}
             onChange={handleTab}
@@ -250,8 +337,14 @@ export function EditorApp() {
           />
         </fieldset>
       </div>
-      <div ref={stageRef} className="relative z-1 mx-5 flex min-h-0 flex-1 items-center justify-center">
-        {preview && shown && (
+      <div
+        ref={stageRef}
+        className={cx('relative z-1 mx-5 flex min-h-0 flex-1 items-center justify-center', { 'pl-12': bgOn })}
+      >
+        {/* Room for it is kept free by the stage's left padding, so it never covers the image.
+            Auto's render may be left mid-way (it's dropped); a live step's first render may not (it'd be lost). */}
+        {bgOn && <BgToolRail value={bgTool} onChange={handleBgTool} disabled={!!live && busy} />}
+        {preview && shown && !live && (
           <CompareView
             key={`${zoom}-${shown.width}x${shown.height}`}
             before={preview.img.dataUrl}
@@ -261,15 +354,29 @@ export function EditorApp() {
             stage={stage}
           />
         )}
-        {preview && !shown && image && view && (
+        {preview && (!shown || live) && image && view && (
           <div className="relative" style={{ width: view.w, height: view.h }}>
+            {/* Brush paints on the latest render; over a checkerboard so erased parts read as transparent. */}
             <img
-              src={preview.img.dataUrl}
+              src={brushOn && liveImg ? liveImg.dataUrl : preview.img.dataUrl}
               alt=""
               draggable={false}
-              className={cx('size-full rounded-md transition-opacity duration-200 select-none', { 'opacity-60': busy })}
+              className={cx('size-full rounded-md transition-opacity duration-200 select-none', {
+                'opacity-60': busy,
+                'opacity-35': subjectOn && liveImg && !busy,
+                'bg-checker': brushOn,
+              })}
             />
-            {aiPending && busy && (
+            {/* Subject: the cut on top of the dimmed original, so what's left out still shows faintly. */}
+            {subjectOn && liveImg && (
+              <img
+                src={liveImg.dataUrl}
+                alt=""
+                draggable={false}
+                className="absolute inset-0 size-full rounded-md select-none"
+              />
+            )}
+            {spinner && (
               <div
                 className="absolute inset-0 flex items-center justify-center"
                 role="status"
@@ -297,6 +404,35 @@ export function EditorApp() {
                 onChange={(rect) => setPending(rect && { type: 'crop', ...rect })}
               />
             )}
+            {subjectOn && (
+              <SubjectLayer
+                view={view}
+                image={image}
+                points={live?.type === 'subject' ? live.points : []}
+                disabled={busy || !samReady}
+                onAdd={(point) =>
+                  setPending((cur) => ({
+                    type: 'subject',
+                    points: [...(cur?.type === 'subject' ? cur.points : []), point],
+                  }))
+                }
+              />
+            )}
+            {brushOn && (
+              <BrushLayer
+                view={view}
+                image={image}
+                mode={brushMode}
+                viewRadius={brushSize}
+                disabled={busy}
+                onStroke={(stroke) =>
+                  setPending((cur) => ({
+                    type: 'brush',
+                    strokes: [...(cur?.type === 'brush' ? cur.strokes : []), stroke],
+                  }))
+                }
+              />
+            )}
           </div>
         )}
       </div>
@@ -321,7 +457,8 @@ export function EditorApp() {
             onApply={() => handleApply(pending)}
           />
         )}
-        {tab === 'removeBg' &&
+        {bgOn &&
+          bgTool === 'auto' &&
           (bgStatus && !bgReady ? (
             <ModelPrompt />
           ) : (
@@ -330,6 +467,43 @@ export function EditorApp() {
               {aiButton}
             </div>
           ))}
+        {subjectOn &&
+          (samStatus && !samReady ? (
+            <ModelPrompt />
+          ) : (
+            <div className="flex items-center gap-3">
+              <span className="text-muted text-[12px]">{t.editor.subjectHint(isMac)}</span>
+              <button className={RESET_BUTTON} disabled={!live || busy} onClick={() => setPending(null)}>
+                {t.editor.subjectReset}
+              </button>
+              {liveApply}
+            </div>
+          ))}
+        {brushOn && (
+          <div className="flex items-center gap-3">
+            <div className="glass rounded-xl p-0.5">
+              <Segmented
+                value={brushMode}
+                onChange={setBrushMode}
+                options={BRUSH_MODES.map((value) => ({ value, label: t.editor.brushModes[value] }))}
+              />
+            </div>
+            <label className="text-muted flex items-center gap-2 text-[12px]">
+              {t.editor.brushSize}
+              <input
+                type="range"
+                className="accent-primary w-24"
+                min={BRUSH.min}
+                max={BRUSH.max}
+                value={brushSize}
+                aria-label={t.editor.brushSize}
+                onChange={(e) => handleBrushSize(Number(e.target.value))}
+              />
+              <span className="w-5 tabular-nums">{brushSize}</span>
+            </label>
+            {liveApply}
+          </div>
+        )}
         {tab === 'upscale' && (
           <div className="flex items-center gap-2.5">
             <div className="glass rounded-xl p-0.5">
