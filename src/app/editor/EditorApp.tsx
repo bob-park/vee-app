@@ -16,7 +16,18 @@ import type { BrushMode, EditImage, EditOp } from '@/domain/edit/apis/edit.dto';
 import Aurora from '@/shared/components/Aurora';
 import Segmented from '@/shared/components/Segmented';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
-import { type Size, dropLastMark, previewScale, sizeAfter } from '@/utils/edit';
+import {
+  type Size,
+  type SubjectMarks,
+  addLasso,
+  addPoint,
+  dropLastMark,
+  emptyMarks,
+  previewScale,
+  sizeAfter,
+  subjectOp,
+  undoMark,
+} from '@/utils/edit';
 import { errorText } from '@/utils/errorText';
 
 import { listen } from '@tauri-apps/api/event';
@@ -73,6 +84,8 @@ export function EditorApp() {
   const [brushSize, setBrushSize] = useState(BRUSH.size);
   /** A live step's render is running; the next click or stroke waits for it (latest wins). */
   const [liveRendering, setLiveRendering] = useState(false);
+  /** The Subject tool's clicks and lassos; they count only while `pending` is the subject step they made. */
+  const [subjectMarks, setSubjectMarks] = useState<SubjectMarks>(emptyMarks);
 
   // hooks
   const { t } = useI18n();
@@ -96,6 +109,8 @@ export function EditorApp() {
   const spinner = !!aiPending && !shown && aiPending.type !== 'brush' && !liveImg;
   /** The image shows every click or stroke of the live step (or there is none). */
   const liveSynced = !live || fresh?.op === live;
+  // Any other `pending` (applied, reset, another tool) leaves no marks behind.
+  const marks = pending?.type === 'subject' ? subjectMarks : emptyMarks();
 
   // useEffect
   useEffect(() => {
@@ -114,6 +129,7 @@ export function EditorApp() {
       setBgTool('auto');
       setBrushMode('erase');
       setBrushSize(BRUSH.size);
+      setSubjectMarks(emptyMarks());
     };
     const load = () => {
       // Reset first, so a reopen never shows the last image while the new one loads.
@@ -204,9 +220,11 @@ export function EditorApp() {
         if (pendingRef.current !== live) return;
         setError(errorText(e));
         setAiFailed(true);
-        setPending(dropLastMark(live));
+        if (live.type === 'subject') handleMarks(undoMark(marks));
+        else setPending(dropLastMark(live));
       })
       .finally(() => setLiveRendering(false));
+    // `marks` needs no dep: it changes only together with `live`.
   }, [live, liveSynced, ops, opsShown, liveRendering]);
 
   useEffect(() => {
@@ -264,10 +282,17 @@ export function EditorApp() {
     setOps((cur) => cur.slice(0, -1));
   };
 
-  /** ⌘Z: before a live step is applied, it takes back its last click or stroke. */
+  /** The Subject tool's marks and the step they make, set together. */
+  const handleMarks = (next: SubjectMarks) => {
+    setSubjectMarks(next);
+    setPending(subjectOp(next));
+  };
+
+  /** ⌘Z: before a live step is applied, it takes back its last click, lasso or stroke. */
   const handleUndoKey = () => {
     if (!live) return handleUndo();
-    setPending(dropLastMark(live));
+    if (live.type === 'subject') handleMarks(undoMark(marks));
+    else setPending(dropLastMark(live));
   };
 
   const handleTab = (next: EditorTab) => {
@@ -433,14 +458,11 @@ export function EditorApp() {
               <SubjectLayer
                 view={view}
                 image={image}
-                points={live?.type === 'subject' ? live.points : []}
+                points={marks.points}
+                lasso={marks.lassos.at(-1)}
                 disabled={busy || !samReady}
-                onAdd={(point) =>
-                  setPending((cur) => ({
-                    type: 'subject',
-                    points: [...(cur?.type === 'subject' ? cur.points : []), point],
-                  }))
-                }
+                onPoint={(point) => handleMarks(addPoint(marks, point))}
+                onLasso={(lasso) => handleMarks(addLasso(marks, lasso))}
               />
             )}
             {brushOn && (

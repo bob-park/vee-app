@@ -6,7 +6,8 @@ export type EditOp =
   | { type: 'resize'; w: number; h: number }
   | { type: 'removeBg' }
   | { type: 'upscale'; scale: 2 | 4 }
-  | { type: 'subject'; points: SubjectPoint[] }
+  /** `lasso`: a drawn outline in image px (≥ 3 points); the cut stays near it. */
+  | { type: 'subject'; points: SubjectPoint[]; lasso?: [number, number][] }
   | { type: 'brush'; strokes: Stroke[] };
 
 /** A click on the image for the subject cut, in image px; `keep: false` marks background. Mirrors Rust `SubjectPoint`. */

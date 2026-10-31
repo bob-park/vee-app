@@ -1,4 +1,4 @@
-import type { EditOp } from '@/domain/edit/apis/edit.dto';
+import type { EditOp, SubjectPoint } from '@/domain/edit/apis/edit.dto';
 
 export interface Pt {
   x: number;
@@ -116,9 +116,65 @@ export function viewportRect(pan: Pt, zoomed: Size, view: Size, map: Size): Rect
   };
 }
 
-/** A live Subject or Brush step without its last click or stroke; `null` once nothing is left. */
+/** A live Brush step without its last stroke; `null` once nothing is left. Subject uses `undoMark`. */
 export function dropLastMark(op: EditOp): EditOp | null {
-  if (op.type === 'subject') return op.points.length > 1 ? { type: 'subject', points: op.points.slice(0, -1) } : null;
   if (op.type === 'brush') return op.strokes.length > 1 ? { type: 'brush', strokes: op.strokes.slice(0, -1) } : null;
   return null;
+}
+
+/** A press's path in view px: a lasso once it moved `minMove` from the start and spans `minMove`; else a click. */
+export function classifyGesture(path: Pt[], minMove = 8): 'click' | 'lasso' {
+  const [start] = path;
+  if (!start) return 'click';
+  const moved = Math.max(...path.map((p) => Math.hypot(p.x - start.x, p.y - start.y)));
+  const xs = path.map((p) => p.x);
+  const ys = path.map((p) => p.y);
+  const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+  return moved >= minMove && span >= minMove ? 'lasso' : 'click';
+}
+
+/** Every `step`-th point so at most `max` stay; the worker's frame header has room for a few thousand. */
+export function capPoints(points: [number, number][], max: number): [number, number][] {
+  if (points.length <= max) return points;
+  const step = Math.ceil(points.length / max);
+  return points.filter((_, i) => i % step === 0);
+}
+
+/** The Subject tool's clicks and lassos (image px), with the order they came in for ⌘Z. */
+export interface SubjectMarks {
+  points: SubjectPoint[];
+  lassos: [number, number][][];
+  order: ('point' | 'lasso')[];
+}
+
+export const emptyMarks = (): SubjectMarks => ({ points: [], lassos: [], order: [] });
+
+export const addPoint = (m: SubjectMarks, p: SubjectPoint): SubjectMarks => ({
+  ...m,
+  points: [...m.points, p],
+  order: [...m.order, 'point'],
+});
+
+export const addLasso = (m: SubjectMarks, lasso: [number, number][]): SubjectMarks => ({
+  ...m,
+  lassos: [...m.lassos, lasso],
+  order: [...m.order, 'lasso'],
+});
+
+/** `m` without its last click or lasso; undoing a lasso brings back the one before it. */
+export function undoMark(m: SubjectMarks): SubjectMarks {
+  const last = m.order.at(-1);
+  if (!last) return m;
+  return {
+    points: last === 'point' ? m.points.slice(0, -1) : m.points,
+    lassos: last === 'lasso' ? m.lassos.slice(0, -1) : m.lassos,
+    order: m.order.slice(0, -1),
+  };
+}
+
+/** The subject step for `m`: its points and only the latest lasso; `null` with neither. */
+export function subjectOp(m: SubjectMarks): EditOp | null {
+  const lasso = m.lassos.at(-1);
+  if (m.points.length === 0 && !lasso) return null;
+  return lasso ? { type: 'subject', points: m.points, lasso } : { type: 'subject', points: m.points };
 }

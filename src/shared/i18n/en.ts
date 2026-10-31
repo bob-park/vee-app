@@ -65,7 +65,7 @@ export const en = {
     needsModel: 'Download the model in Settings',
     openSettings: 'Open Settings',
     bgTools: { auto: 'Auto', subject: 'Select subject', brush: 'Brush' },
-    subjectHint: (mac: boolean) => `Click what to keep · ${mac ? '⌥' : 'Alt+'}click to remove`,
+    subjectHint: (mac: boolean) => `Circle or click what to keep · ${mac ? '⌥' : 'Alt+'}click to remove`,
     subjectReset: 'Reset',
     brushModes: { erase: 'Erase', restore: 'Restore' },
     brushSize: 'Size',

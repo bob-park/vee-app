@@ -2,15 +2,22 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  addLasso,
+  addPoint,
   brushRadius,
+  capPoints,
   clampPan,
+  classifyGesture,
   cropFromDrag,
   dropLastMark,
+  emptyMarks,
   previewScale,
   resizeKeep,
   sizeAfter,
+  subjectOp,
   thinPoints,
   toImagePx,
+  undoMark,
   viewportRect,
 } from './edit.ts';
 
@@ -135,11 +142,66 @@ void test('sizeAfter leaves the size alone for brush and subject', () => {
   );
 });
 
-void test('dropLastMark takes back one click or stroke, null when none is left', () => {
-  const p = (x: number) => ({ x, y: 0, keep: true });
-  assert.deepEqual(dropLastMark({ type: 'subject', points: [p(1), p(2)] }), { type: 'subject', points: [p(1)] });
-  assert.equal(dropLastMark({ type: 'subject', points: [p(1)] }), null);
+void test('dropLastMark takes back one stroke, null when none is left', () => {
   const s = (r: number) => ({ mode: 'erase' as const, radius: r, points: [[0, 0]] as [number, number][] });
   assert.deepEqual(dropLastMark({ type: 'brush', strokes: [s(1), s(2)] }), { type: 'brush', strokes: [s(1)] });
   assert.equal(dropLastMark({ type: 'brush', strokes: [s(1)] }), null);
+});
+
+void test('classifyGesture: a shaky press stays a click, a drag of 8+ view px is a lasso', () => {
+  const g = (...pts: [number, number][]) => classifyGesture(pts.map(([x, y]) => ({ x, y })));
+  assert.equal(g([0, 0], [3, 4]), 'click');
+  assert.equal(g([0, 0], [10, 0], [10, 10]), 'lasso');
+  assert.equal(g([0, 0], [9, 0], [0, 0]), 'lasso');
+  assert.equal(g([0, 0], [7, 0]), 'click');
+});
+
+void test('undoMark restores previous lasso', () => {
+  const A: [number, number][] = [
+    [0, 0],
+    [10, 0],
+    [10, 10],
+  ];
+  const B: [number, number][] = [
+    [5, 5],
+    [20, 5],
+    [20, 20],
+  ];
+  const p = { x: 1, y: 2, keep: true };
+  const m = addLasso(addPoint(addLasso(emptyMarks(), A), p), B);
+  const u1 = undoMark(m);
+  assert.deepEqual([u1.lassos, u1.points], [[A], [p]]);
+  const u2 = undoMark(u1);
+  assert.deepEqual([u2.lassos, u2.points], [[A], []]);
+  const u3 = undoMark(u2);
+  assert.deepEqual(u3, emptyMarks());
+  assert.equal(subjectOp(u3), null);
+});
+
+void test('subjectOp sends the latest lasso, no lasso key without one', () => {
+  const p = { x: 1, y: 2, keep: false };
+  const op = subjectOp(addPoint(emptyMarks(), p));
+  assert.deepEqual(op, { type: 'subject', points: [p] });
+  assert.ok(op && !('lasso' in op));
+  const A: [number, number][] = [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+  ];
+  const B: [number, number][] = [
+    [2, 2],
+    [3, 2],
+    [3, 3],
+  ];
+  const both = subjectOp(addLasso(addLasso(emptyMarks(), A), B));
+  assert.ok(both?.type === 'subject' && both.lasso === B);
+});
+
+void test('capPoints keeps at most max points, untouched under it', () => {
+  const pts = Array.from({ length: 5000 }, (_, i): [number, number] => [i, 0]);
+  const capped = capPoints(pts, 1000);
+  assert.ok(capped.length <= 1000 && capped.length >= 900);
+  assert.deepEqual(capped[0], [0, 0]);
+  const few = pts.slice(0, 10);
+  assert.equal(capPoints(few, 1000), few);
 });
