@@ -185,7 +185,20 @@ mod tests {
     #[test]
     fn ai_ops_are_not_geometric() {
         assert!(matches!(apply_geometric(blank(10, 10), &Op::RemoveBg), Err(AppError::InvalidInput(_))));
-        assert!(matches!(apply_geometric(blank(10, 10), &Op::Subject { points: vec![] }), Err(AppError::InvalidInput(_))));
+        assert!(matches!(apply_geometric(blank(10, 10), &Op::Subject { points: vec![], lasso: None }), Err(AppError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn subject_lasso_serde() {
+        let wire = r#"{"type":"subject","points":[],"lasso":[[1,2],[3,4],[5,6]]}"#;
+        let op: Op = serde_json::from_str(wire).unwrap();
+        assert_eq!(op, Op::Subject { points: vec![], lasso: Some(vec![[1, 2], [3, 4], [5, 6]]) });
+        assert_eq!(serde_json::to_string(&op).unwrap(), wire);
+        // The old shape still parses, and goes back out without a `lasso` key.
+        let old = r#"{"type":"subject","points":[{"x":1,"y":2,"keep":true}]}"#;
+        let op: Op = serde_json::from_str(old).unwrap();
+        assert!(matches!(&op, Op::Subject { lasso: None, .. }));
+        assert_eq!(serde_json::to_string(&op).unwrap(), old);
     }
 
     #[test]

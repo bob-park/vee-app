@@ -190,12 +190,107 @@ fn sam_input(img: &DynamicImage) -> (Vec<f32>, f32) {
     (data, scale)
 }
 
-/// Decoder `point_coords` (flat `[n+1, 2]`) and `point_labels` (`[n+1]`): the points in input
-/// space, keep → 1 and background → 0, plus the `(0, 0)` / −1 pad SAM expects without a box.
-fn sam_prompt(points: &[SubjectPoint], scale: f32) -> (Vec<f32>, Vec<f32>) {
-    let coords = points.iter().flat_map(|p| [p.x as f32 * scale, p.y as f32 * scale]).chain([0.0, 0.0]).collect();
-    let labels = points.iter().map(|p| if p.keep { 1.0 } else { 0.0 }).chain([-1.0]).collect();
+/// Decoder `point_coords` (flat `[n+1, 2]`, or `[n+3, 2]` with a box) and `point_labels`: the
+/// points in input space, keep → 1 and background → 0, then `bbox`'s corners as labels 2 and 3,
+/// then the `(0, 0)` / −1 pad (rembg's `get_input_points`).
+fn sam_prompt(points: &[SubjectPoint], bbox: Option<[u32; 4]>, scale: f32) -> (Vec<f32>, Vec<f32>) {
+    let corners = bbox.map(|[x0, y0, x1, y1]| [(x0, y0, 2.0), (x1, y1, 3.0)]).into_iter().flatten();
+    let all: Vec<(u32, u32, f32)> = points.iter().map(|p| (p.x, p.y, if p.keep { 1.0 } else { 0.0 })).chain(corners).collect();
+    let coords = all.iter().flat_map(|&(x, y, _)| [x as f32 * scale, y as f32 * scale]).chain([0.0, 0.0]).collect();
+    let labels = all.iter().map(|&(_, _, l)| l).chain([-1.0]).collect();
     (coords, labels)
+}
+
+/// `lasso`'s bounding box, `[x0, y0, x1, y1]`.
+fn lasso_box(lasso: &[[u32; 2]]) -> [u32; 4] {
+    lasso.iter().fold([u32::MAX, u32::MAX, 0, 0], |[x0, y0, x1, y1], &[x, y]| [x0.min(x), y0.min(y), x1.max(x), y1.max(y)])
+}
+
+/// How far past the lasso the clip keeps alpha: `max(8, 2 % of the long side)` px.
+fn clip_margin(w: u32, h: u32) -> u32 {
+    ((w.max(h) as f32 * 0.02).round() as u32).max(8)
+}
+
+/// Where the edges of the closed polygon `lasso` cross the horizontal line at `yc`, unsorted.
+fn crossings(lasso: &[[u32; 2]], yc: f32, out: &mut Vec<f32>) {
+    out.clear();
+    for (i, &[ax, ay]) in lasso.iter().enumerate() {
+        let [bx, by] = lasso[(i + 1) % lasso.len()];
+        let (ay, by) = (ay as f32, by as f32);
+        if (ay <= yc) != (by <= yc) {
+            out.push(ax as f32 + (yc - ay) / (by - ay) * (bx as f32 - ax as f32));
+        }
+    }
+}
+
+/// Whether pixel `(x, y)`'s centre is inside `lasso` (even-odd), as `lasso_mask` fills it.
+fn point_in_lasso(lasso: &[[u32; 2]], x: u32, y: u32) -> bool {
+    let mut xs = Vec::new();
+    crossings(lasso, y as f32 + 0.5, &mut xs);
+    xs.iter().filter(|&&cx| cx < x as f32 + 0.5).count() % 2 == 1
+}
+
+/// `w × h`, 255 inside `lasso` (even-odd scanline fill at pixel centres, so a self-crossing path
+/// works) dilated by a `margin` px square, 0 elsewhere. Each filled span is widened by `margin`
+/// as it's drawn, then a running per-column count over `2 · margin + 1` rows does the vertical
+/// part, so it's O(w · h) whatever the margin.
+fn lasso_mask(lasso: &[[u32; 2]], w: u32, h: u32, margin: u32) -> GrayImage {
+    let (wu, hu, r) = (w as usize, h as usize, margin as usize);
+    let mut rows = vec![0u8; wu * hu];
+    let mut xs = Vec::new();
+    for (y, row) in rows.chunks_exact_mut(wu.max(1)).enumerate() {
+        crossings(lasso, y as f32 + 0.5, &mut xs);
+        xs.sort_by(f32::total_cmp);
+        for pair in xs.chunks_exact(2) {
+            // Centres `x + 0.5` in `[a, b)`, widened by `r`.
+            let a = ((pair[0] - 0.5).ceil() - r as f32).clamp(0.0, w as f32) as usize;
+            let b = ((pair[1] - 0.5).ceil() + r as f32).clamp(0.0, w as f32) as usize;
+            row[a..b.max(a)].fill(255);
+        }
+    }
+    if r == 0 || wu == 0 {
+        return GrayImage::from_raw(w, h, rows).expect("w × h buffer");
+    }
+    let mut out = vec![0u8; wu * hu];
+    let mut count = vec![0u32; wu];
+    let add = |count: &mut [u32], row: &[u8], d: i32| {
+        for (c, &v) in count.iter_mut().zip(row) {
+            *c = c.wrapping_add_signed(d * (v != 0) as i32);
+        }
+    };
+    for y in 0..r.min(hu) {
+        add(&mut count, &rows[y * wu..(y + 1) * wu], 1);
+    }
+    for y in 0..hu {
+        if y + r < hu {
+            add(&mut count, &rows[(y + r) * wu..(y + r + 1) * wu], 1);
+        }
+        for (o, &c) in out[y * wu..(y + 1) * wu].iter_mut().zip(&count) {
+            *o = if c > 0 { 255 } else { 0 };
+        }
+        if y >= r {
+            add(&mut count, &rows[(y - r) * wu..(y - r + 1) * wu], -1);
+        }
+    }
+    GrayImage::from_raw(w, h, out).expect("w × h buffer")
+}
+
+/// `img` with `mask` as alpha, then, with a `lasso`, alpha cleared outside it plus `clip_margin`,
+/// unless a keep point lies outside the lasso (the user marked something it misses).
+fn finish_cut(img: RgbaImage, mask: &GrayImage, points: &[SubjectPoint], lasso: Option<&[[u32; 2]]>) -> RgbaImage {
+    let mut img = apply_mask(img, mask);
+    if let Some(lasso) = lasso
+        && points.iter().all(|p| !p.keep || point_in_lasso(lasso, p.x, p.y))
+    {
+        let (w, h) = img.dimensions();
+        let clip = lasso_mask(lasso, w, h, clip_margin(w, h));
+        for (p, c) in img.pixels_mut().zip(clip.pixels()) {
+            if c[0] == 0 {
+                p[3] = 0;
+            }
+        }
+    }
+    img
 }
 
 /// The decoder's `k × SAM_H × SAM_W` logits as a `w × h` alpha mask: the OR of the `k` masks (the
@@ -249,16 +344,22 @@ fn embed(lib: &Path, model: &Path, img: &DynamicImage) -> AppResult<SamEmbedding
     })
 }
 
-/// Runs SAM's decoder from `model` for `points` on `emb` and returns `img` as RGBA with the mask
-/// as alpha. The session is dropped before returning.
-fn decode(lib: &Path, model: &Path, img: &DynamicImage, emb: &SamEmbedding, points: &[SubjectPoint]) -> AppResult<DynamicImage> {
-    if points.is_empty() {
-        return Err(AppError::InvalidInput("no subject points".into()));
-    }
+/// Runs SAM's decoder from `model` for `points` and `lasso` (as a box) on `emb` and returns `img`
+/// as RGBA with the mask as alpha, clipped to the lasso (`finish_cut`). The session is dropped
+/// before returning.
+fn decode(
+    lib: &Path,
+    model: &Path,
+    img: &DynamicImage,
+    emb: &SamEmbedding,
+    points: &[SubjectPoint],
+    lasso: Option<&[[u32; 2]]>,
+) -> AppResult<DynamicImage> {
+    check_subject(points, lasso)?;
     if (emb.w, emb.h) != (img.width(), img.height()) {
         return Err(AppError::InvalidInput("embedding is for another image".into()));
     }
-    let (coords, labels) = sam_prompt(points, emb.scale);
+    let (coords, labels) = sam_prompt(points, lasso.map(lasso_box), emb.scale);
     let n = labels.len();
     let mask = {
         let start = Instant::now();
@@ -280,10 +381,19 @@ fn decode(lib: &Path, model: &Path, img: &DynamicImage, emb: &SamEmbedding, poin
             return Err(AppError::Other(format!("onnx runtime: unexpected mask shape {shape:?}")));
         }
         let mask = sam_mask(logits, emb.scale, emb.w, emb.h);
-        log::info!("ai: subject cut from {} points in {} ms", points.len(), start.elapsed().as_millis());
+        log::info!("ai: subject cut from {} points (lasso: {}) in {} ms", points.len(), lasso.is_some(), start.elapsed().as_millis());
         mask
     };
-    Ok(DynamicImage::ImageRgba8(apply_mask(img.to_rgba8(), &mask)))
+    Ok(DynamicImage::ImageRgba8(finish_cut(img.to_rgba8(), &mask, points, lasso)))
+}
+
+/// `InvalidInput` unless there are points or a lasso, and any lasso has at least 3 points.
+pub(crate) fn check_subject(points: &[SubjectPoint], lasso: Option<&[[u32; 2]]>) -> AppResult<()> {
+    match lasso {
+        None if points.is_empty() => Err(AppError::InvalidInput("no subject points".into())),
+        Some(l) if l.len() < 3 => Err(AppError::InvalidInput("lasso needs 3 points".into())),
+        _ => Ok(()),
+    }
 }
 
 /// Runs one worker request on `img`. `sam` holds the last subject embedding and its key.
@@ -292,9 +402,12 @@ pub(crate) fn handle(sam: &mut Option<(u64, SamEmbedding)>, req: Request, img: R
     let img = DynamicImage::ImageRgba8(img);
     let out = match req {
         Request::RemoveBg { model, .. } => cut(&lib, &model, &img)?,
-        Request::Subject { encoder, decoder, key, points, .. } => {
-            ai_worker::with_embedding(sam, key, || embed(&lib, &encoder, &img), |emb| decode(&lib, &decoder, &img, emb, &points))?
-        }
+        Request::Subject { encoder, decoder, key, points, lasso, .. } => ai_worker::with_embedding(
+            sam,
+            key,
+            || embed(&lib, &encoder, &img),
+            |emb| decode(&lib, &decoder, &img, emb, &points, lasso.as_deref()),
+        )?,
     };
     Ok(out.into_rgba8())
 }
@@ -312,12 +425,13 @@ pub fn remove_background(app: &AppHandle, img: &DynamicImage) -> AppResult<Dynam
     ai_worker::call(&req, img).map(DynamicImage::ImageRgba8)
 }
 
-/// `img` as RGBA with everything but the subject at `points` transparent. `key` names `img`: the
-/// worker keeps one embedding and re-runs SAM's encoder only when `key` changes. `InvalidInput`
-/// on empty `points`; `Other("model missing")` when the engine isn't installed.
-pub fn subject(app: &AppHandle, img: &DynamicImage, key: u64, points: &[SubjectPoint]) -> AppResult<DynamicImage> {
+/// `img` as RGBA with everything but the subject at `points` (and inside `lasso`) transparent.
+/// `key` names `img`: the worker keeps one embedding and re-runs SAM's encoder only when `key`
+/// changes. `InvalidInput` per `check_subject`; `Other("model missing")` when the engine isn't installed.
+pub fn subject(app: &AppHandle, img: &DynamicImage, key: u64, points: &[SubjectPoint], lasso: Option<&[[u32; 2]]>) -> AppResult<DynamicImage> {
+    check_subject(points, lasso)?;
     let [encoder, decoder] = installed(app, EngineId::Sam)?.try_into().map_err(|_| AppError::Other("model missing".into()))?;
-    let req = Request::Subject { encoder, decoder, key, points: points.to_vec(), w: img.width(), h: img.height() };
+    let req = Request::Subject { encoder, decoder, key, points: points.to_vec(), lasso: lasso.map(<[_]>::to_vec), w: img.width(), h: img.height() };
     ai_worker::call(&req, img).map(DynamicImage::ImageRgba8)
 }
 
@@ -454,9 +568,85 @@ mod tests {
 
     #[test]
     fn sam_prompt_scales_and_pads() {
-        let (coords, labels) = sam_prompt(&[point(100, 50, true), point(10, 20, false)], 0.5);
+        let (coords, labels) = sam_prompt(&[point(100, 50, true), point(10, 20, false)], None, 0.5);
         assert_eq!(coords, [50.0, 25.0, 5.0, 10.0, 0.0, 0.0]);
         assert_eq!(labels, [1.0, 0.0, -1.0]);
+    }
+
+    #[test]
+    fn sam_prompt_with_box() {
+        let (coords, labels) = sam_prompt(&[point(100, 50, true)], Some([10, 20, 30, 40]), 0.5);
+        assert_eq!(coords, [50.0, 25.0, 5.0, 10.0, 15.0, 20.0, 0.0, 0.0]);
+        assert_eq!(labels, [1.0, 2.0, 3.0, -1.0]);
+    }
+
+    #[test]
+    fn lasso_box_min_max() {
+        assert_eq!(lasso_box(&[[5, 9], [2, 7], [8, 1]]), [2, 1, 8, 9]);
+    }
+
+    const SQUARE: [[u32; 2]; 4] = [[20, 20], [80, 20], [80, 80], [20, 80]];
+
+    #[test]
+    fn lasso_clip_square() {
+        let m = lasso_mask(&SQUARE, 100, 100, 8);
+        assert_eq!((m.get_pixel(50, 50)[0], m.get_pixel(85, 50)[0]), (255, 255));
+        assert_eq!((m.get_pixel(5, 5)[0], m.get_pixel(95, 50)[0]), (0, 0));
+        assert!(point_in_lasso(&SQUARE, 50, 50) && !point_in_lasso(&SQUARE, 85, 50));
+    }
+
+    /// A figure-8 crossing at (50, 50): even-odd keeps the left and right lobes, not the gaps above and below the crossing.
+    #[test]
+    fn lasso_fill_self_crossing() {
+        let eight = [[10, 10], [90, 90], [90, 10], [10, 90]];
+        let m = lasso_mask(&eight, 100, 100, 0);
+        assert_eq!((m.get_pixel(20, 50)[0], m.get_pixel(80, 50)[0]), (255, 255));
+        assert_eq!((m.get_pixel(50, 20)[0], m.get_pixel(50, 80)[0], m.get_pixel(5, 50)[0]), (0, 0, 0));
+        assert_eq!(lasso_mask(&eight, 100, 100, 8).get_pixel(50, 20)[0], 0);
+    }
+
+    #[test]
+    fn lasso_clip_clamped_polygon() {
+        let edge = [[0, 10], [99, 10], [99, 90], [0, 90]];
+        let m = lasso_mask(&edge, 100, 100, 0);
+        assert_eq!((m.get_pixel(0, 50)[0], m.get_pixel(98, 50)[0], m.get_pixel(50, 5)[0]), (255, 255, 0));
+        assert_eq!(lasso_mask(&edge, 100, 100, 8).get_pixel(99, 50)[0], 255);
+        // Points past the image don't panic either.
+        lasso_mask(&[[0, 0], [500, 0], [500, 500]], 100, 100, 8);
+    }
+
+    #[test]
+    fn clip_margin_scales_with_long_side() {
+        assert_eq!((clip_margin(100, 50), clip_margin(1000, 4000), clip_margin(6000, 10)), (8, 80, 120));
+    }
+
+    #[test]
+    fn clip_skipped_for_outside_keep() {
+        let img = RgbaImage::from_pixel(100, 100, ::image::Rgba([10, 20, 30, 255]));
+        let mask = GrayImage::from_pixel(100, 100, Luma([200]));
+        // Inside points: the clip runs, colour stays.
+        let out = finish_cut(img.clone(), &mask, &[point(50, 50, true), point(95, 50, false)], Some(&SQUARE));
+        assert_eq!((out.get_pixel(50, 50)[3], out.get_pixel(95, 50).0), (200, [10, 20, 30, 0]));
+        // A keep point outside the lasso: no clip.
+        let out = finish_cut(img.clone(), &mask, &[point(95, 50, true)], Some(&SQUARE));
+        assert_eq!(out.get_pixel(95, 50)[3], 200);
+        assert_eq!(finish_cut(img, &mask, &[point(95, 50, true)], None).get_pixel(95, 50)[3], 200);
+    }
+
+    #[test]
+    fn lasso_clip_large_is_fast() {
+        let circle: Vec<[u32; 2]> = (0..400)
+            .map(|i| {
+                let a = i as f32 / 400.0 * std::f32::consts::TAU;
+                [(3000.0 + 1800.0 * a.cos()) as u32, (2000.0 + 1800.0 * a.sin()) as u32]
+            })
+            .collect();
+        let start = Instant::now();
+        let m = lasso_mask(&circle, 6000, 4000, clip_margin(6000, 4000));
+        let ms = start.elapsed().as_millis();
+        println!("lasso_mask 6000x4000, 400 points: {ms} ms");
+        assert!(ms < 1000, "{ms} ms");
+        assert_eq!((m.get_pixel(3000, 2000)[0], m.get_pixel(10, 10)[0]), (255, 0));
     }
 
     #[test]
@@ -502,7 +692,7 @@ mod tests {
             let emb = embed(&lib, &encoder, &img).unwrap();
             println!("embed {:?} in {} ms, rss {} KB", emb.shape, start.elapsed().as_millis(), rss_kb());
             let start = Instant::now();
-            let cut = decode(&lib, &decoder, &img, &emb, &centre).unwrap();
+            let cut = decode(&lib, &decoder, &img, &emb, &centre, None).unwrap();
             println!("cut in {} ms, rss {} KB", start.elapsed().as_millis(), rss_kb());
             assert_eq!(cut.color(), ::image::ColorType::Rgba8);
             assert_eq!((cut.width(), cut.height()), (img.width(), img.height()));
@@ -514,6 +704,22 @@ mod tests {
             let mut bg = RgbaImage::from_pixel(img.width(), img.height(), ::image::Rgba([255, 0, 160, 255]));
             imageops::overlay(&mut bg, &cut.to_rgba8(), 0, 0);
             DynamicImage::ImageRgba8(bg).save(out.join("sam.on-magenta.png")).unwrap();
+        }
+        // Lasso only: a circle around the middle, then the left half as a box (clipped there).
+        let (w, h) = (img.width() as f32, img.height() as f32);
+        let circle: Vec<[u32; 2]> = (0..32)
+            .map(|i| {
+                let a = i as f32 / 32.0 * std::f32::consts::TAU;
+                [(w / 2.0 + 0.42 * w * a.cos()) as u32, (h / 2.0 + 0.42 * h * a.sin()) as u32]
+            })
+            .collect();
+        let left = vec![[(w * 0.1) as u32, (h * 0.1) as u32], [(w * 0.5) as u32, (h * 0.1) as u32], [(w * 0.5) as u32, (h * 0.9) as u32], [(w * 0.1) as u32, (h * 0.9) as u32]];
+        let emb = embed(&lib, &encoder, &img).unwrap();
+        for (name, lasso) in [("circle", circle), ("left", left)] {
+            let cut = decode(&lib, &decoder, &img, &emb, &[], Some(&lasso)).unwrap().to_rgba8();
+            let mut bg = RgbaImage::from_pixel(img.width(), img.height(), ::image::Rgba([255, 0, 160, 255]));
+            imageops::overlay(&mut bg, &cut, 0, 0);
+            DynamicImage::ImageRgba8(bg).save(out.join(format!("sam.lasso-{name}.on-magenta.png"))).unwrap();
         }
     }
 

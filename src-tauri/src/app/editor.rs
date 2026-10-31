@@ -100,10 +100,8 @@ fn render(
                 {
                     return Err(AppError::InvalidInput(format!("bad upscale {scale}")));
                 }
-                if let Op::Subject { points } = op
-                    && points.is_empty()
-                {
-                    return Err(AppError::InvalidInput("no subject points".into()));
+                if let Op::Subject { points, lasso } = op {
+                    ai::check_subject(points, lasso.as_deref())?;
                 }
                 let live = matches!(op, Op::Subject { .. }) && i + 1 == ops.len();
                 let key = ai_key(session, &ops[..=i]);
@@ -140,7 +138,7 @@ async fn render_off_main(app: &AppHandle, session: Arc<Session>, ops: Vec<Op>) -
         render(&session, &ops, |img, op, prefix_key| match op {
             Op::RemoveBg => ai::remove_background(&app, img),
             Op::Upscale { scale } => ai::upscale(&app, img, *scale),
-            Op::Subject { points } => ai::subject(&app, img, prefix_key, points),
+            Op::Subject { points, lasso } => ai::subject(&app, img, prefix_key, points, lasso.as_deref()),
             _ => Err(AppError::InvalidInput("not an AI op".into())),
         })
     })
@@ -329,7 +327,19 @@ mod tests {
     }
 
     fn subject(n: u32) -> Op {
-        Op::Subject { points: (0..n).map(|i| SubjectPoint { x: i, y: i, keep: true }).collect() }
+        Op::Subject { points: (0..n).map(|i| SubjectPoint { x: i, y: i, keep: true }).collect(), lasso: None }
+    }
+
+    #[test]
+    fn subject_needs_points_or_lasso() {
+        let s = Session::new(blank(10, 10));
+        let calls = Cell::new(0);
+        let lasso = |n: u32| Op::Subject { points: vec![], lasso: Some((0..n).map(|i| [i, i * i]).collect()) };
+        assert!(matches!(render(&s, &[Op::Subject { points: vec![], lasso: None }], counting(&calls)), Err(AppError::InvalidInput(_))));
+        assert!(matches!(render(&s, &[lasso(2)], counting(&calls)), Err(AppError::InvalidInput(_))));
+        assert_eq!(calls.get(), 0);
+        render(&s, &[lasso(3)], counting(&calls)).unwrap();
+        assert_eq!(calls.get(), 1);
     }
 
     /// Renders `ops` and returns the prefix key the AI callback saw.

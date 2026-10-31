@@ -18,8 +18,14 @@ pub enum Op {
     RemoveBg,
     /// `2` or `4`.
     Upscale { scale: u8 },
-    /// Cut out the subject marked by clicks on the image.
-    Subject { points: Vec<SubjectPoint> },
+    /// Cut out the subject marked by clicks on the image, and optionally a lasso drawn around it:
+    /// a polygon in the same px as the points. Its bbox goes to SAM as a box prompt, and alpha
+    /// outside it (plus a margin) is cleared.
+    Subject {
+        points: Vec<SubjectPoint>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lasso: Option<Vec<[u32; 2]>>,
+    },
     /// Paint alpha by hand: erase or restore along strokes.
     Brush { strokes: Vec<Stroke> },
 }

@@ -25,7 +25,16 @@ pub const FLAG: &str = "--ai-worker";
 pub enum Request {
     RemoveBg { model: PathBuf, w: u32, h: u32 },
     /// Re-embeds only when `key` differs from the held embedding's.
-    Subject { encoder: PathBuf, decoder: PathBuf, key: u64, points: Vec<SubjectPoint>, w: u32, h: u32 },
+    Subject {
+        encoder: PathBuf,
+        decoder: PathBuf,
+        key: u64,
+        points: Vec<SubjectPoint>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lasso: Option<Vec<[u32; 2]>>,
+        w: u32,
+        h: u32,
+    },
 }
 
 impl Request {
@@ -328,6 +337,7 @@ mod tests {
             decoder: "/d.onnx".into(),
             key: 7,
             points: vec![SubjectPoint { x: 1, y: 0, keep: true }],
+            lasso: Some(vec![[0, 0], [1, 0], [1, 1]]),
             w: 2,
             h: 1,
         };
@@ -431,7 +441,7 @@ mod tests {
         println!("parent rss {} KB, worker rss at start {} KB", rss_kb(std::process::id()), rss_kb(pid));
         let centre = SubjectPoint { x: w / 2, y: h / 2, keep: true };
         for (key, points) in [(1, vec![centre.clone()]), (1, vec![centre.clone(), SubjectPoint { x: 0, y: 0, keep: false }])] {
-            let req = Request::Subject { encoder: dir.join("encoder.onnx"), decoder: dir.join("decoder.onnx"), key, points, w, h };
+            let req = Request::Subject { encoder: dir.join("encoder.onnx"), decoder: dir.join("decoder.onnx"), key, points, lasso: None, w, h };
             let start = std::time::Instant::now();
             let cut = exchange(&mut pipes, &req, &img).unwrap().unwrap();
             println!("subject in {} ms, worker rss {} KB", start.elapsed().as_millis(), rss_kb(pid));
