@@ -157,13 +157,20 @@ void test('classifyGesture: a shaky press stays a click, a drag of 8+ view px is
   assert.equal(g([0, 0], [7, 0]), 'click');
 });
 
-void test('isFlatLasso: a straight drag is dropped, a 20×20 loop is a lasso', () => {
+void test('isFlatLasso: straight or diagonal slivers are dropped, small loops are lassos', () => {
   const pts = (...p: [number, number][]) => p.map(([x, y]) => ({ x, y }));
   const line = pts([0, 0], [40, 0], [80, 0]);
   assert.equal(classifyGesture(line), 'lasso');
   assert.equal(isFlatLasso(line), true);
   assert.equal(isFlatLasso(pts([0, 0], [80, 7], [40, 3])), true);
   assert.equal(isFlatLasso(pts([0, 0], [20, 0], [20, 20], [0, 20])), false);
+  // A near-straight diagonal swipe: its bbox is square, but it encloses almost nothing.
+  assert.equal(isFlatLasso(pts([0, 0], [100, 100], [99, 103])), true);
+  const circle = Array.from({ length: 24 }, (_, i) => ({
+    x: 10 + 10 * Math.cos((i / 24) * 2 * Math.PI),
+    y: 10 + 10 * Math.sin((i / 24) * 2 * Math.PI),
+  }));
+  assert.equal(isFlatLasso(circle), false);
 });
 
 void test('undoMark restores previous lasso', () => {
