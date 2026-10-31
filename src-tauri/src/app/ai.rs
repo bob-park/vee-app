@@ -424,13 +424,7 @@ fn embed(lib: &Path, model: &Path, img: &DynamicImage) -> AppResult<SamEmbedding
     let out = outputs.values().next().ok_or_else(|| AppError::Other("onnx runtime: no output".into()))?;
     let (shape, data) = out.try_extract_tensor::<f32>().map_err(ort_err)?;
     log::info!("ai: embedded {}x{} in {} ms", img.width(), img.height(), start.elapsed().as_millis());
-    Ok(SamEmbedding {
-        data: data.to_vec(),
-        shape: shape.iter().map(|&d| d as usize).collect(),
-        scale,
-        w: img.width(),
-        h: img.height(),
-    })
+    Ok(SamEmbedding { data: data.to_vec(), shape: shape.iter().map(|&d| d as usize).collect(), scale, w: img.width(), h: img.height() })
 }
 
 /// Runs SAM's decoder from `model` for `points` and `lasso` (as a box) on `emb` and returns `img`
@@ -517,10 +511,24 @@ pub fn remove_background(app: &AppHandle, img: &DynamicImage) -> AppResult<Dynam
 /// `img` as RGBA with everything but the subject at `points` (and inside `lasso`) transparent.
 /// `key` names `img`: the worker keeps one embedding and re-runs SAM's encoder only when `key`
 /// changes. `InvalidInput` per `check_subject`; `Other("model missing")` when the engine isn't installed.
-pub fn subject(app: &AppHandle, img: &DynamicImage, key: u64, points: &[SubjectPoint], lasso: Option<&[[u32; 2]]>) -> AppResult<DynamicImage> {
+pub fn subject(
+    app: &AppHandle,
+    img: &DynamicImage,
+    key: u64,
+    points: &[SubjectPoint],
+    lasso: Option<&[[u32; 2]]>,
+) -> AppResult<DynamicImage> {
     check_subject(points, lasso)?;
     let [encoder, decoder] = installed(app, EngineId::Sam)?.try_into().map_err(|_| AppError::Other("model missing".into()))?;
-    let req = Request::Subject { encoder, decoder, key, points: points.to_vec(), lasso: lasso.map(<[_]>::to_vec), w: img.width(), h: img.height() };
+    let req = Request::Subject {
+        encoder,
+        decoder,
+        key,
+        points: points.to_vec(),
+        lasso: lasso.map(<[_]>::to_vec),
+        w: img.width(),
+        h: img.height(),
+    };
     ai_worker::call(&req, img).map(DynamicImage::ImageRgba8)
 }
 
@@ -603,7 +611,8 @@ mod tests {
 
     #[test]
     fn input_is_normalized_nchw() {
-        let img = DynamicImage::ImageRgb8(RgbImage::from_fn(2, 2, |x, y| if (x, y) == (1, 1) { Rgb([255, 255, 255]) } else { Rgb([0, 0, 0]) }));
+        let img =
+            DynamicImage::ImageRgb8(RgbImage::from_fn(2, 2, |x, y| if (x, y) == (1, 1) { Rgb([255, 255, 255]) } else { Rgb([0, 0, 0]) }));
         let data = to_input(&img, 2);
         assert_eq!(data.len(), 12);
         // black → (0 - mean) / std, white (v/max = 1) → (1 - mean) / std; red plane first.
@@ -872,7 +881,12 @@ mod tests {
                 [(w / 2.0 + 0.42 * w * a.cos()) as u32, (h / 2.0 + 0.42 * h * a.sin()) as u32]
             })
             .collect();
-        let left = vec![[(w * 0.1) as u32, (h * 0.1) as u32], [(w * 0.5) as u32, (h * 0.1) as u32], [(w * 0.5) as u32, (h * 0.9) as u32], [(w * 0.1) as u32, (h * 0.9) as u32]];
+        let left = vec![
+            [(w * 0.1) as u32, (h * 0.1) as u32],
+            [(w * 0.5) as u32, (h * 0.1) as u32],
+            [(w * 0.5) as u32, (h * 0.9) as u32],
+            [(w * 0.1) as u32, (h * 0.9) as u32],
+        ];
         let emb = embed(&lib, &encoder, &img).unwrap();
         for (name, lasso) in [("circle", circle), ("left", left)] {
             let cut = decode(&lib, &decoder, &img, &emb, &[], Some(&lasso)).unwrap().to_rgba8();

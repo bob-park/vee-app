@@ -11,19 +11,16 @@ use crate::{
     },
 };
 use clipboard_rs::{
-    Clipboard, ClipboardContext, ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext, ContentFormat,
-    RustImageData, common::RustImage,
+    Clipboard, ClipboardContext, ClipboardHandler, ClipboardWatcher, ClipboardWatcherContext, ContentFormat, RustImageData,
+    common::RustImage,
 };
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Pasteboard markers set by password managers and other privacy-aware apps.
-const CONCEALED_FORMATS: [&str; 3] = [
-    "org.nspasteboard.ConcealedType",
-    "org.nspasteboard.TransientType",
-    "ExcludeClipboardContentFromMonitorProcessing",
-];
+const CONCEALED_FORMATS: [&str; 3] =
+    ["org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType", "ExcludeClipboardContentFromMonitorProcessing"];
 pub(crate) const MAX_IMAGE_BYTES: usize = 50 * 1024 * 1024;
 const MAX_FORMATS_BYTES: usize = 50 * 1024 * 1024;
 pub(crate) const THUMB_SIZE: u32 = 320;
@@ -35,10 +32,7 @@ pub fn text_clip(text: String) -> Option<NewClip> {
 const IMAGE_EXTS: [&str; 8] = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff"];
 
 pub fn is_image_path(path: &str) -> bool {
-    std::path::Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| IMAGE_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+    std::path::Path::new(path).extension().and_then(|e| e.to_str()).is_some_and(|e| IMAGE_EXTS.contains(&e.to_ascii_lowercase().as_str()))
 }
 
 fn thumb_png(path: &str) -> Option<Vec<u8>> {

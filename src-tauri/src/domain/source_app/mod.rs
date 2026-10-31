@@ -85,9 +85,7 @@ mod tests {
         add(&c, &d, "b", Some(slack), 2);
         add(&c, &d, "c", Some(slack), 3);
         add(&c, &d, "d", Some(notes), 4);
-        let names = |q: &str| -> Vec<(String, i64)> {
-            apps(&c, q).unwrap().into_iter().map(|a| (a.name, a.count)).collect()
-        };
+        let names = |q: &str| -> Vec<(String, i64)> { apps(&c, q).unwrap().into_iter().map(|a| (a.name, a.count)).collect() };
         assert_eq!(names("s"), vec![("Slack".to_string(), 2), ("Safari".to_string(), 1)]);
         assert_eq!(names("SA"), vec![("Safari".to_string(), 1)]);
         assert_eq!(names("메"), vec![("메모".to_string(), 1)]);

@@ -73,13 +73,29 @@ pub struct ToastPayload {
 impl ToastPayload {
     fn copied(content: &ClipContent, plain: bool) -> Self {
         match content {
-            ClipContent::Text(t) => {
-                Self { ok: true, kind: classify_text(t), text: Some(toast_preview(t)), files: 0, plain, convert: None, pins_fit: None, drag_missing: false }
+            ClipContent::Text(t) => Self {
+                ok: true,
+                kind: classify_text(t),
+                text: Some(toast_preview(t)),
+                files: 0,
+                plain,
+                convert: None,
+                pins_fit: None,
+                drag_missing: false,
+            },
+            ClipContent::Image(_) => {
+                Self { ok: true, kind: Kind::Image, text: None, files: 0, plain: false, convert: None, pins_fit: None, drag_missing: false }
             }
-            ClipContent::Image(_) => Self { ok: true, kind: Kind::Image, text: None, files: 0, plain: false, convert: None, pins_fit: None, drag_missing: false },
-            ClipContent::Files(f) => {
-                Self { ok: true, kind: Kind::Files, text: None, files: f.len(), plain: false, convert: None, pins_fit: None, drag_missing: false }
-            }
+            ClipContent::Files(f) => Self {
+                ok: true,
+                kind: Kind::Files,
+                text: None,
+                files: f.len(),
+                plain: false,
+                convert: None,
+                pins_fit: None,
+                drag_missing: false,
+            },
         }
     }
 
@@ -732,9 +748,7 @@ pub fn start_drag(app: &AppHandle, id: i64, name: &str, image: Option<&str>) -> 
     }
     let item = match &content {
         ClipContent::Files(paths) => DragItem::Files(paths.iter().map(PathBuf::from).collect()),
-        ClipContent::Image(path) => DragItem::Files(vec![
-            stage_image(path, &std::env::temp_dir().join("vee-drag"), name)?,
-        ]),
+        ClipContent::Image(path) => DragItem::Files(vec![stage_image(path, &std::env::temp_dir().join("vee-drag"), name)?]),
         ClipContent::Text(text) => DragItem::Text(text.clone()),
     };
     // Image and files clips can be converted; their staged or original paths are the sources.
@@ -872,9 +886,8 @@ mod tests {
     #[test]
     fn drag_image_shrinks_previews_and_falls_back_to_the_app_icon() {
         use base64::{Engine, engine::general_purpose::STANDARD};
-        let pixel = STANDARD
-            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
-            .unwrap();
+        let pixel =
+            STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==").unwrap();
         assert!(drag_image(Some(pixel)).starts_with(b"\x89PNG"));
         assert_eq!(drag_image(None), DRAG_ICON);
         assert_eq!(drag_image(Some(vec![1, 2, 3])), DRAG_ICON);
@@ -884,9 +897,8 @@ mod tests {
     fn card_image_is_marked_as_retina_once_and_still_decodes() {
         use base64::{Engine, engine::general_purpose::STANDARD};
         use clipboard_rs::{RustImageData, common::RustImage};
-        let pixel = STANDARD
-            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
-            .unwrap();
+        let pixel =
+            STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==").unwrap();
         let marked = png_at_retina(&pixel).unwrap();
         // 144 dpi = 5669 pixels per metre, in both directions, unit = metre.
         let phys = [b"pHYs".as_slice(), &5669u32.to_be_bytes(), &5669u32.to_be_bytes(), &[1]].concat();

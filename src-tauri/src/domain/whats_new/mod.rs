@@ -20,9 +20,7 @@ pub struct WhatsNew {
 /// Remembers the notes of a downloaded update; blank or missing notes are skipped.
 pub fn save(conn: &Connection, version: &str, notes: Option<&str>) {
     let Some(notes) = notes.filter(|n| !n.trim().is_empty()) else { return };
-    if let Err(e) =
-        settings::set_raw(conn, VERSION_KEY, version).and_then(|_| settings::set_raw(conn, NOTES_KEY, notes))
-    {
+    if let Err(e) = settings::set_raw(conn, VERSION_KEY, version).and_then(|_| settings::set_raw(conn, NOTES_KEY, notes)) {
         log::warn!("failed to save release notes: {e}");
     }
 }

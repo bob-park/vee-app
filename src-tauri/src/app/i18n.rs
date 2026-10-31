@@ -10,7 +10,9 @@ pub struct Labels {
 
 pub fn labels(locale: &str) -> Labels {
     if locale == "ko" {
-        Labels { open: "열기", settings: "설정", check_update: "업데이트 확인", restart_update: "업데이트 후 재시작", quit: "종료" }
+        Labels {
+            open: "열기", settings: "설정", check_update: "업데이트 확인", restart_update: "업데이트 후 재시작", quit: "종료"
+        }
     } else {
         Labels { open: "Open", settings: "Settings", check_update: "Check for Updates", restart_update: "Restart to Update", quit: "Quit" }
     }

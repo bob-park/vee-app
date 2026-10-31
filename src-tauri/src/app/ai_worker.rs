@@ -23,7 +23,11 @@ pub const FLAG: &str = "--ai-worker";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Request {
-    RemoveBg { model: PathBuf, w: u32, h: u32 },
+    RemoveBg {
+        model: PathBuf,
+        w: u32,
+        h: u32,
+    },
     /// Re-embeds only when `key` differs from the held embedding's.
     Subject {
         encoder: PathBuf,
@@ -81,9 +85,15 @@ impl Body for Response {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Response {
-    Ok { w: u32, h: u32 },
+    Ok {
+        w: u32,
+        h: u32,
+    },
     /// `invalid` maps to `AppError::InvalidInput`, otherwise `Other`.
-    Err { invalid: bool, message: String },
+    Err {
+        invalid: bool,
+        message: String,
+    },
 }
 
 /// A message's header: the body's fields plus the payload length.
@@ -234,10 +244,8 @@ fn spawn_at(exe: &std::path::Path) -> io::Result<(Child, Pipes)> {
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
     let mut child = cmd.spawn()?;
-    let pipes = Pipes {
-        stdin: BufWriter::new(child.stdin.take().expect("piped")),
-        stdout: BufReader::new(child.stdout.take().expect("piped")),
-    };
+    let pipes =
+        Pipes { stdin: BufWriter::new(child.stdin.take().expect("piped")), stdout: BufReader::new(child.stdout.take().expect("piped")) };
     Ok((child, pipes))
 }
 
@@ -410,7 +418,19 @@ mod tests {
     fn subject_reembeds_only_on_new_key() {
         let (mut embeds, mut cuts, mut held) = (0, 0, None);
         for key in [1, 1, 2] {
-            let got = with_embedding(&mut held, key, || { embeds += 1; Ok(key * 10) }, |e| { cuts += 1; Ok(*e) }).unwrap();
+            let got = with_embedding(
+                &mut held,
+                key,
+                || {
+                    embeds += 1;
+                    Ok(key * 10)
+                },
+                |e| {
+                    cuts += 1;
+                    Ok(*e)
+                },
+            )
+            .unwrap();
             assert_eq!(got, key * 10);
         }
         assert_eq!((embeds, cuts), (2, 3));
@@ -432,7 +452,11 @@ mod tests {
     #[test]
     #[ignore]
     fn worker_real_spawn() {
-        let exe = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug").join(if cfg!(windows) { "vee-app.exe" } else { "vee-app" });
+        let exe = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug").join(if cfg!(windows) {
+            "vee-app.exe"
+        } else {
+            "vee-app"
+        });
         let dir = PathBuf::from(std::env::var("VEE_SAM_DIR").expect("set VEE_SAM_DIR"));
         let img = ::image::open(std::env::var("VEE_AI_IMAGE").expect("set VEE_AI_IMAGE")).unwrap().to_rgba8();
         let (w, h) = img.dimensions();
@@ -441,7 +465,8 @@ mod tests {
         println!("parent rss {} KB, worker rss at start {} KB", rss_kb(std::process::id()), rss_kb(pid));
         let centre = SubjectPoint { x: w / 2, y: h / 2, keep: true };
         for (key, points) in [(1, vec![centre.clone()]), (1, vec![centre.clone(), SubjectPoint { x: 0, y: 0, keep: false }])] {
-            let req = Request::Subject { encoder: dir.join("encoder.onnx"), decoder: dir.join("decoder.onnx"), key, points, lasso: None, w, h };
+            let req =
+                Request::Subject { encoder: dir.join("encoder.onnx"), decoder: dir.join("decoder.onnx"), key, points, lasso: None, w, h };
             let start = std::time::Instant::now();
             let cut = exchange(&mut pipes, &req, &img).unwrap().unwrap();
             println!("subject in {} ms, worker rss {} KB", start.elapsed().as_millis(), rss_kb(pid));

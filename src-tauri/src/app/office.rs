@@ -126,7 +126,8 @@ mod tests {
 
     #[test]
     fn reads_the_version_from_version_ini() {
-        let ini = "[Version]\r\nbuildid=bf6ef2662401c7d6dce671ab4deb26ee0af3a7c1\r\nMsiProductVersion=26.8.1.1\r\nReferenceOOoMajorMinor=4.1\r\n";
+        let ini =
+            "[Version]\r\nbuildid=bf6ef2662401c7d6dce671ab4deb26ee0af3a7c1\r\nMsiProductVersion=26.8.1.1\r\nReferenceOOoMajorMinor=4.1\r\n";
         assert_eq!(parse_version_ini(ini).as_deref(), Some("26.8.1.1"));
         assert_eq!(parse_version_ini("[Version]\nbuildid=x\n"), None);
         assert_eq!(parse_version_ini("MsiProductVersion=dev"), None);
@@ -147,7 +148,10 @@ mod tests {
     #[test]
     fn an_unknown_version_is_still_reported_as_found() {
         assert_eq!(serde_json::to_value(LibreOffice { version: None }).unwrap(), serde_json::json!({ "version": null }));
-        assert_eq!(serde_json::to_value(LibreOffice { version: Some("26.8.1.1".into()) }).unwrap(), serde_json::json!({ "version": "26.8.1.1" }));
+        assert_eq!(
+            serde_json::to_value(LibreOffice { version: Some("26.8.1.1".into()) }).unwrap(),
+            serde_json::json!({ "version": "26.8.1.1" })
+        );
     }
 
     #[test]

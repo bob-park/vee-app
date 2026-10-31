@@ -104,18 +104,16 @@ pub fn key_down(key: &str) -> bool {
 fn on_screen_windows() -> Vec<WinInfo> {
     use objc2_core_foundation::{CFDictionary, CFNumber, CFRetained, CFString, CFType, CGRect};
     use objc2_core_graphics::{
-        CGRectMakeWithDictionaryRepresentation, CGWindowListCopyWindowInfo, CGWindowListOption, kCGNullWindowID,
-        kCGWindowBounds, kCGWindowLayer, kCGWindowOwnerPID,
+        CGRectMakeWithDictionaryRepresentation, CGWindowListCopyWindowInfo, CGWindowListOption, kCGNullWindowID, kCGWindowBounds,
+        kCGWindowLayer, kCGWindowOwnerPID,
     };
-    let Some(list) = CGWindowListCopyWindowInfo(
-        CGWindowListOption::OptionOnScreenOnly | CGWindowListOption::ExcludeDesktopElements,
-        kCGNullWindowID,
-    ) else {
+    let Some(list) =
+        CGWindowListCopyWindowInfo(CGWindowListOption::OptionOnScreenOnly | CGWindowListOption::ExcludeDesktopElements, kCGNullWindowID)
+    else {
         return Vec::new();
     };
     // SAFETY: CGWindowListCopyWindowInfo returns an array of CFDictionary<CFString, CFType>.
-    let list: CFRetained<objc2_core_foundation::CFArray<CFDictionary<CFString, CFType>>> =
-        unsafe { CFRetained::cast_unchecked(list) };
+    let list: CFRetained<objc2_core_foundation::CFArray<CFDictionary<CFString, CFType>>> = unsafe { CFRetained::cast_unchecked(list) };
     // SAFETY: the key constants are immutable statics provided by CoreGraphics.
     let (pid_key, layer_key, bounds_key) = unsafe { (kCGWindowOwnerPID, kCGWindowLayer, kCGWindowBounds) };
     let number = |d: &CFDictionary<CFString, CFType>, k: &CFString| d.get(k)?.downcast::<CFNumber>().ok()?.as_i64();
@@ -321,9 +319,7 @@ fn explorer_folder(root: ::windows::Win32::Foundation::HWND) -> Option<PathBuf> 
                 if !app.HWND().is_ok_and(|h| h.0 == root.0 as isize) {
                     continue;
                 }
-                let Ok(browser) = item
-                    .cast::<IServiceProvider>()
-                    .and_then(|sp| sp.QueryService::<IShellBrowser>(&SID_STopLevelBrowser))
+                let Ok(browser) = item.cast::<IServiceProvider>().and_then(|sp| sp.QueryService::<IShellBrowser>(&SID_STopLevelBrowser))
                 else {
                     continue;
                 };
@@ -377,9 +373,7 @@ pub fn request_finder_access(app: tauri::AppHandle) {
 pub fn open_automation_settings() -> crate::shared::error::AppResult<()> {
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open")
-            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")
-            .spawn()?;
+        std::process::Command::new("open").arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Automation").spawn()?;
         Ok(())
     }
     #[cfg(not(target_os = "macos"))]

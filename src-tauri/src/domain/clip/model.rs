@@ -46,9 +46,17 @@ pub fn classify_text(text: &str) -> Kind {
 
 pub enum NewClip {
     Text(String),
-    Image { png: Vec<u8>, thumb_png: Vec<u8>, width: u32, height: u32 },
+    Image {
+        png: Vec<u8>,
+        thumb_png: Vec<u8>,
+        width: u32,
+        height: u32,
+    },
     /// `thumbs` holds `(file index, PNG)` for image files among the first `STACK_LAYERS`.
-    Files { paths: Vec<String>, thumbs: Vec<(usize, Vec<u8>)> },
+    Files {
+        paths: Vec<String>,
+        thumbs: Vec<(usize, Vec<u8>)>,
+    },
 }
 
 #[derive(Debug, PartialEq)]

@@ -236,13 +236,7 @@ const LOOKUP_ARGS: [&str; 11] = [
 /// curl's stdout for a short request, or `None` on any failure (offline, HTTP error, rate limit).
 fn curl_text(args: &[&str]) -> Option<String> {
     let program = if cfg!(windows) { "curl.exe" } else { "curl" };
-    let out = command(Path::new(program))
-        .args(LOOKUP_ARGS)
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
+    let out = command(Path::new(program)).args(LOOKUP_ARGS).args(args).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
@@ -324,9 +318,24 @@ pub enum InstallError {
 pub enum EngineStatus {
     /// `error`: why the last download failed; cleared by the next one. `download_size`: bytes a download
     /// fetches, once the latest release has been looked up.
-    Missing { error: Option<InstallError>, download_size: Option<u64> },
-    Downloading { received: u64, total: u64, speed: u64, stage: Stage },
-    Installed { version: String, size: u64, installed_at: i64, path: String, update: bool, error: Option<InstallError> },
+    Missing {
+        error: Option<InstallError>,
+        download_size: Option<u64>,
+    },
+    Downloading {
+        received: u64,
+        total: u64,
+        speed: u64,
+        stage: Stage,
+    },
+    Installed {
+        version: String,
+        size: u64,
+        installed_at: i64,
+        path: String,
+        update: bool,
+        error: Option<InstallError>,
+    },
 }
 
 /// The `engines://status` payload.
@@ -823,7 +832,14 @@ fn stop(child: &mut Child) {
 }
 
 /// Runs curl into `file`, publishing `progress(bytes so far)` every poll.
-fn curl(app: &AppHandle, id: EngineId, url: &str, file: &Path, cancel: &AtomicBool, progress: impl Fn(u64) -> EngineStatus) -> Result<(), Stop> {
+fn curl(
+    app: &AppHandle,
+    id: EngineId,
+    url: &str,
+    file: &Path,
+    cancel: &AtomicBool,
+    progress: impl Fn(u64) -> EngineStatus,
+) -> Result<(), Stop> {
     let slot = &app.state::<Engines>().inner().get(id).curl;
     {
         // Spawned under the lock after a cancel check, so `shutdown` either sees the child or stops us here.
@@ -1044,7 +1060,8 @@ mod tests {
     #[test]
     fn installs_one_binary_from_each_archive_and_needs_them_all() {
         let root = tempfile::tempdir().unwrap();
-        let [(f0, a0), (f1, a1)] = [0, 1].map(|i| archive(&root.path().join(i.to_string()), |f| std::fs::write(f.join(FFMPEG[i]), FFMPEG[i]).unwrap()));
+        let [(f0, a0), (f1, a1)] =
+            [0, 1].map(|i| archive(&root.path().join(i.to_string()), |f| std::fs::write(f.join(FFMPEG[i]), FFMPEG[i]).unwrap()));
         let dest = existing(root.path());
         assert_eq!(install_from(FFMPEG, &[(f0.clone(), &a0)], &dest, "9.0.2", 1, NONE), Err(InstallError::Unpack));
         assert!(dest.join("keep").is_file());

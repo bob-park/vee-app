@@ -6,8 +6,8 @@ pub mod repository;
 
 pub use model::{ClipContent, ClipDto, Kind, NewClip, STACK_LAYERS, StatsDto, classify_text};
 pub use repository::{
-    clear, content, delete, delete_unpinned_from_app, formats, list_pinned, next_ocr_pending, preview_png, prunable_count,
-    prune, set_formats, set_ocr_text, stats, touch, unpinned_count_from_app, upsert,
+    clear, content, delete, delete_unpinned_from_app, formats, list_pinned, next_ocr_pending, preview_png, prunable_count, prune,
+    set_formats, set_ocr_text, stats, touch, unpinned_count_from_app, upsert,
 };
 
 use crate::shared::error::{AppError, AppResult};
@@ -39,8 +39,7 @@ mod tests {
     #[test]
     fn fourth_pin_is_pin_limit() {
         let (c, d) = db();
-        let ids: Vec<i64> =
-            (1..=4).map(|n| upsert(&c, d.path(), NewClip::Text(format!("c{n}")), None, n).unwrap()).collect();
+        let ids: Vec<i64> = (1..=4).map(|n| upsert(&c, d.path(), NewClip::Text(format!("c{n}")), None, n).unwrap()).collect();
         for &id in &ids[..3] {
             set_pinned(&c, id, true, 100).unwrap();
         }

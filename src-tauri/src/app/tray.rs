@@ -79,4 +79,3 @@ pub fn refresh(app: &AppHandle) {
         Err(e) => log::warn!("tray menu rebuild failed: {e}"),
     }
 }
-

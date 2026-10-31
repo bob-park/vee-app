@@ -33,8 +33,7 @@ mod tests {
     use super::*;
 
     fn args(to: Format) -> Option<Vec<String>> {
-        rhwp_args(Path::new("/i/a.hwp"), to, Path::new("/o/a.x"))
-            .map(|a| a.iter().map(|s| s.to_string_lossy().into_owned()).collect())
+        rhwp_args(Path::new("/i/a.hwp"), to, Path::new("/o/a.x")).map(|a| a.iter().map(|s| s.to_string_lossy().into_owned()).collect())
     }
 
     #[test]

@@ -83,11 +83,7 @@ fn ai_key(session: &Session, prefix: &[Op]) -> u64 {
 /// before them, and their results are cached by prefix. A trailing Subject isn't cached, so each
 /// click on the live step doesn't keep another full-res image (the worker keeps the embedding for
 /// that key instead); once a later op follows it, it's cached like RemoveBg.
-fn render(
-    session: &Session,
-    ops: &[Op],
-    ai: impl Fn(&DynamicImage, &Op, u64) -> AppResult<DynamicImage>,
-) -> AppResult<DynamicImage> {
+fn render(session: &Session, ops: &[Op], ai: impl Fn(&DynamicImage, &Op, u64) -> AppResult<DynamicImage>) -> AppResult<DynamicImage> {
     let mut img = session.source.clone();
     for (i, op) in ops.iter().enumerate() {
         if img.width() == 0 || img.height() == 0 {

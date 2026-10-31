@@ -36,7 +36,12 @@ impl Drop for Killed {
         {
             if let Ok(None) = self.0.try_wait() {
                 let pid = self.0.id().to_string();
-                let _ = command(Path::new("taskkill.exe")).args(["/T", "/F", "/PID", &pid]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+                let _ = command(Path::new("taskkill.exe"))
+                    .args(["/T", "/F", "/PID", &pid])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
             }
         }
         let _ = self.0.kill();

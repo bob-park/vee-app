@@ -6,8 +6,7 @@ pub const DEFAULT_PANEL_PIN_SHORTCUT: &str = "CommandOrControl+Shift+KeyP";
 /// Panel-only, like the pin shortcut.
 pub const DEFAULT_RESET_SEARCH_SHORTCUT: &str = "CommandOrControl+KeyK";
 /// Panel-only: copy the 1st / 2nd / 3rd pinned card.
-pub const DEFAULT_PINNED_COPY_SHORTCUTS: [&str; 3] =
-    ["CommandOrControl+Digit1", "CommandOrControl+Digit2", "CommandOrControl+Digit3"];
+pub const DEFAULT_PINNED_COPY_SHORTCUTS: [&str; 3] = ["CommandOrControl+Digit1", "CommandOrControl+Digit2", "CommandOrControl+Digit3"];
 
 /// Built-in copy sounds; `app::sound` holds their data.
 pub const SOUND_NAMES: [&str; 5] = ["pop", "click", "chime", "bubble", "tap"];

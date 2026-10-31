@@ -37,13 +37,11 @@ pub fn recognize(path: &Path) -> Result<String, Unavailable> {
         .map_err(|_| Unavailable)?;
         let supported: Vec<String> = supported.iter().map(|s| s.to_string()).collect();
         let languages = pick_languages(&supported).ok_or(Unavailable)?;
-        request.setRecognitionLanguages(&NSArray::from_retained_slice(
-            &languages.iter().map(|l| NSString::from_str(l)).collect::<Vec<_>>(),
-        ));
+        request
+            .setRecognitionLanguages(&NSArray::from_retained_slice(&languages.iter().map(|l| NSString::from_str(l)).collect::<Vec<_>>()));
 
         let url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
-        let handler =
-            unsafe { VNImageRequestHandler::initWithURL_options(VNImageRequestHandler::alloc(), &url, &NSDictionary::new()) };
+        let handler = unsafe { VNImageRequestHandler::initWithURL_options(VNImageRequestHandler::alloc(), &url, &NSDictionary::new()) };
         let requests = NSArray::<VNRequest>::from_slice(&[request.as_ref()]);
         // Missing, unreadable, or non-image files fail here; they just have no text.
         if handler.performRequests_error(&requests).is_err() {
@@ -52,10 +50,7 @@ pub fn recognize(path: &Path) -> Result<String, Unavailable> {
         let lines: Vec<String> = request
             .results()
             .map(|observations| {
-                observations
-                    .iter()
-                    .filter_map(|o| o.topCandidates(1).firstObject().map(|t| t.string().to_string()))
-                    .collect()
+                observations.iter().filter_map(|o| o.topCandidates(1).firstObject().map(|t| t.string().to_string())).collect()
             })
             .unwrap_or_default();
         Ok(lines.join("\n"))
