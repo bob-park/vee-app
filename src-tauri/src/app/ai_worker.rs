@@ -147,7 +147,32 @@ struct Pipes {
 // ponytail: one worker, serial requests; fine for one editor window.
 static PIPES: Mutex<Option<Pipes>> = Mutex::new(None);
 /// Locked only briefly, so `stop` can kill the child while a request holds `PIPES`.
-static CHILD: Mutex<Option<Child>> = Mutex::new(None);
+static CHILD: Mutex<Slot> = Mutex::new(Slot { child: None, enabled: false });
+
+/// The child, and whether one may be spawned: only while an image is open in the editor, so a
+/// request that was queued or still running when the editor closed can't start a new worker.
+struct Slot {
+    child: Option<Child>,
+    enabled: bool,
+}
+
+/// Spawns into `child`/`pipes` when they are empty and spawning is `enabled`. Dead pipes (the
+/// child was killed between requests) are dropped first.
+fn ensure<C, P>(child: &mut Option<C>, enabled: bool, pipes: &mut Option<P>, spawn: impl FnOnce() -> io::Result<(C, P)>) -> AppResult<()> {
+    if child.is_none() {
+        *pipes = None;
+    }
+    if pipes.is_some() {
+        return Ok(());
+    }
+    if !enabled {
+        return Err(AppError::InvalidInput("no image is open".into()));
+    }
+    let (c, p) = spawn().map_err(|e| AppError::Other(format!("ai worker: {e}")))?;
+    *child = Some(c);
+    *pipes = Some(p);
+    Ok(())
+}
 
 fn spawn_at(exe: &std::path::Path) -> io::Result<(Child, Pipes)> {
     let mut cmd = Command::new(exe);
@@ -177,22 +202,15 @@ fn exchange(p: &mut Pipes, req: &Request, img: &RgbaImage) -> io::Result<AppResu
     }
 }
 
-/// Sends `req` with `img` to the worker, spawning it if needed. On any pipe failure the worker is
-/// dropped and `Other("ai worker failed")` returned; the next call respawns it.
+/// Sends `req` with `img` to the worker, spawning it if needed and `enable`d (else
+/// `InvalidInput("no image is open")`). On any pipe failure the worker is dropped and
+/// `Other("ai worker failed")` returned; the next call respawns it.
 pub fn call(req: &Request, img: &RgbaImage) -> AppResult<RgbaImage> {
     let mut pipes = PIPES.lock().unwrap_or_else(PoisonError::into_inner);
     {
-        let mut child = CHILD.lock().unwrap_or_else(PoisonError::into_inner);
-        // `stop` killed the child between requests: its pipes are dead.
-        if child.is_none() {
-            *pipes = None;
-        }
-        if pipes.is_none() {
-            let exe = std::env::current_exe()?;
-            let (c, p) = spawn_at(&exe).map_err(|e| AppError::Other(format!("ai worker: {e}")))?;
-            *child = Some(c);
-            *pipes = Some(p);
-        }
+        let mut slot = CHILD.lock().unwrap_or_else(PoisonError::into_inner);
+        let enabled = slot.enabled;
+        ensure(&mut slot.child, enabled, &mut pipes, || spawn_at(&std::env::current_exe()?))?;
     }
     match exchange(pipes.as_mut().expect("spawned"), req, img) {
         Ok(res) => res,
@@ -206,7 +224,7 @@ pub fn call(req: &Request, img: &RgbaImage) -> AppResult<RgbaImage> {
 }
 
 fn kill() {
-    if let Some(mut child) = CHILD.lock().unwrap_or_else(PoisonError::into_inner).take() {
+    if let Some(mut child) = CHILD.lock().unwrap_or_else(PoisonError::into_inner).child.take() {
         let _ = child.kill();
         let _ = child.wait();
     }
@@ -218,6 +236,18 @@ pub fn stop() {
     if let Ok(mut pipes) = PIPES.try_lock() {
         *pipes = None;
     }
+}
+
+/// Lets requests spawn the worker; call when the editor opens an image.
+pub fn enable() {
+    CHILD.lock().unwrap_or_else(PoisonError::into_inner).enabled = true;
+}
+
+/// Stops the worker and keeps later requests from respawning it until `enable`; call when the
+/// editor closes and on app exit.
+pub fn disable() {
+    CHILD.lock().unwrap_or_else(PoisonError::into_inner).enabled = false;
+    stop();
 }
 
 /// Whether a request is running right now.
@@ -285,6 +315,26 @@ mod tests {
         // A payload that doesn't match `w × h` never reaches the handler.
         let Some((Response::Err { invalid: true, .. }, _)) = read_frame::<Response>(&mut r).unwrap() else { panic!() };
         assert_eq!(read_frame::<Response>(&mut r).unwrap(), None);
+    }
+
+    #[test]
+    fn spawns_only_while_enabled() {
+        let spawns = std::cell::Cell::new(0);
+        let spawn = || {
+            spawns.set(spawns.get() + 1);
+            Ok(((), ()))
+        };
+        let (mut child, mut pipes) = (None, None);
+        ensure(&mut child, true, &mut pipes, spawn).unwrap();
+        ensure(&mut child, true, &mut pipes, spawn).unwrap();
+        assert_eq!(spawns.get(), 1);
+        // Editor closed: disabled, then the child killed. A late request must not respawn.
+        child = None;
+        assert!(matches!(ensure(&mut child, false, &mut pipes, spawn), Err(AppError::InvalidInput(_))));
+        assert!(pipes.is_none() && spawns.get() == 1);
+        // The editor opened again: it respawns.
+        ensure(&mut child, true, &mut pipes, spawn).unwrap();
+        assert_eq!(spawns.get(), 2);
     }
 
     #[test]

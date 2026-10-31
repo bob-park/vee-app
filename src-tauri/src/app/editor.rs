@@ -143,6 +143,7 @@ fn join_err(e: impl std::fmt::Display) -> AppError {
 /// Opens `source` (any image the `image` crate reads here) in the editor, replacing any open image.
 pub fn open(app: &AppHandle, source: PathBuf) -> AppResult<()> {
     app.state::<EditorState>().set(Some(Session::load(&source)?));
+    ai_worker::enable();
     let _ = app.emit_to(EDITOR, "editor://opened", ());
     if let Some(window) = app.get_webview_window(EDITOR) {
         let _ = window.show();
@@ -155,7 +156,7 @@ pub fn open(app: &AppHandle, source: PathBuf) -> AppResult<()> {
 /// Drops the session, stops the AI worker (giving its memory back to the OS) and hides the window.
 pub fn close(app: &AppHandle) {
     app.state::<EditorState>().set(None);
-    ai_worker::stop();
+    ai_worker::disable();
     if let Some(window) = app.get_webview_window(EDITOR) {
         let _ = window.hide();
     }

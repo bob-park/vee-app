@@ -162,7 +162,7 @@ pub fn run() {
             if let RunEvent::Exit = event {
                 convert::shutdown(app);
                 engines::shutdown(app);
-                app::ai_worker::stop();
+                app::ai_worker::disable();
             }
         });
 }
