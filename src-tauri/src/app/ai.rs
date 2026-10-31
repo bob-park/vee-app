@@ -1,6 +1,8 @@
 //! On-device image models through ONNX Runtime: background removal with BiRefNet, subject cut
 //! with SAM (ViT-B), and the upscale entry point (Lanczos only; no model passed the glyph check).
+//! The models run in the worker process (`ai_worker`); the app itself never loads ORT.
 
+use crate::app::ai_worker::{self, Request};
 use crate::app::engines::{self, EngineId};
 use crate::domain::edit::{SubjectPoint, upscale_fallback};
 use crate::shared::error::{AppError, AppResult};
@@ -12,7 +14,7 @@ use ort::{
     value::Tensor,
 };
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock, PoisonError, TryLockError};
+use std::sync::OnceLock;
 use std::time::Instant;
 use tauri::AppHandle;
 
@@ -26,12 +28,9 @@ const STD: [f32; 3] = [0.229, 0.224, 0.225];
 const SAM_W: u32 = 1024;
 const SAM_H: u32 = 684;
 
-/// ORT allows one environment per process, so it lives until exit once built (under `RUN`'s lock).
+/// ORT allows one environment per process, so it lives until the worker exits once built.
+/// Sessions are not kept between runs: BiRefNet holds GBs while loaded, and reloading costs about a second.
 static ENV: OnceLock<Environment> = OnceLock::new();
-/// Held for a whole run. The session is not kept between runs: BiRefNet holds GBs while loaded,
-/// and reloading costs about a second.
-// ponytail: one global lock, so runs are serial; fine for one editor window.
-static RUN: Mutex<()> = Mutex::new(());
 
 fn ort_err(e: impl std::fmt::Display) -> AppError {
     AppError::Other(format!("onnx runtime: {e}"))
@@ -110,7 +109,7 @@ fn apply_mask(mut img: RgbaImage, mask: &GrayImage) -> RgbaImage {
     img
 }
 
-/// The shared environment, loading `lib` on first use. Call with `RUN` held.
+/// The shared environment, loading `lib` on first use.
 fn env(lib: &Path) -> AppResult<&'static Environment> {
     if let Some(env) = ENV.get() {
         return Ok(env);
@@ -144,8 +143,6 @@ fn cut(lib: &Path, model: &Path, img: &DynamicImage) -> AppResult<DynamicImage> 
     }
     let data = to_input(img, SIDE);
     let mask = {
-        // The guard holds no data, so a panic in an earlier run leaves nothing to clean up.
-        let _run = RUN.lock().unwrap_or_else(PoisonError::into_inner);
         let start = Instant::now();
         let mut session = load(env(lib)?, model)?;
         log::info!("ai: loaded background model in {} ms", start.elapsed().as_millis());
@@ -162,17 +159,9 @@ fn cut(lib: &Path, model: &Path, img: &DynamicImage) -> AppResult<DynamicImage> 
     Ok(DynamicImage::ImageRgba8(apply_mask(img.to_rgba8(), &mask)))
 }
 
-/// `img` as RGBA with the background made transparent. `Other("model missing")` when the
-/// engine isn't installed; `Other` too when the app lacks its runtime.
-pub fn remove_background(app: &AppHandle, img: &DynamicImage) -> AppResult<DynamicImage> {
-    let dir = engines::model_dir(app, EngineId::Bgremove).ok_or_else(|| AppError::Other("model missing".into()))?;
-    let [model] = model_paths(&dir, EngineId::Bgremove)?.try_into().map_err(|_| AppError::Other("model missing".into()))?;
-    cut(&runtime_path()?, &model, img)
-}
-
 /// SAM's encoder output for one `w × h` source, scaled by `scale` into the encoder input.
 /// Reused for every click on the same image; the sessions themselves are not kept.
-pub struct SamEmbedding {
+pub(crate) struct SamEmbedding {
     data: Vec<f32>,
     shape: Vec<usize>,
     scale: f32,
@@ -242,7 +231,6 @@ fn embed(lib: &Path, model: &Path, img: &DynamicImage) -> AppResult<SamEmbedding
         return Err(AppError::InvalidInput("empty image".into()));
     }
     let (data, scale) = sam_input(img);
-    let _run = RUN.lock().unwrap_or_else(PoisonError::into_inner);
     let start = Instant::now();
     let mut session = load(env(lib)?, model)?;
     log::info!("ai: loaded subject encoder in {} ms", start.elapsed().as_millis());
@@ -273,7 +261,6 @@ fn decode(lib: &Path, model: &Path, img: &DynamicImage, emb: &SamEmbedding, poin
     let (coords, labels) = sam_prompt(points, emb.scale);
     let n = labels.len();
     let mask = {
-        let _run = RUN.lock().unwrap_or_else(PoisonError::into_inner);
         let start = Instant::now();
         let mut session = load(env(lib)?, model)?;
         log::info!("ai: loaded subject decoder in {} ms", start.elapsed().as_millis());
@@ -299,23 +286,39 @@ fn decode(lib: &Path, model: &Path, img: &DynamicImage, emb: &SamEmbedding, poin
     Ok(DynamicImage::ImageRgba8(apply_mask(img.to_rgba8(), &mask)))
 }
 
-/// SAM's installed encoder and decoder, or `Other("model missing")`.
-fn sam_models(app: &AppHandle) -> AppResult<[PathBuf; 2]> {
-    let dir = engines::model_dir(app, EngineId::Sam).ok_or_else(|| AppError::Other("model missing".into()))?;
-    model_paths(&dir, EngineId::Sam)?.try_into().map_err(|_| AppError::Other("model missing".into()))
+/// Runs one worker request on `img`. `sam` holds the last subject embedding and its key.
+pub(crate) fn handle(sam: &mut Option<(u64, SamEmbedding)>, req: Request, img: RgbaImage) -> AppResult<RgbaImage> {
+    let lib = runtime_path()?;
+    let img = DynamicImage::ImageRgba8(img);
+    let out = match req {
+        Request::RemoveBg { model, .. } => cut(&lib, &model, &img)?,
+        Request::Subject { encoder, decoder, key, points, .. } => {
+            ai_worker::with_embedding(sam, key, || embed(&lib, &encoder, &img), |emb| decode(&lib, &decoder, &img, emb, &points))?
+        }
+    };
+    Ok(out.into_rgba8())
 }
 
-/// The SAM embedding of `img`, for `sam_cut`. `Other("model missing")` when the engine isn't installed.
-pub fn sam_embed(app: &AppHandle, img: &DynamicImage) -> AppResult<SamEmbedding> {
-    let [encoder, _] = sam_models(app)?;
-    embed(&runtime_path()?, &encoder, img)
+/// Every model file of `id`'s installed engine, or `Other("model missing")`.
+fn installed(app: &AppHandle, id: EngineId) -> AppResult<Vec<PathBuf>> {
+    model_paths(&engines::model_dir(app, id).ok_or_else(|| AppError::Other("model missing".into()))?, id)
 }
 
-/// `img` as RGBA with everything but the subject at `points` transparent. `emb` must be `img`'s
-/// embedding; `InvalidInput` on empty `points` or another image's embedding.
-pub fn sam_cut(app: &AppHandle, img: &DynamicImage, emb: &SamEmbedding, points: &[SubjectPoint]) -> AppResult<DynamicImage> {
-    let [_, decoder] = sam_models(app)?;
-    decode(&runtime_path()?, &decoder, img, emb, points)
+/// `img` as RGBA with the background made transparent. `Other("model missing")` when the
+/// engine isn't installed; `Other` too when the app lacks its runtime or the worker failed.
+pub fn remove_background(app: &AppHandle, img: &DynamicImage) -> AppResult<DynamicImage> {
+    let [model] = installed(app, EngineId::Bgremove)?.try_into().map_err(|_| AppError::Other("model missing".into()))?;
+    let req = Request::RemoveBg { model, w: img.width(), h: img.height() };
+    ai_worker::call(&req, &img.to_rgba8()).map(DynamicImage::ImageRgba8)
+}
+
+/// `img` as RGBA with everything but the subject at `points` transparent. `key` names `img`: the
+/// worker keeps one embedding and re-runs SAM's encoder only when `key` changes. `InvalidInput`
+/// on empty `points`; `Other("model missing")` when the engine isn't installed.
+pub fn subject(app: &AppHandle, img: &DynamicImage, key: u64, points: &[SubjectPoint]) -> AppResult<DynamicImage> {
+    let [encoder, decoder] = installed(app, EngineId::Sam)?.try_into().map_err(|_| AppError::Other("model missing".into()))?;
+    let req = Request::Subject { encoder, decoder, key, points: points.to_vec(), w: img.width(), h: img.height() };
+    ai_worker::call(&req, &img.to_rgba8()).map(DynamicImage::ImageRgba8)
 }
 
 fn check_upscale(img: &DynamicImage, scale: u8) -> AppResult<()> {
@@ -334,16 +337,17 @@ pub fn upscale(_app: &AppHandle, img: &DynamicImage, scale: u8) -> AppResult<Dyn
     Ok(upscale_fallback(img, scale))
 }
 
-/// Call before removing `id`'s engine files: errors while a run has the model open. No session
-/// outlives a run, so there is nothing else to drop; the ORT library ships with the app and stays loaded.
+/// Call before removing `id`'s engine files: errors while a request is running, else stops the
+/// worker so no model file stays open (Windows locks open files).
 pub fn forget(id: EngineId) -> AppResult<()> {
     if !matches!(id, EngineId::Bgremove | EngineId::Sam) {
         return Ok(());
     }
-    match RUN.try_lock() {
-        Err(TryLockError::WouldBlock) => Err(AppError::InvalidInput(format!("{} is running", id.spec().dir_name))),
-        Ok(_) | Err(TryLockError::Poisoned(_)) => Ok(()),
+    if ai_worker::in_flight() {
+        return Err(AppError::InvalidInput(format!("{} is running", id.spec().dir_name)));
     }
+    ai_worker::stop();
+    Ok(())
 }
 
 #[cfg(test)]
@@ -422,7 +426,7 @@ mod tests {
     #[test]
     fn forget_refuses_while_running() {
         assert!(forget(EngineId::Ffmpeg).is_ok());
-        let held = RUN.lock().unwrap_or_else(PoisonError::into_inner);
+        let held = ai_worker::hold_for_test();
         assert!(matches!(forget(EngineId::Bgremove), Err(AppError::InvalidInput(_))));
         assert!(matches!(forget(EngineId::Sam), Err(AppError::InvalidInput(_))));
         drop(held);
@@ -481,7 +485,6 @@ mod tests {
         let out = env_path("VEE_AI_OUT");
         std::fs::create_dir_all(&out).unwrap();
         {
-            let _run = RUN.lock().unwrap();
             for model in [&encoder, &decoder] {
                 let session = load(env(&lib).unwrap(), model).unwrap();
                 for o in session.inputs() {

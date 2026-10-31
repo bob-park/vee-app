@@ -2,7 +2,7 @@
 
 use crate::{
     app::{
-        ai,
+        ai, ai_worker,
         state::{AppState, now_ms},
         watcher::{MAX_IMAGE_BYTES, THUMB_SIZE},
         window,
@@ -152,9 +152,10 @@ pub fn open(app: &AppHandle, source: PathBuf) -> AppResult<()> {
     Ok(())
 }
 
-/// Drops the session and hides the window.
+/// Drops the session, stops the AI worker (giving its memory back to the OS) and hides the window.
 pub fn close(app: &AppHandle) {
     app.state::<EditorState>().set(None);
+    ai_worker::stop();
     if let Some(window) = app.get_webview_window(EDITOR) {
         let _ = window.hide();
     }

@@ -7,6 +7,13 @@ use domain::{clip, settings, source_app, whats_new};
 use std::sync::atomic::Ordering;
 use tauri::{Manager, RunEvent, WindowEvent};
 
+pub use app::ai_worker::FLAG as AI_WORKER_FLAG;
+
+/// The `--ai-worker` child's entry point (see `app::ai_worker`).
+pub fn ai_worker_main() {
+    app::ai_worker::main()
+}
+
 pub fn run() {
     tauri::Builder::default()
         // Must be first: a second launch just opens the settings window.
@@ -155,6 +162,7 @@ pub fn run() {
             if let RunEvent::Exit = event {
                 convert::shutdown(app);
                 engines::shutdown(app);
+                app::ai_worker::stop();
             }
         });
 }
