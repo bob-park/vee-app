@@ -155,13 +155,51 @@ Pre- and post-processing follow rembg `sessions/sam.py`:
 
 - [ ] **Step 5: Commit.** `feat(editor): sam subject cut`
 
+### Task 3b: AI worker process (user decision 2026-11-01)
+
+**Why:** Task 3 measured SAM peaking at about 3.3 GB. macOS libmalloc keeps the freed large blocks resident (about 3.2 GB after a run, even with every session dropped), and BiRefNet very likely has the same problem. The user chose to run all model inference in a child process that is killed when the editor closes, so the OS takes back everything.
+
+**Files:**
+- Create: `src-tauri/src/app/ai_worker.rs` (wire format, worker loop, client)
+- Modify: `src-tauri/src/main.rs`, `src-tauri/src/app/ai.rs`, `src-tauri/src/app/mod.rs` (or wherever `app` modules are declared), `src-tauri/src/lib.rs` (stop on `RunEvent::Exit`), `src-tauri/src/app/editor.rs` (stop on `close`)
+
+**Interfaces:**
+- **Worker mode:** in `main.rs`, if `std::env::args().nth(1) == Some("--ai-worker")`, call `vee_app_lib::ai_worker_main()` and return before `run()`. This happens before the single-instance plugin, so a worker never shows Settings.
+- **Framing** (stdin/stdout, binary):
+  - Each message is a `u32` LE header length, then the JSON header, then a payload of exactly `header.bytes` raw bytes.
+  - Images are raw RGBA8 with `w`, `h` in the header.
+- **Requests** (serde `type` tag, camelCase):
+  - `{"type":"removeBg","w","h","bytes"}` + RGBA
+  - `{"type":"subject","key","w","h","points","bytes"}` + RGBA
+- **Responses:**
+  - `{"type":"ok","w","h","bytes"}` + RGBA
+  - `{"type":"err","invalid":bool,"message"}`. `invalid` maps to `AppError::InvalidInput`, otherwise to `Other`.
+- **Worker state:** at most **one** SAM embedding plus its `key: u64`. On `subject`, if `key` differs from the held one, it embeds the given image first (replacing the old embedding), then cuts. Model files are found the same way as now: the worker is the same exe, so `runtime_path()` works. The worker gets the model dir as a CLI arg: `--ai-worker <app-data engines dir>`, or whatever is simplest given `engines::model_dir` needs an `AppHandle`. Pass the resolved bgremove/sam dirs as args, or resolve lazily per request by sending the dir in the header.
+- **Client** (main process): `pub fn remove_background(app, img) -> AppResult<DynamicImage>` and `pub fn subject(app, img, key: u64, points: &[SubjectPoint]) -> AppResult<DynamicImage>` keep their signatures in `ai.rs` and go through the worker. The worker child is spawned lazily on the first request and kept in a `Mutex<Option<Worker>>` that is held for the whole request.
+  - `pub fn stop()` kills and reaps the child. It is called from `editor::close`, `RunEvent::Exit`, and `forget`.
+  - `forget(id)` refuses if a request is in flight (`try_lock` WouldBlock); otherwise it stops the worker, so no model file stays open (Windows file locks).
+  - If a request hits an IO error, the client drops the worker and returns `Other("ai worker failed")`. The next request respawns it.
+  - On Windows, spawn with `CREATE_NO_WINDOW`.
+- The in-process `embed`/`decode`/`cut` from Task 3 become worker-side code. The main process no longer loads ORT at all.
+
+- [ ] **Step 1: Write the failing tests.**
+  - `frame_round_trip`: write a request with a 2×1 RGBA payload into a `Vec<u8>`, then read it back, and get an equal header and payload.
+  - `serve_dispatches`: run the worker loop (`serve(reader, writer, handler)`, generic over `Read`/`Write` with an injected handler) over in-memory buffers with a fake handler. A `removeBg` request yields `ok` with the handler's image, and a handler error yields `err` with `invalid` preserved.
+  - `subject_reembeds_only_on_new_key` (worker state, fake embed/cut closures counting calls): keys `1,1,2` → 2 embeds and 3 cuts.
+  - `#[ignore] worker_real_spawn`: spawn the built test binary? Not possible. Instead, document a manual check in Task 8.
+- [ ] **Step 2: Run and confirm FAIL.**
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run all lib tests and confirm PASS.** Then build with `cargo build --manifest-path src-tauri/Cargo.toml` and run a smoke test by hand: start the built binary with `--ai-worker` and pipe it one `removeBg` frame produced by a tiny test helper or a unit test that spawns `env!("CARGO_BIN_EXE_…")` if available. Describe what you did in the report.
+- [ ] **Step 5: Commit.** `feat(editor): run models in a worker process`
+
 ### Task 4: Render `subject` with a cached embedding
 
 **Files:**
 - Modify: `src-tauri/src/app/editor.rs`
 
 **Interfaces:**
-- Consumes: `ai::{sam_embed, sam_cut, SamEmbedding}`, `Op::Subject`.
+- **Revised after Task 3b:** the embedding now lives in the worker (one at a time, keyed). Ignore the `embeds` map below. `render_off_main` calls `ai::subject(app, img, prefix_key, points)`, where `prefix_key = ai_key(session, &ops[..i])`. The test `subject_embedding_keyed_by_prefix` asserts the prefix key passed to the AI callback stays the same when only points change and changes after a crop. `subject_results_not_cached` asserts `cache.len() == 0`.
+- Consumes: `ai::subject`, `Op::Subject`.
 - Changes `render`'s AI callback to `ai: impl Fn(&DynamicImage, &Op, u64) -> AppResult<DynamicImage>`, where the `u64` is `ai_key(session, &ops[..i])` (the key of the ops **before** the AI op).
 - `Session` gains `embeds: Mutex<HashMap<u64, Arc<ai::SamEmbedding>>>`, cleared with the session like `cache`.
 - `Op::Subject` is an AI op but is **not** put in `cache`: only its embedding is cached. A click re-runs just the decoder, so the cache doesn't grow by a full-res image per click.
