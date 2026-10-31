@@ -10,24 +10,13 @@ import ResizeForm from '@/app/editor/_components/ResizeForm';
 import RotatePanel from '@/app/editor/_components/RotatePanel';
 import SubjectLayer from '@/app/editor/_components/SubjectLayer';
 import { TOOL_BUTTON } from '@/app/editor/_components/button';
-import { useEngineStatus } from '@/domain/convert/queries/engines';
+import { BRUSH, useBgTools } from '@/app/editor/_hooks/useBgTools';
 import { closeEditor, copyEdit, getEditSource, renderEdit } from '@/domain/edit/apis/edit';
 import type { BrushMode, EditImage, EditOp } from '@/domain/edit/apis/edit.dto';
 import Aurora from '@/shared/components/Aurora';
 import Segmented from '@/shared/components/Segmented';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
-import {
-  type Size,
-  type SubjectMarks,
-  addLasso,
-  addPoint,
-  dropLastMark,
-  emptyMarks,
-  previewScale,
-  sizeAfter,
-  subjectOp,
-  undoMark,
-} from '@/utils/edit';
+import { type Size, addLasso, addPoint, previewScale, sizeAfter } from '@/utils/edit';
 import { errorText } from '@/utils/errorText';
 
 import { listen } from '@tauri-apps/api/event';
@@ -43,8 +32,6 @@ const SCALES = ['2', '4'] as const;
 const upscaleOp = (k: (typeof SCALES)[number]): EditOp => ({ type: 'upscale', scale: k === '4' ? 4 : 2 });
 const ZOOMS = ['fit', 'actual'] as const;
 const BRUSH_MODES: BrushMode[] = ['erase', 'restore'];
-/** Brush radius in CSS px: default, range and the `[` / `]` step. */
-const BRUSH = { size: 16, min: 2, max: 80, step: 2 };
 
 const isMac = navigator.userAgent.includes('Mac');
 
@@ -78,27 +65,31 @@ export function EditorApp() {
   const [aiFailed, setAiFailed] = useState(false);
   const [scale, setScale] = useState<(typeof SCALES)[number]>('2');
   const [zoom, setZoom] = useState<(typeof ZOOMS)[number]>('fit');
-  const [bgTool, setBgTool] = useState<BgTool>('auto');
-  const [brushMode, setBrushMode] = useState<BrushMode>('erase');
-  /** Brush radius in CSS px. */
-  const [brushSize, setBrushSize] = useState(BRUSH.size);
   /** A live step's render is running; the next click or stroke waits for it (latest wins). */
   const [liveRendering, setLiveRendering] = useState(false);
-  /** The Subject tool's clicks and lassos; they count only while `pending` is the subject step they made. */
-  const [subjectMarks, setSubjectMarks] = useState<SubjectMarks>(emptyMarks);
 
   // hooks
   const { t } = useI18n();
+  const {
+    bgTool,
+    setBgTool,
+    brushMode,
+    setBrushMode,
+    brushSize,
+    bgStatus,
+    samStatus,
+    bgReady,
+    samReady,
+    live,
+    marks,
+    handleMarks,
+    undoLiveMark,
+    handleBrushSize,
+    handleStroke,
+    reset: resetBgTools,
+  } = useBgTools(pending, setPending);
 
-  // queries
-  const { status: bgStatus } = useEngineStatus('bgremove');
-  const { status: samStatus } = useEngineStatus('sam');
-
-  const bgReady = bgStatus?.state === 'installed';
-  const samReady = samStatus?.state === 'installed';
   const opsShown = preview?.ops === ops;
-  /** A Subject or Brush step being built; never empty (the last item removed makes `pending` null). */
-  const live = pending?.type === 'subject' || pending?.type === 'brush' ? pending : null;
   /** A step rendered before it's applied. */
   const aiPending = pending?.type === 'removeBg' || pending?.type === 'upscale' ? pending : live;
   const fresh = result?.ops === ops ? result : null;
@@ -109,8 +100,6 @@ export function EditorApp() {
   const spinner = !!aiPending && !shown && aiPending.type !== 'brush' && !liveImg;
   /** The image shows every click or stroke of the live step (or there is none). */
   const liveSynced = !live || fresh?.op === live;
-  // Any other `pending` (applied, reset, another tool) leaves no marks behind.
-  const marks = pending?.type === 'subject' ? subjectMarks : emptyMarks();
 
   // useEffect
   useEffect(() => {
@@ -126,10 +115,7 @@ export function EditorApp() {
       setAiFailed(false);
       setScale('2');
       setZoom('fit');
-      setBgTool('auto');
-      setBrushMode('erase');
-      setBrushSize(BRUSH.size);
-      setSubjectMarks(emptyMarks());
+      resetBgTools();
     };
     const load = () => {
       // Reset first, so a reopen never shows the last image while the new one loads.
@@ -220,11 +206,10 @@ export function EditorApp() {
         if (pendingRef.current !== live) return;
         setError(errorText(e));
         setAiFailed(true);
-        if (live.type === 'subject') handleMarks(undoMark(marks));
-        else setPending(dropLastMark(live));
+        undoLiveMark();
       })
       .finally(() => setLiveRendering(false));
-    // `marks` needs no dep: it changes only together with `live`.
+    // `undoLiveMark` needs no dep: what it reads (`live`, `marks`) changes only together with `live`.
   }, [live, liveSynced, ops, opsShown, liveRendering]);
 
   useEffect(() => {
@@ -282,17 +267,10 @@ export function EditorApp() {
     setOps((cur) => cur.slice(0, -1));
   };
 
-  /** The Subject tool's marks and the step they make, set together. */
-  const handleMarks = (next: SubjectMarks) => {
-    setSubjectMarks(next);
-    setPending(subjectOp(next));
-  };
-
   /** ⌘Z: before a live step is applied, it takes back its last click, lasso or stroke. */
   const handleUndoKey = () => {
     if (!live) return handleUndo();
-    if (live.type === 'subject') handleMarks(undoMark(marks));
-    else setPending(dropLastMark(live));
+    undoLiveMark();
   };
 
   const handleTab = (next: EditorTab) => {
@@ -310,8 +288,6 @@ export function EditorApp() {
     setPending(null);
     setBgTool(next);
   };
-
-  const handleBrushSize = (next: number) => setBrushSize(Math.min(Math.max(next, BRUSH.min), BRUSH.max));
 
   const handleRetry = () => {
     setError(null);
@@ -473,12 +449,7 @@ export function EditorApp() {
                 viewRadius={brushSize}
                 synced={liveSynced}
                 disabled={busy}
-                onStroke={(stroke) =>
-                  setPending((cur) => ({
-                    type: 'brush',
-                    strokes: [...(cur?.type === 'brush' ? cur.strokes : []), stroke],
-                  }))
-                }
+                onStroke={handleStroke}
               />
             )}
           </div>
