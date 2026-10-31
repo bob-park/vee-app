@@ -18,4 +18,31 @@ pub enum Op {
     RemoveBg,
     /// `2` or `4`.
     Upscale { scale: u8 },
+    /// Cut out the subject marked by clicks on the image.
+    Subject { points: Vec<SubjectPoint> },
+    /// Paint alpha by hand: erase or restore along strokes.
+    Brush { strokes: Vec<Stroke> },
+}
+
+/// A click for `Op::Subject`, in source pixels. `keep: false` marks background.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SubjectPoint {
+    pub x: u32,
+    pub y: u32,
+    pub keep: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BrushMode {
+    Erase,
+    Restore,
+}
+
+/// One drag of the brush: a polyline in source pixels, painted `radius` wide.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Stroke {
+    pub mode: BrushMode,
+    pub radius: u32,
+    pub points: Vec<[u32; 2]>,
 }
