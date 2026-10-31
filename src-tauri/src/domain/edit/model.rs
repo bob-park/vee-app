@@ -24,7 +24,7 @@ pub enum Op {
     Brush { strokes: Vec<Stroke> },
 }
 
-/// A click for `Op::Subject`, in source pixels. `keep: false` marks background.
+/// A click for `Op::Subject`, in full-res px of the image the ops before it produce. `keep: false` marks background.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SubjectPoint {
     pub x: u32,
@@ -39,7 +39,8 @@ pub enum BrushMode {
     Restore,
 }
 
-/// One drag of the brush: a polyline in source pixels, painted `radius` wide.
+/// One drag of the brush: a polyline in full-res px of the image the ops before it produce,
+/// painted with a round brush of `radius` (so the stroke is `2 × radius` wide).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Stroke {
     pub mode: BrushMode,

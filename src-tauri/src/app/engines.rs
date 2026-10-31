@@ -116,8 +116,8 @@ pub const SPECS: [EngineSpec; 4] = [
 // decoder, Apache-2.0; both from rembg's release); checksums and sizes measured when pinning. ONNX Runtime ships inside the app (`ai::runtime_path`), signed with Vee's
 // identity: the hardened runtime refuses a downloaded library signed by another team.
 
-/// Bump an engine's version when its pinned files change; drives the update badge.
-/// Bgremove 2: the runtime left the engine.
+// Bump an engine's version when its pinned files change; drives the update badge.
+// Bgremove 2: the runtime left the engine.
 
 /// The pinned release of a model engine; `None` for looked-up engines and platforms without a bundled runtime.
 fn pinned(id: EngineId) -> Option<Release> {
@@ -879,7 +879,7 @@ fn curl(app: &AppHandle, id: EngineId, url: &str, file: &Path, cancel: &AtomicBo
     }
 }
 
-/// Engine commands; `engine` is `"ffmpeg"`, `"rhwp"` or `"bgremove"`.
+/// Engine commands; `engine` is `"ffmpeg"`, `"rhwp"`, `"bgremove"` or `"sam"`.
 pub mod commands {
     use super::{EngineId, EngineStatus, Engines};
     use crate::shared::error::{AppError, AppResult};
