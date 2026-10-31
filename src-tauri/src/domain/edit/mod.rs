@@ -44,34 +44,51 @@ pub fn paint_strokes(img: DynamicImage, strokes: &[Stroke]) -> AppResult<Dynamic
     for stroke in strokes {
         let r = stroke.radius as f32;
         let feather = (r / 4.0).max(1.0);
+        let pad = stroke.radius as i64;
+        // Bounding box of the whole stroke ± radius, clipped to the image.
+        let clip = |lo: Option<u32>, hi: Option<u32>, max: i64| match (lo, hi) {
+            (Some(lo), Some(hi)) => ((lo as i64 - pad).max(0), (hi as i64 + pad).min(max - 1)),
+            _ => (0, -1),
+        };
+        let (sx0, sx1) = clip(stroke.points.iter().map(|p| p[0]).min(), stroke.points.iter().map(|p| p[0]).max(), iw);
+        let (sy0, sy1) = clip(stroke.points.iter().map(|p| p[1]).min(), stroke.points.iter().map(|p| p[1]).max(), ih);
+        if sx0 > sx1 || sy0 > sy1 {
+            continue;
+        }
+        // Coverage from the distance to the whole polyline: the max over its segments.
+        let bw = (sx1 - sx0 + 1) as usize;
+        let mut cov = vec![0f32; bw * (sy1 - sy0 + 1) as usize];
         // A single point is a zero-length segment.
         let segs: Vec<_> = match stroke.points.as_slice() {
             [p] => vec![(*p, *p)],
             pts => pts.windows(2).map(|w| (w[0], w[1])).collect(),
         };
         for ([ax, ay], [bx, by]) in segs {
-            let pad = stroke.radius as i64;
-            let x0 = (ax.min(bx) as i64 - pad).max(0);
-            let y0 = (ay.min(by) as i64 - pad).max(0);
-            let x1 = (ax.max(bx) as i64 + pad).min(iw - 1);
-            let y1 = (ay.max(by) as i64 + pad).min(ih - 1);
+            let x0 = (ax.min(bx) as i64 - pad).max(sx0);
+            let y0 = (ay.min(by) as i64 - pad).max(sy0);
+            let x1 = (ax.max(bx) as i64 + pad).min(sx1);
+            let y1 = (ay.max(by) as i64 + pad).min(sy1);
             let (a, b) = ((ax as f32, ay as f32), (bx as f32, by as f32));
             for y in y0..=y1 {
                 for x in x0..=x1 {
                     let d = segment_distance((x as f32, y as f32), a, b);
-                    let c = ((r - d) / feather).clamp(0.0, 1.0);
-                    if c == 0.0 {
-                        continue;
-                    }
-                    let alpha = &mut buf.get_pixel_mut(x as u32, y as u32).0[3];
-                    let v = *alpha as f32;
-                    *alpha = match stroke.mode {
-                        BrushMode::Erase => v * (1.0 - c),
-                        BrushMode::Restore => v + (255.0 - v) * c,
-                    }
-                    .round() as u8;
+                    let c = &mut cov[(y - sy0) as usize * bw + (x - sx0) as usize];
+                    *c = c.max(((r - d) / feather).clamp(0.0, 1.0));
                 }
             }
+        }
+        for (i, &c) in cov.iter().enumerate() {
+            if c == 0.0 {
+                continue;
+            }
+            let (x, y) = (sx0 as usize + i % bw, sy0 as usize + i / bw);
+            let alpha = &mut buf.get_pixel_mut(x as u32, y as u32).0[3];
+            let v = *alpha as f32;
+            *alpha = match stroke.mode {
+                BrushMode::Erase => v * (1.0 - c),
+                BrushMode::Restore => v + (255.0 - v) * c,
+            }
+            .round() as u8;
         }
     }
     Ok(DynamicImage::ImageRgba8(buf))
@@ -261,5 +278,14 @@ mod tests {
     fn brush_rejects_zero_radius() {
         let r = apply_geometric(solid(255), &brush(BrushMode::Erase, 0, vec![[10, 10]]));
         assert!(matches!(r, Err(AppError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn brush_coverage_uses_the_whole_polyline() {
+        let split = apply_geometric(solid(255), &brush(BrushMode::Erase, 8, vec![[2, 10], [10, 10], [17, 10]])).unwrap();
+        let line = apply_geometric(solid(255), &brush(BrushMode::Erase, 8, vec![[2, 10], [17, 10]])).unwrap();
+        assert_eq!(split.to_rgba8(), line.to_rgba8());
+        let a = px(&line, 10, 17)[3];
+        assert!(a > 0 && a < 255, "feather band alpha {a}");
     }
 }
