@@ -179,9 +179,7 @@ pub fn jpeg_to_pdf(jpeg: &[u8]) -> Option<Vec<u8>> {
     for offset in &offsets {
         pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
     }
-    pdf.extend_from_slice(
-        format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", offsets.len() + 1).as_bytes(),
-    );
+    pdf.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", offsets.len() + 1).as_bytes());
     Some(pdf)
 }
 
@@ -243,9 +241,7 @@ pub(super) mod tests {
 
     /// 1×1 RGBA PNG.
     pub fn tiny_png() -> Vec<u8> {
-        STANDARD
-            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
-            .unwrap()
+        STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==").unwrap()
     }
 
     /// 2×1 baseline (SOF0) RGB JPEG, made with `sips`.

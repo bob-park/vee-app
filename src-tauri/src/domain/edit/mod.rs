@@ -2,16 +2,16 @@
 
 mod model;
 
-pub use model::{MAX_SIDE, Op, PREVIEW_SIDE, UPSCALE_CAP};
+pub use model::{BrushMode, MAX_SIDE, Op, PREVIEW_SIDE, Stroke, SubjectPoint, UPSCALE_CAP};
 
 use crate::shared::error::{AppError, AppResult};
 use ::image::{DynamicImage, ImageFormat, imageops::FilterType};
 use std::io::Cursor;
 
-/// Applies a crop, rotate or resize. AI ops are rejected; they run elsewhere.
+/// Applies a crop, rotate or resize, or paints brush strokes. AI ops are rejected; they run elsewhere.
 pub fn apply_geometric(img: DynamicImage, op: &Op) -> AppResult<DynamicImage> {
-    match *op {
-        Op::Crop { x, y, w, h } => {
+    match op {
+        &Op::Crop { x, y, w, h } => {
             let (iw, ih) = (img.width(), img.height());
             let (x, y) = (x.min(iw), y.min(ih));
             let (w, h) = (w.min(iw - x), h.min(ih - y));
@@ -23,14 +23,84 @@ pub fn apply_geometric(img: DynamicImage, op: &Op) -> AppResult<DynamicImage> {
         Op::Rotate { quarter: 1 } => Ok(img.rotate90()),
         Op::Rotate { quarter: -1 } => Ok(img.rotate270()),
         Op::Rotate { quarter } => Err(AppError::InvalidInput(format!("bad rotate quarter {quarter}"))),
-        Op::Resize { w, h } => {
+        &Op::Resize { w, h } => {
             if w == 0 || h == 0 || w > MAX_SIDE || h > MAX_SIDE {
                 return Err(AppError::InvalidInput(format!("bad resize {w}x{h}")));
             }
             Ok(img.resize_exact(w, h, FilterType::Lanczos3))
         }
-        Op::RemoveBg | Op::Upscale { .. } => Err(AppError::InvalidInput("not geometric".into())),
+        Op::Brush { strokes } => paint_strokes(img, strokes),
+        Op::RemoveBg | Op::Upscale { .. } | Op::Subject { .. } => Err(AppError::InvalidInput("not geometric".into())),
     }
+}
+
+/// Erases or restores alpha along each stroke, with a soft edge. RGB is never touched.
+pub fn paint_strokes(img: DynamicImage, strokes: &[Stroke]) -> AppResult<DynamicImage> {
+    if let Some(s) = strokes.iter().find(|s| s.radius == 0 || s.radius > MAX_SIDE) {
+        return Err(AppError::InvalidInput(format!("bad brush radius {}", s.radius)));
+    }
+    let mut buf = img.into_rgba8();
+    let (iw, ih) = (buf.width() as i64, buf.height() as i64);
+    for stroke in strokes {
+        let r = stroke.radius as f32;
+        let feather = (r / 4.0).max(1.0);
+        let pad = stroke.radius as i64;
+        // Bounding box of the whole stroke ± radius, clipped to the image.
+        let clip = |lo: Option<u32>, hi: Option<u32>, max: i64| match (lo, hi) {
+            (Some(lo), Some(hi)) => ((lo as i64 - pad).max(0), (hi as i64 + pad).min(max - 1)),
+            _ => (0, -1),
+        };
+        let (sx0, sx1) = clip(stroke.points.iter().map(|p| p[0]).min(), stroke.points.iter().map(|p| p[0]).max(), iw);
+        let (sy0, sy1) = clip(stroke.points.iter().map(|p| p[1]).min(), stroke.points.iter().map(|p| p[1]).max(), ih);
+        if sx0 > sx1 || sy0 > sy1 {
+            continue;
+        }
+        // Coverage from the distance to the whole polyline: the max over its segments.
+        let bw = (sx1 - sx0 + 1) as usize;
+        let mut cov = vec![0f32; bw * (sy1 - sy0 + 1) as usize];
+        // A single point is a zero-length segment.
+        let segs: Vec<_> = match stroke.points.as_slice() {
+            [p] => vec![(*p, *p)],
+            pts => pts.windows(2).map(|w| (w[0], w[1])).collect(),
+        };
+        for ([ax, ay], [bx, by]) in segs {
+            let x0 = (ax.min(bx) as i64 - pad).max(sx0);
+            let y0 = (ay.min(by) as i64 - pad).max(sy0);
+            let x1 = (ax.max(bx) as i64 + pad).min(sx1);
+            let y1 = (ay.max(by) as i64 + pad).min(sy1);
+            let (a, b) = ((ax as f32, ay as f32), (bx as f32, by as f32));
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    let d = segment_distance((x as f32, y as f32), a, b);
+                    let c = &mut cov[(y - sy0) as usize * bw + (x - sx0) as usize];
+                    *c = c.max(((r - d) / feather).clamp(0.0, 1.0));
+                }
+            }
+        }
+        for (i, &c) in cov.iter().enumerate() {
+            if c == 0.0 {
+                continue;
+            }
+            let (x, y) = (sx0 as usize + i % bw, sy0 as usize + i / bw);
+            let alpha = &mut buf.get_pixel_mut(x as u32, y as u32).0[3];
+            let v = *alpha as f32;
+            *alpha = match stroke.mode {
+                BrushMode::Erase => v * (1.0 - c),
+                BrushMode::Restore => v + (255.0 - v) * c,
+            }
+            .round() as u8;
+        }
+    }
+    Ok(DynamicImage::ImageRgba8(buf))
+}
+
+/// Distance from `p` to the segment `a`–`b`.
+fn segment_distance(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 == 0.0 { 0.0 } else { (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len2).clamp(0.0, 1.0) };
+    let (cx, cy) = (a.0 + t * dx - p.0, a.1 + t * dy - p.1);
+    (cx * cx + cy * cy).sqrt()
 }
 
 /// `w*scale × h*scale`, shrunk proportionally so the long side is at most `UPSCALE_CAP`.
@@ -115,6 +185,20 @@ mod tests {
     #[test]
     fn ai_ops_are_not_geometric() {
         assert!(matches!(apply_geometric(blank(10, 10), &Op::RemoveBg), Err(AppError::InvalidInput(_))));
+        assert!(matches!(apply_geometric(blank(10, 10), &Op::Subject { points: vec![], lasso: None }), Err(AppError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn subject_lasso_serde() {
+        let wire = r#"{"type":"subject","points":[],"lasso":[[1,2],[3,4],[5,6]]}"#;
+        let op: Op = serde_json::from_str(wire).unwrap();
+        assert_eq!(op, Op::Subject { points: vec![], lasso: Some(vec![[1, 2], [3, 4], [5, 6]]) });
+        assert_eq!(serde_json::to_string(&op).unwrap(), wire);
+        // The old shape still parses, and goes back out without a `lasso` key.
+        let old = r#"{"type":"subject","points":[{"x":1,"y":2,"keep":true}]}"#;
+        let op: Op = serde_json::from_str(old).unwrap();
+        assert!(matches!(&op, Op::Subject { lasso: None, .. }));
+        assert_eq!(serde_json::to_string(&op).unwrap(), old);
     }
 
     #[test]
@@ -152,5 +236,69 @@ mod tests {
         let bg: Op = serde_json::from_str(r#"{"type":"removeBg"}"#).unwrap();
         assert_eq!(bg, Op::RemoveBg);
         assert_eq!(serde_json::to_string(&bg).unwrap(), r#"{"type":"removeBg"}"#);
+    }
+
+    #[test]
+    fn op_serde_new_variants() {
+        for wire in [
+            r#"{"type":"subject","points":[{"x":3,"y":4,"keep":false}]}"#,
+            r#"{"type":"brush","strokes":[{"mode":"restore","radius":5,"points":[[1,2]]}]}"#,
+        ] {
+            let op: Op = serde_json::from_str(wire).unwrap();
+            assert_eq!(serde_json::to_string(&op).unwrap(), wire);
+        }
+    }
+
+    fn solid(alpha: u8) -> DynamicImage {
+        DynamicImage::ImageRgba8(RgbaImage::from_pixel(20, 20, Rgba([10, 20, 30, alpha])))
+    }
+
+    fn brush(mode: BrushMode, radius: u32, points: Vec<[u32; 2]>) -> Op {
+        Op::Brush { strokes: vec![Stroke { mode, radius, points }] }
+    }
+
+    fn px(img: &DynamicImage, x: u32, y: u32) -> [u8; 4] {
+        img.to_rgba8().get_pixel(x, y).0
+    }
+
+    #[test]
+    fn brush_erase_clears_alpha_keeps_rgb() {
+        let out = apply_geometric(solid(255), &brush(BrushMode::Erase, 4, vec![[10, 10]])).unwrap();
+        assert_eq!(px(&out, 10, 10), [10, 20, 30, 0]);
+        assert_eq!(px(&out, 0, 0)[3], 255);
+    }
+
+    #[test]
+    fn brush_line_fills_between_points() {
+        let out = apply_geometric(solid(255), &brush(BrushMode::Erase, 2, vec![[2, 10], [17, 10]])).unwrap();
+        assert_eq!(px(&out, 10, 10)[3], 0);
+        assert_eq!(px(&out, 10, 0)[3], 255);
+    }
+
+    #[test]
+    fn brush_restore_sets_alpha() {
+        let out = apply_geometric(solid(0), &brush(BrushMode::Restore, 4, vec![[10, 10]])).unwrap();
+        assert_eq!(px(&out, 10, 10), [10, 20, 30, 255]);
+    }
+
+    #[test]
+    fn brush_clamps_outside_points() {
+        let out = apply_geometric(solid(255), &brush(BrushMode::Erase, 3, vec![[500, 500]])).unwrap();
+        assert_eq!(out.to_rgba8(), solid(255).to_rgba8());
+    }
+
+    #[test]
+    fn brush_rejects_zero_radius() {
+        let r = apply_geometric(solid(255), &brush(BrushMode::Erase, 0, vec![[10, 10]]));
+        assert!(matches!(r, Err(AppError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn brush_coverage_uses_the_whole_polyline() {
+        let split = apply_geometric(solid(255), &brush(BrushMode::Erase, 8, vec![[2, 10], [10, 10], [17, 10]])).unwrap();
+        let line = apply_geometric(solid(255), &brush(BrushMode::Erase, 8, vec![[2, 10], [17, 10]])).unwrap();
+        assert_eq!(split.to_rgba8(), line.to_rgba8());
+        let a = px(&line, 10, 17)[3];
+        assert!(a > 0 && a < 255, "feather band alpha {a}");
     }
 }

@@ -2,10 +2,20 @@ mod app;
 mod domain;
 mod shared;
 
-use app::{autostart, convert, disk_access, drop_target, editor, engines, ocr, office, retention, shortcut, state::AppState, tray, updater, watcher, window};
+use app::{
+    autostart, convert, disk_access, drop_target, editor, engines, ocr, office, retention, shortcut, state::AppState, tray, updater,
+    watcher, window,
+};
 use domain::{clip, settings, source_app, whats_new};
 use std::sync::atomic::Ordering;
 use tauri::{Manager, RunEvent, WindowEvent};
+
+pub use app::ai_worker::FLAG as AI_WORKER_FLAG;
+
+/// The `--ai-worker` child's entry point (see `app::ai_worker`).
+pub fn ai_worker_main() {
+    app::ai_worker::main()
+}
 
 pub fn run() {
     tauri::Builder::default()
@@ -155,7 +165,7 @@ pub fn run() {
             if let RunEvent::Exit = event {
                 convert::shutdown(app);
                 engines::shutdown(app);
+                app::ai_worker::disable();
             }
         });
 }
-

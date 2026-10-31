@@ -5,7 +5,8 @@ mod model;
 pub mod repository;
 
 pub use model::{
-    DEFAULT_PANEL_PIN_SHORTCUT, DEFAULT_PINNED_COPY_SHORTCUTS, DEFAULT_RESET_SEARCH_SHORTCUT, DEFAULT_SHORTCUT, SILENT, SOUND_NAMES, SettingsDto,
+    DEFAULT_PANEL_PIN_SHORTCUT, DEFAULT_PINNED_COPY_SHORTCUTS, DEFAULT_RESET_SEARCH_SHORTCUT, DEFAULT_SHORTCUT, SILENT, SOUND_NAMES,
+    SettingsDto,
 };
 
 use crate::domain::clip;
@@ -30,7 +31,13 @@ pub fn get(conn: &Connection, key: &str) -> String {
         "dragConvert" => "on",
         "videoQuality" => "normal",
         "videoHwAccel" => "on",
-        "convertKey" => if cfg!(target_os = "macos") { "alt" } else { "ctrl" },
+        "convertKey" => {
+            if cfg!(target_os = "macos") {
+                "alt"
+            } else {
+                "ctrl"
+            }
+        }
         _ => "",
     };
     repository::get(conn, key).ok().flatten().unwrap_or_else(|| default.to_string())
@@ -114,7 +121,10 @@ mod tests {
     fn invalid_setting_is_invalid_input_and_not_saved() {
         let conn = db::open_in_memory().unwrap();
         let err = set(&conn, "theme", "x").unwrap_err();
-        assert_eq!(serde_json::to_value(&err).unwrap(), serde_json::json!({ "code": "INVALID_INPUT", "message": "invalid setting theme=x" }));
+        assert_eq!(
+            serde_json::to_value(&err).unwrap(),
+            serde_json::json!({ "code": "INVALID_INPUT", "message": "invalid setting theme=x" })
+        );
         assert_eq!(raw(&conn, "theme").unwrap(), None);
         set(&conn, "theme", "dark").unwrap();
         assert_eq!(get(&conn, "theme"), "dark");

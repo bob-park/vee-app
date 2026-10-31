@@ -28,10 +28,12 @@ pub fn prune_now(app: &AppHandle) -> AppResult<usize> {
 
 /// Prunes now and then every hour.
 pub fn spawn_pruner(app: AppHandle) {
-    std::thread::spawn(move || loop {
-        if let Err(e) = prune_now(&app) {
-            log::warn!("pruning failed: {e}");
+    std::thread::spawn(move || {
+        loop {
+            if let Err(e) = prune_now(&app) {
+                log::warn!("pruning failed: {e}");
+            }
+            std::thread::sleep(PRUNE_EVERY);
         }
-        std::thread::sleep(PRUNE_EVERY);
     });
 }

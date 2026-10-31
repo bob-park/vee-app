@@ -159,7 +159,15 @@ pub fn spawn(app: &AppHandle) {
     if tmp.exists() {
         let _ = std::fs::remove_dir_all(&tmp);
     }
-    app.manage(Convert { session: Mutex::new(None), last_encoder: Mutex::new(None), overlay: Mutex::default(), drag: AtomicU64::new(0), jobs: Mutex::default(), queue, tmp });
+    app.manage(Convert {
+        session: Mutex::new(None),
+        last_encoder: Mutex::new(None),
+        overlay: Mutex::default(),
+        drag: AtomicU64::new(0),
+        jobs: Mutex::default(),
+        queue,
+        tmp,
+    });
     let app = app.clone();
     // ponytail: one worker for all images; a second worker if batches feel slow.
     std::thread::spawn(move || {
@@ -398,7 +406,8 @@ fn work(app: &AppHandle, id: u64) {
             tmp.clone()
         })
         .join("lo-profile");
-    let mut ctx = Run { fell_back: false,
+    let mut ctx = Run {
+        fell_back: false,
         ffmpeg: engine.as_ref().map(|(f, p)| (f.as_path(), p.as_path())),
         quality,
         hw,
@@ -412,9 +421,8 @@ fn work(app: &AppHandle, id: u64) {
     // A retried job resumes at the file that failed; the ones before it are already saved.
     for (i, src) in files.iter().enumerate().skip(start) {
         let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Vee".into());
-        let result = std::fs::create_dir_all(tmp)
-            .map_err(|_| JobError::Write)
-            .and_then(|()| convert::run(src, &stem, format, &dir, tmp, &mut ctx));
+        let result =
+            std::fs::create_dir_all(tmp).map_err(|_| JobError::Write).and_then(|()| convert::run(src, &stem, format, &dir, tmp, &mut ctx));
         if result == Err(JobError::Cancelled) {
             // Cancelled by the user: drop the job without a toast.
             c.jobs.lock().unwrap().list.retain(|j| j.id != id);
@@ -544,9 +552,9 @@ fn kind_for(files: usize) -> Kind {
 /// Convert commands. A submodule so they can share names with the functions above.
 pub mod commands {
     use super::{Convert, cancel, publish, snapshot};
+    use crate::app::state::now_ms;
     use crate::domain::convert::{JobState, JobView};
     use crate::shared::error::{AppError, AppResult};
-    use crate::app::state::now_ms;
     use tauri::{AppHandle, Manager, State};
 
     /// The overlay painted its blank frame after `convert://close` `seq`.
@@ -680,7 +688,8 @@ mod tests {
 
     #[test]
     fn exit_drops_queued_jobs_and_cancels_running_ones() {
-        let mut jobs = Jobs { list: vec![job(1, JobState::Running), job(2, JobState::Queued), job(3, JobState::Done)], ..Default::default() };
+        let mut jobs =
+            Jobs { list: vec![job(1, JobState::Running), job(2, JobState::Queued), job(3, JobState::Done)], ..Default::default() };
         assert!(stop_all(&mut jobs));
         assert_eq!(jobs.list.iter().map(|j| j.id).collect::<Vec<_>>(), [1, 3]);
         assert!(jobs.list[0].cancel.load(Ordering::SeqCst) && !jobs.list[1].cancel.load(Ordering::SeqCst));

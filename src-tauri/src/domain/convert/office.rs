@@ -56,7 +56,8 @@ pub fn registry_xcu(macos: bool) -> String {
     if macos {
         items.push(item("/org.openoffice.Office.Common/Font/Substitution", prop("Replacement", "true")));
         for (i, (from, to)) in MAC_FONT_PAIRS.iter().enumerate() {
-            let pair = [prop("Always", "true"), prop("OnScreenOnly", "false"), prop("ReplaceFont", from), prop("SubstituteFont", to)].concat();
+            let pair =
+                [prop("Always", "true"), prop("OnScreenOnly", "false"), prop("ReplaceFont", from), prop("SubstituteFont", to)].concat();
             items.push(item(
                 "/org.openoffice.Office.Common/Font/Substitution/FontPairs",
                 format!(r#"<node oor:name="_{i}" oor:op="replace">{pair}</node>"#),
@@ -181,7 +182,16 @@ mod tests {
         let a = strings(soffice_args(Path::new("/i/a.docx"), Format::Docx, Path::new("/t/o"), Path::new("/p/lo")).unwrap());
         assert_eq!(
             a,
-            ["--headless", "--norestore", "-env:UserInstallation=file:///p/lo", "--convert-to", "docx:MS Word 2007 XML", "--outdir", "/t/o", "/i/a.docx"]
+            [
+                "--headless",
+                "--norestore",
+                "-env:UserInstallation=file:///p/lo",
+                "--convert-to",
+                "docx:MS Word 2007 XML",
+                "--outdir",
+                "/t/o",
+                "/i/a.docx"
+            ]
         );
         let f = |to| soffice_args(Path::new("i"), to, Path::new("o"), Path::new("/p")).map(|a| strings(a)[4].clone());
         assert_eq!(f(Format::Xlsx).unwrap(), "xlsx:Calc MS Excel 2007 XML");
@@ -247,8 +257,14 @@ mod tests {
 
     #[test]
     fn file_urls_for_both_platforms() {
-        assert_eq!(file_url(Path::new("/Users/me/Library/Application Support/vee/lo-profile")), "file:///Users/me/Library/Application%20Support/vee/lo-profile");
-        assert_eq!(file_url(Path::new(r"C:\Users\박\AppData\Roaming\vee\lo-profile")), "file:///C:/Users/%EB%B0%95/AppData/Roaming/vee/lo-profile");
+        assert_eq!(
+            file_url(Path::new("/Users/me/Library/Application Support/vee/lo-profile")),
+            "file:///Users/me/Library/Application%20Support/vee/lo-profile"
+        );
+        assert_eq!(
+            file_url(Path::new(r"C:\Users\박\AppData\Roaming\vee\lo-profile")),
+            "file:///C:/Users/%EB%B0%95/AppData/Roaming/vee/lo-profile"
+        );
     }
 
     #[test]

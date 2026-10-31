@@ -26,9 +26,15 @@ pub enum UpdateStatus {
     #[default]
     Idle,
     Checking,
-    UpToDate { checked_at: i64 },
-    Ready { version: String },
-    Failed { checked_at: i64 },
+    UpToDate {
+        checked_at: i64,
+    },
+    Ready {
+        version: String,
+    },
+    Failed {
+        checked_at: i64,
+    },
 }
 
 #[derive(Default)]
@@ -143,9 +149,11 @@ pub fn spawn_periodic(app: AppHandle) {
     if cfg!(debug_assertions) {
         return;
     }
-    std::thread::spawn(move || loop {
-        tauri::async_runtime::block_on(check(&app));
-        std::thread::sleep(CHECK_EVERY);
+    std::thread::spawn(move || {
+        loop {
+            tauri::async_runtime::block_on(check(&app));
+            std::thread::sleep(CHECK_EVERY);
+        }
     });
 }
 
@@ -172,14 +180,8 @@ mod tests {
     fn status_serializes_like_the_typescript_union() {
         let json = |s: UpdateStatus| serde_json::to_value(s).unwrap();
         assert_eq!(json(UpdateStatus::Idle), serde_json::json!({ "status": "idle" }));
-        assert_eq!(
-            json(UpdateStatus::UpToDate { checked_at: 5 }),
-            serde_json::json!({ "status": "upToDate", "checkedAt": 5 })
-        );
-        assert_eq!(
-            json(UpdateStatus::Ready { version: "0.2.0".into() }),
-            serde_json::json!({ "status": "ready", "version": "0.2.0" })
-        );
+        assert_eq!(json(UpdateStatus::UpToDate { checked_at: 5 }), serde_json::json!({ "status": "upToDate", "checkedAt": 5 }));
+        assert_eq!(json(UpdateStatus::Ready { version: "0.2.0".into() }), serde_json::json!({ "status": "ready", "version": "0.2.0" }));
     }
 
     #[test]

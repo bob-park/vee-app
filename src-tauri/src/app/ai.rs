@@ -1,8 +1,10 @@
-//! On-device image models through ONNX Runtime: background removal with BiRefNet, and the
-//! upscale entry point (Lanczos only; no model passed the glyph check).
+//! On-device image models through ONNX Runtime: background removal with BiRefNet, subject cut
+//! with SAM (ViT-B), and the upscale entry point (Lanczos only; no model passed the glyph check).
+//! The models run in the worker process (`ai_worker`); the app itself never loads ORT.
 
+use crate::app::ai_worker::{self, Request};
 use crate::app::engines::{self, EngineId};
-use crate::domain::edit::upscale_fallback;
+use crate::domain::edit::{SubjectPoint, upscale_fallback};
 use crate::shared::error::{AppError, AppResult};
 use ::image::{DynamicImage, GrayImage, Luma, RgbaImage, imageops, imageops::FilterType};
 use ort::{
@@ -12,7 +14,7 @@ use ort::{
     value::Tensor,
 };
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock, PoisonError, TryLockError};
+use std::sync::OnceLock;
 use std::time::Instant;
 use tauri::AppHandle;
 
@@ -22,25 +24,25 @@ const SIDE: u32 = 1024;
 const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 const STD: [f32; 3] = [0.229, 0.224, 0.225];
 
-/// ORT allows one environment per process, so it lives until exit once built (under `RUN`'s lock).
+/// SAM's encoder input, `W × H`: the source fits inside, top-left, zero padded (rembg's `input_size`).
+const SAM_W: u32 = 1024;
+const SAM_H: u32 = 684;
+
+/// ORT allows one environment per process, so it lives until the worker exits once built.
+/// Sessions are not kept between runs: BiRefNet holds GBs while loaded, and reloading costs about a second.
 static ENV: OnceLock<Environment> = OnceLock::new();
-/// Held for a whole run. The session is not kept between runs: BiRefNet holds GBs while loaded,
-/// and reloading costs about a second.
-// ponytail: one global lock, so runs are serial; fine for one editor window.
-static RUN: Mutex<()> = Mutex::new(());
 
 fn ort_err(e: impl std::fmt::Display) -> AppError {
     AppError::Other(format!("onnx runtime: {e}"))
 }
 
-/// The model file of an installed model engine in `dir`.
-fn model_path(dir: &Path, id: EngineId) -> AppResult<PathBuf> {
-    let [model] = id.spec().binaries else { return Err(AppError::Other("model missing".into())) };
-    let model = dir.join(model);
-    if !model.is_file() {
+/// Every model file of an installed model engine in `dir`, in `binaries` order.
+fn model_paths(dir: &Path, id: EngineId) -> AppResult<Vec<PathBuf>> {
+    let paths: Vec<PathBuf> = id.spec().binaries.iter().map(|b| dir.join(b)).collect();
+    if !paths.iter().all(|p| p.is_file()) {
         return Err(AppError::Other("model missing".into()));
     }
-    Ok(model)
+    Ok(paths)
 }
 
 /// The ONNX Runtime library the app ships (`scripts/fetch-onnxruntime.mjs`, bundled by `tauri.<os>.conf.json`).
@@ -107,6 +109,15 @@ fn apply_mask(mut img: RgbaImage, mask: &GrayImage) -> RgbaImage {
     img
 }
 
+/// The shared environment, loading `lib` on first use.
+fn env(lib: &Path) -> AppResult<&'static Environment> {
+    if let Some(env) = ENV.get() {
+        return Ok(env);
+    }
+    let env = ort::init_from(lib).map_err(ort_err)?.build().map_err(ort_err)?;
+    Ok(ENV.get_or_init(|| env))
+}
+
 /// A CPU session tuned for peak memory: no arena, no memory pattern, at most 4 threads.
 fn load(env: &Environment, model: &Path) -> AppResult<Session> {
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(4);
@@ -132,17 +143,8 @@ fn cut(lib: &Path, model: &Path, img: &DynamicImage) -> AppResult<DynamicImage> 
     }
     let data = to_input(img, SIDE);
     let mask = {
-        // The guard holds no data, so a panic in an earlier run leaves nothing to clean up.
-        let _run = RUN.lock().unwrap_or_else(PoisonError::into_inner);
-        let env = match ENV.get() {
-            Some(env) => env,
-            None => {
-                let env = ort::init_from(lib).map_err(ort_err)?.build().map_err(ort_err)?;
-                ENV.get_or_init(|| env)
-            }
-        };
         let start = Instant::now();
-        let mut session = load(env, model)?;
+        let mut session = load(env(lib)?, model)?;
         log::info!("ai: loaded background model in {} ms", start.elapsed().as_millis());
         // Any ORT call (even building a tensor) needs the library loaded first, or ort panics.
         let input = Tensor::from_array(([1usize, 3, SIDE as usize, SIDE as usize], data)).map_err(ort_err)?;
@@ -157,12 +159,377 @@ fn cut(lib: &Path, model: &Path, img: &DynamicImage) -> AppResult<DynamicImage> 
     Ok(DynamicImage::ImageRgba8(apply_mask(img.to_rgba8(), &mask)))
 }
 
+/// SAM's encoder output for one `w × h` source, scaled by `scale` into the encoder input.
+/// Reused for every click on the same image; the sessions themselves are not kept.
+pub(crate) struct SamEmbedding {
+    data: Vec<f32>,
+    shape: Vec<usize>,
+    scale: f32,
+    w: u32,
+    h: u32,
+}
+
+/// `w × h` scaled by `scale`, as it sits in SAM's input.
+fn sam_size(w: u32, h: u32, scale: f32) -> (u32, u32) {
+    (((w as f32 * scale).round() as u32).clamp(1, SAM_W), ((h as f32 * scale).round() as u32).clamp(1, SAM_H))
+}
+
+/// The encoder input, HWC f32 `SAM_H × SAM_W × 3` of raw 0..255 RGB (the model normalizes), and
+/// the scale the source was fitted by.
+fn sam_input(img: &DynamicImage) -> (Vec<f32>, f32) {
+    let (w, h) = (img.width(), img.height());
+    let scale = (SAM_W as f32 / w as f32).min(SAM_H as f32 / h as f32);
+    let (nw, nh) = sam_size(w, h, scale);
+    // The integer thumbnail filter when shrinking, as in `to_input`.
+    let small = if nw < w { img.thumbnail_exact(nw, nh) } else { img.resize_exact(nw, nh, FilterType::Triangle) }.to_rgb8();
+    let mut data = vec![0f32; (SAM_W * SAM_H * 3) as usize];
+    for (x, y, p) in small.enumerate_pixels() {
+        let i = ((y * SAM_W + x) * 3) as usize;
+        data[i..i + 3].copy_from_slice(&p.0.map(f32::from));
+    }
+    (data, scale)
+}
+
+/// Decoder `point_coords` (flat `[n+1, 2]`, or `[n+3, 2]` with a box) and `point_labels`: the
+/// points in input space, keep → 1 and background → 0, then `bbox`'s corners as labels 2 and 3,
+/// then the `(0, 0)` / −1 pad (rembg's `get_input_points`).
+fn sam_prompt(points: &[SubjectPoint], bbox: Option<[u32; 4]>, scale: f32) -> (Vec<f32>, Vec<f32>) {
+    let corners = bbox.map(|[x0, y0, x1, y1]| [(x0, y0, 2.0), (x1, y1, 3.0)]).into_iter().flatten();
+    let all: Vec<(u32, u32, f32)> = points.iter().map(|p| (p.x, p.y, if p.keep { 1.0 } else { 0.0 })).chain(corners).collect();
+    let coords = all.iter().flat_map(|&(x, y, _)| [x as f32 * scale, y as f32 * scale]).chain([0.0, 0.0]).collect();
+    let labels = all.iter().map(|&(_, _, l)| l).chain([-1.0]).collect();
+    (coords, labels)
+}
+
+/// `lasso`'s bounding box, `[x0, y0, x1, y1]`.
+fn lasso_box(lasso: &[[u32; 2]]) -> [u32; 4] {
+    lasso.iter().fold([u32::MAX, u32::MAX, 0, 0], |[x0, y0, x1, y1], &[x, y]| [x0.min(x), y0.min(y), x1.max(x), y1.max(y)])
+}
+
+/// How far past the lasso the clip keeps alpha: `max(8, 2 % of the long side)` px.
+fn clip_margin(w: u32, h: u32) -> u32 {
+    ((w.max(h) as f32 * 0.02).round() as u32).max(8)
+}
+
+/// Where the edges of the closed polygon `lasso` cross the horizontal line at `yc`, unsorted.
+fn crossings(lasso: &[[u32; 2]], yc: f32, out: &mut Vec<f32>) {
+    out.clear();
+    for (i, &[ax, ay]) in lasso.iter().enumerate() {
+        let [bx, by] = lasso[(i + 1) % lasso.len()];
+        let (ay, by) = (ay as f32, by as f32);
+        if (ay <= yc) != (by <= yc) {
+            out.push(ax as f32 + (yc - ay) / (by - ay) * (bx as f32 - ax as f32));
+        }
+    }
+}
+
+/// Whether pixel `(x, y)`'s centre is inside `lasso` (even-odd), as `lasso_mask` fills it.
+fn point_in_lasso(lasso: &[[u32; 2]], x: u32, y: u32) -> bool {
+    let mut xs = Vec::new();
+    crossings(lasso, y as f32 + 0.5, &mut xs);
+    // `<=` matches the fill's `[a, b)` spans: a centre on a crossing counts as past it.
+    xs.iter().filter(|&&cx| cx <= x as f32 + 0.5).count() % 2 == 1
+}
+
+/// The pixels whose centres `x + 0.5` lie in `[a, b)` of one even-odd crossing pair, clamped to
+/// `w`, then (if any) widened by `r` and clamped again. A pair holding no centre in the image
+/// stays empty, so it doesn't grow into a span.
+fn span(pair: &[f32], w: u32, r: u32) -> (usize, usize) {
+    let a = (pair[0] - 0.5).ceil().clamp(0.0, w as f32) as usize;
+    let b = (pair[1] - 0.5).ceil().clamp(0.0, w as f32) as usize;
+    if b <= a {
+        return (a, a);
+    }
+    let r = r as usize;
+    (a.saturating_sub(r), (b + r).min(w as usize))
+}
+
+/// Whether `lasso`'s even-odd fill holds any pixel centre of a `w × h` image, without a buffer.
+fn lasso_fills_any(lasso: &[[u32; 2]], w: u32, h: u32) -> bool {
+    let mut xs = Vec::new();
+    (0..h).any(|y| {
+        crossings(lasso, y as f32 + 0.5, &mut xs);
+        xs.sort_by(f32::total_cmp);
+        xs.chunks_exact(2).any(|pair| {
+            let (a, b) = span(pair, w, 0);
+            b > a
+        })
+    })
+}
+
+/// `w × h` alpha for the lasso clip: 255 inside `lasso` (even-odd scanline fill at pixel centres,
+/// so a self-crossing path works) dilated by a `margin` px square, then a linear fade to 0 over
+/// about `feather` px. It's the fill dilated by `margin + feather`, box-blurred with radius
+/// `feather / 2` (the window shrinks at the image's sides, so a lasso off the image doesn't fade
+/// there). Only the lasso's box padded by that reach is touched. Everything happens in the one
+/// returned buffer plus row-sized scratch, and each pass is O(w · h) whatever the margin.
+fn lasso_mask(lasso: &[[u32; 2]], w: u32, h: u32, margin: u32, feather: u32) -> GrayImage {
+    let (wu, hu, r, k) = (w as usize, h as usize, (margin + feather) as usize, feather as usize / 2);
+    let mut buf = vec![0u8; wu * hu];
+    let [lx0, ly0, lx1, ly1] = lasso_box(lasso).map(|v| v as usize);
+    let pad = r + k + 1;
+    let (x0, x1) = (lx0.saturating_sub(pad).min(wu), (lx1 + pad + 1).min(wu));
+    let (y0, y1) = (ly0.saturating_sub(pad).min(hu), (ly1 + pad + 1).min(hu));
+    if x0 >= x1 || y0 >= y1 {
+        return GrayImage::from_raw(w, h, buf).expect("w × h buffer");
+    }
+    let bw = x1 - x0;
+    // The box's part of row `y`.
+    let seg = |y: usize| y * wu + x0..y * wu + x1;
+    // Fill, each span widened by `r` (the horizontal dilation); spans stay inside the box.
+    let mut xs = Vec::new();
+    for y in y0..y1 {
+        crossings(lasso, y as f32 + 0.5, &mut xs);
+        xs.sort_by(f32::total_cmp);
+        for pair in xs.chunks_exact(2) {
+            let (a, b) = span(pair, w, r as u32);
+            buf[y * wu + a..y * wu + b].fill(255);
+        }
+    }
+    // Vertical dilation in place, leaving 0/1. Down pass: a pixel within `r` below a filled (255)
+    // one turns 1, which doesn't spread further. Up pass: the same from below, then every non-zero
+    // pixel becomes 1 (pixels above it still hold the down pass's 255 / 1 / 0).
+    let mut near = vec![usize::MAX; bw];
+    for y in y0..y1 {
+        for (v, n) in buf[seg(y)].iter_mut().zip(near.iter_mut()) {
+            if *v == 255 {
+                *n = y;
+            } else if *n != usize::MAX && y - *n <= r {
+                *v = 1;
+            }
+        }
+    }
+    near.fill(usize::MAX);
+    for y in (y0..y1).rev() {
+        for (v, n) in buf[seg(y)].iter_mut().zip(near.iter_mut()) {
+            if *v == 255 {
+                *n = y;
+                *v = 1;
+            } else if *v == 1 || n.wrapping_sub(y) <= r {
+                *v = 1;
+            }
+        }
+    }
+    // Vertical box blur in place: a running per-column count over rows `y - k ..= y + k`, scaled to
+    // 0–255 through a table. A row has been overwritten by the time it leaves the window, so the
+    // last `k + 1` originals are kept in a ring (slot `y % (k + 1)`).
+    let scale = |n: usize| -> Vec<u8> { (0..=n).map(|s| ((s * 255 + n / 2) / n) as u8).collect() };
+    let mut sums = vec![0u32; bw];
+    let mut ring = vec![0u8; (k + 1) * bw];
+    for y in y0..(y0 + k).min(y1) {
+        sums.iter_mut().zip(&buf[seg(y)]).for_each(|(s, &v)| *s += v as u32);
+    }
+    let (mut lut, zero) = (Vec::new(), vec![0u8; bw]);
+    for y in y0..y1 {
+        let n = (y + k).min(hu - 1) + 1 - y.saturating_sub(k);
+        if lut.len() != n + 1 {
+            lut = scale(n);
+        }
+        let slot = y % (k + 1);
+        // Row `y` (written) and, from the rest, row `y + k` (entering; with `k = 0`, row `y`'s copy).
+        let (head, tail) = buf.split_at_mut((y + 1) * wu);
+        let row = &mut head[y * wu + x0..y * wu + x1];
+        ring[slot * bw..(slot + 1) * bw].copy_from_slice(row);
+        let add = match y + k {
+            e if e >= y1 => &zero[..],
+            _ if k == 0 => &ring[slot * bw..(slot + 1) * bw],
+            e => &tail[(e - y - 1) * wu + x0..(e - y - 1) * wu + x1],
+        };
+        // Row `y - k` (leaving), from the ring.
+        let sub = match y.checked_sub(k).filter(|&o| o >= y0) {
+            Some(o) => &ring[o % (k + 1) * bw..(o % (k + 1) + 1) * bw],
+            None => &zero[..],
+        };
+        for (((v, s), &a), &d) in row.iter_mut().zip(sums.iter_mut()).zip(add).zip(sub) {
+            *s += a as u32;
+            *v = lut[*s as usize];
+            *s -= d as u32;
+        }
+    }
+    // Horizontal box blur, row by row: a running sum over a copy of the row's box part, padded
+    // with `k` zeros a side (outside the box is 0). `ns` is each column's in-image window size.
+    let ns: Vec<u32> = (x0..x1).map(|x| ((x + k).min(wu - 1) + 1 - x.saturating_sub(k)) as u32).collect();
+    let mut src = vec![0u8; bw + 2 * k];
+    for y in y0..y1 {
+        let row = &mut buf[seg(y)];
+        src[k..k + bw].copy_from_slice(row);
+        let mut s: u32 = src[..2 * k].iter().map(|&v| v as u32).sum();
+        for (((v, &n), &add), &sub) in row.iter_mut().zip(&ns).zip(&src[2 * k..]).zip(&src) {
+            s += add as u32;
+            *v = ((s + n / 2) / n) as u8;
+            s -= sub as u32;
+        }
+    }
+    GrayImage::from_raw(w, h, buf).expect("w × h buffer")
+}
+
+/// `img` with `mask` as alpha, then, with a `lasso`, alpha faded out past it plus `clip_margin`
+/// (`lasso_mask`), unless a keep point lies outside the lasso (the user marked something it
+/// misses) or the lasso holds no pixel centre (a flat one would otherwise blank the image).
+fn finish_cut(img: RgbaImage, mask: &GrayImage, points: &[SubjectPoint], lasso: Option<&[[u32; 2]]>) -> RgbaImage {
+    let mut img = apply_mask(img, mask);
+    let (w, h) = img.dimensions();
+    if let Some(lasso) = lasso
+        && points.iter().all(|p| !p.keep || point_in_lasso(lasso, p.x, p.y))
+        && lasso_fills_any(lasso, w, h)
+    {
+        let margin = clip_margin(w, h);
+        let clip = lasso_mask(lasso, w, h, margin, (margin / 2).max(4));
+        for (p, c) in img.pixels_mut().zip(clip.pixels()) {
+            p[3] = ((p[3] as u32 * c[0] as u32 + 127) / 255) as u8;
+        }
+    }
+    img
+}
+
+/// The decoder's `k × SAM_H × SAM_W` logits as a `w × h` alpha mask: the OR of the `k` masks (the
+/// max logit), cropped to the source's area, sampled bilinearly, then `sigmoid · 255`.
+/// Logits are interpolated before the sigmoid so edges stay sharp when scaled up.
+fn sam_mask(logits: &[f32], scale: f32, w: u32, h: u32) -> GrayImage {
+    let plane = (SAM_W * SAM_H) as usize;
+    let mut best = vec![f32::MIN; plane];
+    for m in logits.chunks_exact(plane) {
+        for (b, &v) in best.iter_mut().zip(m) {
+            *b = b.max(v);
+        }
+    }
+    let (cw, ch) = sam_size(w, h, scale);
+    let at = |x: u32, y: u32| best[(y * SAM_W + x) as usize];
+    GrayImage::from_fn(w, h, |x, y| {
+        // Pixel centres map to pixel centres.
+        let sx = ((x as f32 + 0.5) * cw as f32 / w as f32 - 0.5).clamp(0.0, (cw - 1) as f32);
+        let sy = ((y as f32 + 0.5) * ch as f32 / h as f32 - 0.5).clamp(0.0, (ch - 1) as f32);
+        let (x0, y0) = (sx as u32, sy as u32);
+        let (x1, y1) = ((x0 + 1).min(cw - 1), (y0 + 1).min(ch - 1));
+        let (fx, fy) = (sx - x0 as f32, sy - y0 as f32);
+        let top = at(x0, y0) + (at(x1, y0) - at(x0, y0)) * fx;
+        let bottom = at(x0, y1) + (at(x1, y1) - at(x0, y1)) * fx;
+        let v = top + (bottom - top) * fy;
+        Luma([(255.0 / (1.0 + (-v).exp())).round() as u8])
+    })
+}
+
+/// Runs SAM's encoder from `model` on `img`. The session is dropped before returning.
+fn embed(lib: &Path, model: &Path, img: &DynamicImage) -> AppResult<SamEmbedding> {
+    if img.width() == 0 || img.height() == 0 {
+        return Err(AppError::InvalidInput("empty image".into()));
+    }
+    let (data, scale) = sam_input(img);
+    let start = Instant::now();
+    let mut session = load(env(lib)?, model)?;
+    log::info!("ai: loaded subject encoder in {} ms", start.elapsed().as_millis());
+    let input = Tensor::from_array(([SAM_H as usize, SAM_W as usize, 3], data)).map_err(ort_err)?;
+    let start = Instant::now();
+    let outputs = session.run(ort::inputs![input]).map_err(ort_err)?;
+    let out = outputs.values().next().ok_or_else(|| AppError::Other("onnx runtime: no output".into()))?;
+    let (shape, data) = out.try_extract_tensor::<f32>().map_err(ort_err)?;
+    log::info!("ai: embedded {}x{} in {} ms", img.width(), img.height(), start.elapsed().as_millis());
+    Ok(SamEmbedding { data: data.to_vec(), shape: shape.iter().map(|&d| d as usize).collect(), scale, w: img.width(), h: img.height() })
+}
+
+/// Runs SAM's decoder from `model` for `points` and `lasso` (as a box) on `emb` and returns `img`
+/// as RGBA with the mask as alpha, clipped to the lasso (`finish_cut`). The session is dropped
+/// before returning.
+fn decode(
+    lib: &Path,
+    model: &Path,
+    img: &DynamicImage,
+    emb: &SamEmbedding,
+    points: &[SubjectPoint],
+    lasso: Option<&[[u32; 2]]>,
+) -> AppResult<DynamicImage> {
+    check_subject(points, lasso)?;
+    if (emb.w, emb.h) != (img.width(), img.height()) {
+        return Err(AppError::InvalidInput("embedding is for another image".into()));
+    }
+    let (coords, labels) = sam_prompt(points, lasso.map(lasso_box), emb.scale);
+    let n = labels.len();
+    let mask = {
+        let start = Instant::now();
+        let mut session = load(env(lib)?, model)?;
+        log::info!("ai: loaded subject decoder in {} ms", start.elapsed().as_millis());
+        let inputs = ort::inputs! {
+            "image_embeddings" => Tensor::from_array((emb.shape.clone(), emb.data.clone())).map_err(ort_err)?,
+            "point_coords" => Tensor::from_array(([1usize, n, 2], coords)).map_err(ort_err)?,
+            "point_labels" => Tensor::from_array(([1usize, n], labels)).map_err(ort_err)?,
+            "mask_input" => Tensor::from_array(([1usize, 1, 256, 256], vec![0f32; 256 * 256])).map_err(ort_err)?,
+            "has_mask_input" => Tensor::from_array(([1usize], vec![0f32])).map_err(ort_err)?,
+            "orig_im_size" => Tensor::from_array(([2usize], vec![SAM_H as f32, SAM_W as f32])).map_err(ort_err)?,
+        };
+        let start = Instant::now();
+        let outputs = session.run(inputs).map_err(ort_err)?;
+        let out = outputs.values().next().ok_or_else(|| AppError::Other("onnx runtime: no output".into()))?;
+        let (shape, logits) = out.try_extract_tensor::<f32>().map_err(ort_err)?;
+        if shape.len() != 4 || shape[2] != SAM_H as i64 || shape[3] != SAM_W as i64 {
+            return Err(AppError::Other(format!("onnx runtime: unexpected mask shape {shape:?}")));
+        }
+        let mask = sam_mask(logits, emb.scale, emb.w, emb.h);
+        log::info!("ai: subject cut from {} points (lasso: {}) in {} ms", points.len(), lasso.is_some(), start.elapsed().as_millis());
+        mask
+    };
+    Ok(DynamicImage::ImageRgba8(finish_cut(img.to_rgba8(), &mask, points, lasso)))
+}
+
+/// `InvalidInput` unless there are points or a lasso, and any lasso has at least 3 points.
+pub(crate) fn check_subject(points: &[SubjectPoint], lasso: Option<&[[u32; 2]]>) -> AppResult<()> {
+    match lasso {
+        None if points.is_empty() => Err(AppError::InvalidInput("no subject points".into())),
+        Some(l) if l.len() < 3 => Err(AppError::InvalidInput("lasso needs 3 points".into())),
+        _ => Ok(()),
+    }
+}
+
+/// Runs one worker request on `img`. `sam` holds the last subject embedding and its key.
+pub(crate) fn handle(sam: &mut Option<(u64, SamEmbedding)>, req: Request, img: RgbaImage) -> AppResult<RgbaImage> {
+    let lib = runtime_path()?;
+    let img = DynamicImage::ImageRgba8(img);
+    let out = match req {
+        Request::RemoveBg { model, .. } => cut(&lib, &model, &img)?,
+        Request::Subject { encoder, decoder, key, points, lasso, .. } => ai_worker::with_embedding(
+            sam,
+            key,
+            || embed(&lib, &encoder, &img),
+            |emb| decode(&lib, &decoder, &img, emb, &points, lasso.as_deref()),
+        )?,
+    };
+    Ok(out.into_rgba8())
+}
+
+/// Every model file of `id`'s installed engine, or `Other("model missing")`.
+fn installed(app: &AppHandle, id: EngineId) -> AppResult<Vec<PathBuf>> {
+    model_paths(&engines::model_dir(app, id).ok_or_else(|| AppError::Other("model missing".into()))?, id)
+}
+
 /// `img` as RGBA with the background made transparent. `Other("model missing")` when the
-/// engine isn't installed; `Other` too when the app lacks its runtime.
+/// engine isn't installed; `Other` too when the app lacks its runtime or the worker failed.
 pub fn remove_background(app: &AppHandle, img: &DynamicImage) -> AppResult<DynamicImage> {
-    let dir = engines::model_dir(app, EngineId::Bgremove).ok_or_else(|| AppError::Other("model missing".into()))?;
-    let model = model_path(&dir, EngineId::Bgremove)?;
-    cut(&runtime_path()?, &model, img)
+    let [model] = installed(app, EngineId::Bgremove)?.try_into().map_err(|_| AppError::Other("model missing".into()))?;
+    let req = Request::RemoveBg { model, w: img.width(), h: img.height() };
+    ai_worker::call(&req, img).map(DynamicImage::ImageRgba8)
+}
+
+/// `img` as RGBA with everything but the subject at `points` (and inside `lasso`) transparent.
+/// `key` names `img`: the worker keeps one embedding and re-runs SAM's encoder only when `key`
+/// changes. `InvalidInput` per `check_subject`; `Other("model missing")` when the engine isn't installed.
+pub fn subject(
+    app: &AppHandle,
+    img: &DynamicImage,
+    key: u64,
+    points: &[SubjectPoint],
+    lasso: Option<&[[u32; 2]]>,
+) -> AppResult<DynamicImage> {
+    check_subject(points, lasso)?;
+    let [encoder, decoder] = installed(app, EngineId::Sam)?.try_into().map_err(|_| AppError::Other("model missing".into()))?;
+    let req = Request::Subject {
+        encoder,
+        decoder,
+        key,
+        points: points.to_vec(),
+        lasso: lasso.map(<[_]>::to_vec),
+        w: img.width(),
+        h: img.height(),
+    };
+    ai_worker::call(&req, img).map(DynamicImage::ImageRgba8)
 }
 
 fn check_upscale(img: &DynamicImage, scale: u8) -> AppResult<()> {
@@ -181,16 +548,17 @@ pub fn upscale(_app: &AppHandle, img: &DynamicImage, scale: u8) -> AppResult<Dyn
     Ok(upscale_fallback(img, scale))
 }
 
-/// Call before removing `id`'s engine files: errors while a run has the model open. No session
-/// outlives a run, so there is nothing else to drop; the ORT library ships with the app and stays loaded.
+/// Call before removing `id`'s engine files: errors while a request is running, else stops the
+/// worker so no model file stays open (Windows locks open files).
 pub fn forget(id: EngineId) -> AppResult<()> {
-    if id != EngineId::Bgremove {
+    if !matches!(id, EngineId::Bgremove | EngineId::Sam) {
         return Ok(());
     }
-    match RUN.try_lock() {
-        Err(TryLockError::WouldBlock) => Err(AppError::InvalidInput("bgremove is running".into())),
-        Ok(_) | Err(TryLockError::Poisoned(_)) => Ok(()),
+    if ai_worker::in_flight() {
+        return Err(AppError::InvalidInput(format!("{} is running", id.spec().dir_name)));
     }
+    ai_worker::stop();
+    Ok(())
 }
 
 #[cfg(test)]
@@ -211,10 +579,15 @@ mod tests {
     #[test]
     fn missing_model_is_reported() {
         let dir = tempfile::tempdir().unwrap();
-        let err = model_path(dir.path(), EngineId::Bgremove).unwrap_err();
+        let err = model_paths(dir.path(), EngineId::Bgremove).unwrap_err();
         assert_eq!(err.to_string(), "model missing");
         std::fs::write(dir.path().join("model.onnx"), b"m").unwrap();
-        assert_eq!(model_path(dir.path(), EngineId::Bgremove).unwrap(), dir.path().join("model.onnx"));
+        assert_eq!(model_paths(dir.path(), EngineId::Bgremove).unwrap(), [dir.path().join("model.onnx")]);
+        // Every file of a multi-file model must be there.
+        std::fs::write(dir.path().join("encoder.onnx"), b"e").unwrap();
+        assert_eq!(model_paths(dir.path(), EngineId::Sam).unwrap_err().to_string(), "model missing");
+        std::fs::write(dir.path().join("decoder.onnx"), b"d").unwrap();
+        assert_eq!(model_paths(dir.path(), EngineId::Sam).unwrap(), [dir.path().join("encoder.onnx"), dir.path().join("decoder.onnx")]);
     }
 
     #[test]
@@ -238,7 +611,8 @@ mod tests {
 
     #[test]
     fn input_is_normalized_nchw() {
-        let img = DynamicImage::ImageRgb8(RgbImage::from_fn(2, 2, |x, y| if (x, y) == (1, 1) { Rgb([255, 255, 255]) } else { Rgb([0, 0, 0]) }));
+        let img =
+            DynamicImage::ImageRgb8(RgbImage::from_fn(2, 2, |x, y| if (x, y) == (1, 1) { Rgb([255, 255, 255]) } else { Rgb([0, 0, 0]) }));
         let data = to_input(&img, 2);
         assert_eq!(data.len(), 12);
         // black → (0 - mean) / std, white (v/max = 1) → (1 - mean) / std; red plane first.
@@ -264,10 +638,262 @@ mod tests {
     #[test]
     fn forget_refuses_while_running() {
         assert!(forget(EngineId::Ffmpeg).is_ok());
-        let held = RUN.lock().unwrap_or_else(PoisonError::into_inner);
+        let held = ai_worker::hold_for_test();
         assert!(matches!(forget(EngineId::Bgremove), Err(AppError::InvalidInput(_))));
+        assert!(matches!(forget(EngineId::Sam), Err(AppError::InvalidInput(_))));
         drop(held);
         assert!(forget(EngineId::Bgremove).is_ok());
+        assert!(forget(EngineId::Sam).is_ok());
+    }
+
+    fn point(x: u32, y: u32, keep: bool) -> SubjectPoint {
+        SubjectPoint { x, y, keep }
+    }
+
+    #[test]
+    fn sam_input_scales_and_pads() {
+        let (data, scale) = sam_input(&DynamicImage::new_rgb8(2048, 1368));
+        assert_eq!(scale, 0.5);
+        assert_eq!(data.len(), 684 * 1024 * 3);
+        let img = DynamicImage::ImageRgb8(RgbImage::from_pixel(1024, 100, Rgb([200, 0, 0])));
+        let (data, scale) = sam_input(&img);
+        assert_eq!(scale, 1.0);
+        // HWC: the image sits top-left, the rest is zero.
+        assert_eq!(&data[..3], &[200.0, 0.0, 0.0]);
+        let at = 200 * 1024 * 3;
+        assert_eq!(&data[at..at + 3], &[0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn sam_prompt_scales_and_pads() {
+        let (coords, labels) = sam_prompt(&[point(100, 50, true), point(10, 20, false)], None, 0.5);
+        assert_eq!(coords, [50.0, 25.0, 5.0, 10.0, 0.0, 0.0]);
+        assert_eq!(labels, [1.0, 0.0, -1.0]);
+    }
+
+    #[test]
+    fn sam_prompt_with_box() {
+        let (coords, labels) = sam_prompt(&[point(100, 50, true)], Some([10, 20, 30, 40]), 0.5);
+        assert_eq!(coords, [50.0, 25.0, 5.0, 10.0, 15.0, 20.0, 0.0, 0.0]);
+        assert_eq!(labels, [1.0, 2.0, 3.0, -1.0]);
+    }
+
+    #[test]
+    fn lasso_box_min_max() {
+        assert_eq!(lasso_box(&[[5, 9], [2, 7], [8, 1]]), [2, 1, 8, 9]);
+    }
+
+    const SQUARE: [[u32; 2]; 4] = [[20, 20], [80, 20], [80, 80], [20, 80]];
+
+    #[test]
+    fn lasso_clip_square() {
+        let m = lasso_mask(&SQUARE, 100, 100, 8, 4);
+        assert_eq!((m.get_pixel(50, 50)[0], m.get_pixel(85, 50)[0], m.get_pixel(88, 88)[0]), (255, 255, 255));
+        assert_eq!((m.get_pixel(5, 5)[0], m.get_pixel(95, 50)[0]), (0, 0));
+        assert!(point_in_lasso(&SQUARE, 50, 50) && !point_in_lasso(&SQUARE, 85, 50));
+    }
+
+    /// Full alpha out to the dilated edge, then a linear fade to 0 over the feather.
+    #[test]
+    fn lasso_soft_edge() {
+        let sq = [[50, 50], [150, 50], [150, 150], [50, 150]];
+        let m = lasso_mask(&sq, 200, 200, 8, 4);
+        assert_eq!((m.get_pixel(100, 100)[0], m.get_pixel(158, 100)[0]), (255, 255));
+        assert!((1..255).contains(&m.get_pixel(160, 100)[0]));
+        assert_eq!(m.get_pixel(170, 100)[0], 0);
+        let row: Vec<u8> = (158..=170).map(|x| m.get_pixel(x, 100)[0]).collect();
+        assert!(row.windows(2).all(|p| p[0] >= p[1]), "{row:?}");
+    }
+
+    /// The in-place passes match a naive blur of a naive dilation, for a self-crossing lasso that
+    /// runs off the image.
+    #[test]
+    fn lasso_mask_matches_naive() {
+        let (w, h, margin, feather) = (60i64, 50i64, 3u32, 6u32);
+        let lasso = [[5, 5], [70, 40], [40, 2], [10, 45]];
+        let fill = lasso_mask(&lasso, w as u32, h as u32, 0, 0);
+        let (r, k) = ((margin + feather) as i64, (feather / 2) as i64);
+        let hit = |x: i64, y: i64| (0..w).contains(&x) && (0..h).contains(&y) && fill.get_pixel(x as u32, y as u32)[0] != 0;
+        let dil: Vec<bool> = (0..h * w).map(|i| (i / w - r..=i / w + r).any(|yy| (i % w - r..=i % w + r).any(|xx| hit(xx, yy)))).collect();
+        let on = |x: i64, y: i64| dil[(y * w + x) as usize];
+        let d = lasso_mask(&lasso, w as u32, h as u32, margin + feather, 0);
+        assert!(d.pixels().zip(&dil).all(|(p, &o)| (p[0] != 0) == o), "dilation");
+        let m = lasso_mask(&lasso, w as u32, h as u32, margin, feather);
+        for y in 0..h {
+            for x in 0..w {
+                // Vertical then horizontal, each rounded, as the passes do.
+                let col = |x: i64| {
+                    let ys = (y - k).max(0)..=(y + k).min(h - 1);
+                    let n = ys.clone().count() as i64;
+                    (ys.filter(|&yy| on(x, yy)).count() as i64 * 255 + n / 2) / n
+                };
+                let xs = (x - k).max(0)..=(x + k).min(w - 1);
+                let n = xs.clone().count() as i64;
+                let want = (xs.map(col).sum::<i64>() + n / 2) / n;
+                assert_eq!(m.get_pixel(x as u32, y as u32)[0] as i64, want, "({x}, {y})");
+            }
+        }
+    }
+
+    /// The fade doesn't darken a lasso that runs off the image.
+    #[test]
+    fn lasso_soft_edge_at_border() {
+        let m = lasso_mask(&[[0, 0], [60, 0], [60, 60], [0, 60]], 100, 100, 8, 4);
+        assert_eq!(m.get_pixel(0, 0)[0], 255);
+    }
+
+    /// A figure-8 crossing at (50, 50): even-odd keeps the left and right lobes, not the gaps above and below the crossing.
+    #[test]
+    fn lasso_fill_self_crossing() {
+        let eight = [[10, 10], [90, 90], [90, 10], [10, 90]];
+        let m = lasso_mask(&eight, 100, 100, 0, 0);
+        assert_eq!((m.get_pixel(20, 50)[0], m.get_pixel(80, 50)[0]), (255, 255));
+        assert_eq!((m.get_pixel(50, 20)[0], m.get_pixel(50, 80)[0], m.get_pixel(5, 50)[0]), (0, 0, 0));
+        assert_eq!(lasso_mask(&eight, 100, 100, 8, 0).get_pixel(50, 20)[0], 0);
+    }
+
+    #[test]
+    fn lasso_clip_clamped_polygon() {
+        let edge = [[0, 10], [99, 10], [99, 90], [0, 90]];
+        let m = lasso_mask(&edge, 100, 100, 0, 0);
+        assert_eq!((m.get_pixel(0, 50)[0], m.get_pixel(98, 50)[0], m.get_pixel(50, 5)[0]), (255, 255, 0));
+        assert_eq!(lasso_mask(&edge, 100, 100, 8, 4).get_pixel(99, 50)[0], 255);
+        // Points past the image don't panic either.
+        lasso_mask(&[[0, 0], [500, 0], [500, 500]], 100, 100, 8, 4);
+    }
+
+    #[test]
+    fn clip_margin_scales_with_long_side() {
+        assert_eq!((clip_margin(100, 50), clip_margin(1000, 4000), clip_margin(6000, 10)), (8, 80, 120));
+    }
+
+    #[test]
+    fn clip_skipped_for_outside_keep() {
+        let img = RgbaImage::from_pixel(100, 100, ::image::Rgba([10, 20, 30, 255]));
+        let mask = GrayImage::from_pixel(100, 100, Luma([200]));
+        // Inside points: the clip runs, colour stays.
+        let out = finish_cut(img.clone(), &mask, &[point(50, 50, true), point(95, 50, false)], Some(&SQUARE));
+        assert_eq!((out.get_pixel(50, 50)[3], out.get_pixel(95, 50).0), (200, [10, 20, 30, 0]));
+        // In the fade (dilated to x = 91, blur radius 2): 4 of 5 on → 204 → alpha 200 · 204 / 255.
+        assert_eq!(out.get_pixel(90, 50)[3], 160);
+        // A keep point outside the lasso: no clip.
+        let out = finish_cut(img.clone(), &mask, &[point(95, 50, true)], Some(&SQUARE));
+        assert_eq!(out.get_pixel(95, 50)[3], 200);
+        assert_eq!(finish_cut(img, &mask, &[point(95, 50, true)], None).get_pixel(95, 50)[3], 200);
+    }
+
+    #[test]
+    fn clip_skipped_for_flat_lasso() {
+        let img = RgbaImage::from_pixel(100, 100, ::image::Rgba([10, 20, 30, 255]));
+        let mask = GrayImage::from_pixel(100, 100, Luma([200]));
+        let out = finish_cut(img, &mask, &[], Some(&[[10, 50], [50, 50], [90, 50]]));
+        assert!(out.pixels().all(|p| p[3] == 200));
+    }
+
+    /// A pixel centre exactly on a diagonal edge's crossing: `point_in_lasso` agrees with the fill.
+    #[test]
+    fn point_in_lasso_matches_fill_on_edge() {
+        for tri in [[[0, 0], [100, 100], [0, 100]], [[0, 0], [100, 0], [100, 100]]] {
+            let m = lasso_mask(&tri, 100, 100, 0, 0);
+            for (x, y) in [(50, 50), (20, 20), (49, 50), (51, 50)] {
+                assert_eq!(point_in_lasso(&tri, x, y), m.get_pixel(x, y)[0] == 255, "{tri:?} ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn lasso_clip_large_is_fast() {
+        let circle: Vec<[u32; 2]> = (0..400)
+            .map(|i| {
+                let a = i as f32 / 400.0 * std::f32::consts::TAU;
+                [(3000.0 + 1800.0 * a.cos()) as u32, (2000.0 + 1800.0 * a.sin()) as u32]
+            })
+            .collect();
+        let start = Instant::now();
+        let m = lasso_mask(&circle, 6000, 4000, clip_margin(6000, 4000), clip_margin(6000, 4000) / 2);
+        let ms = start.elapsed().as_millis();
+        println!("lasso_mask 6000x4000, 400 points: {ms} ms");
+        assert!(ms < 1000, "{ms} ms");
+        assert_eq!((m.get_pixel(3000, 2000)[0], m.get_pixel(10, 10)[0]), (255, 0));
+    }
+
+    #[test]
+    fn sam_mask_left_half() {
+        let plane: Vec<f32> = (0..SAM_H * SAM_W).map(|i| if i % SAM_W < 512 { 10.0 } else { -10.0 }).collect();
+        // Two masks: the second is all background, so the max keeps the first's left half.
+        let logits: Vec<f32> = plane.iter().copied().chain(std::iter::repeat_n(-20.0, plane.len())).collect();
+        let mask = sam_mask(&logits, 1.0, 1024, 684);
+        assert_eq!(mask.dimensions(), (1024, 684));
+        assert_eq!(mask.get_pixel(10, 10)[0], 255);
+        assert_eq!(mask.get_pixel(1000, 10)[0], 0);
+    }
+
+    /// Runs SAM on `VEE_AI_IMAGE` with one centre point, using the vendored runtime (`node
+    /// scripts/fetch-onnxruntime.mjs`) and the quantized ViT-B pair in `VEE_SAM_ENCODER` /
+    /// `VEE_SAM_DECODER` (rembg's `sam_vit_b_01ec64.{encoder,decoder}.quant.onnx`), writing RGBA and
+    /// on-magenta PNGs to `VEE_AI_OUT`:
+    /// `cargo test --lib sam_real_model -- --ignored --nocapture`
+    /// Prints the models' inputs/outputs, and RSS before, after embed and after each run (twice,
+    /// to show sessions are dropped).
+    #[test]
+    #[ignore]
+    fn sam_real_model() {
+        let (lib, encoder, decoder) = (vendor_runtime(), env_path("VEE_SAM_ENCODER"), env_path("VEE_SAM_DECODER"));
+        let img = ::image::open(env_path("VEE_AI_IMAGE")).unwrap();
+        let out = env_path("VEE_AI_OUT");
+        std::fs::create_dir_all(&out).unwrap();
+        {
+            for model in [&encoder, &decoder] {
+                let session = load(env(&lib).unwrap(), model).unwrap();
+                for o in session.inputs() {
+                    println!("in  {}: {}", o.name(), o.dtype());
+                }
+                for o in session.outputs() {
+                    println!("out {}: {}", o.name(), o.dtype());
+                }
+            }
+        }
+        println!("rss before {} KB", rss_kb());
+        let centre = [SubjectPoint { x: img.width() / 2, y: img.height() / 2, keep: true }];
+        for run in 0..2 {
+            let start = Instant::now();
+            let emb = embed(&lib, &encoder, &img).unwrap();
+            println!("embed {:?} in {} ms, rss {} KB", emb.shape, start.elapsed().as_millis(), rss_kb());
+            let start = Instant::now();
+            let cut = decode(&lib, &decoder, &img, &emb, &centre, None).unwrap();
+            println!("cut in {} ms, rss {} KB", start.elapsed().as_millis(), rss_kb());
+            assert_eq!(cut.color(), ::image::ColorType::Rgba8);
+            assert_eq!((cut.width(), cut.height()), (img.width(), img.height()));
+            // The clicked subject is kept.
+            assert!(cut.to_rgba8().get_pixel(centre[0].x, centre[0].y)[3] > 200);
+            drop(emb);
+            println!("run {run} done, rss {} KB", rss_kb());
+            cut.save(out.join("sam.png")).unwrap();
+            let mut bg = RgbaImage::from_pixel(img.width(), img.height(), ::image::Rgba([255, 0, 160, 255]));
+            imageops::overlay(&mut bg, &cut.to_rgba8(), 0, 0);
+            DynamicImage::ImageRgba8(bg).save(out.join("sam.on-magenta.png")).unwrap();
+        }
+        // Lasso only: a circle around the middle, then the left half as a box (clipped there).
+        let (w, h) = (img.width() as f32, img.height() as f32);
+        let circle: Vec<[u32; 2]> = (0..32)
+            .map(|i| {
+                let a = i as f32 / 32.0 * std::f32::consts::TAU;
+                [(w / 2.0 + 0.42 * w * a.cos()) as u32, (h / 2.0 + 0.42 * h * a.sin()) as u32]
+            })
+            .collect();
+        let left = vec![
+            [(w * 0.1) as u32, (h * 0.1) as u32],
+            [(w * 0.5) as u32, (h * 0.1) as u32],
+            [(w * 0.5) as u32, (h * 0.9) as u32],
+            [(w * 0.1) as u32, (h * 0.9) as u32],
+        ];
+        let emb = embed(&lib, &encoder, &img).unwrap();
+        for (name, lasso) in [("circle", circle), ("left", left)] {
+            let cut = decode(&lib, &decoder, &img, &emb, &[], Some(&lasso)).unwrap().to_rgba8();
+            let mut bg = RgbaImage::from_pixel(img.width(), img.height(), ::image::Rgba([255, 0, 160, 255]));
+            imageops::overlay(&mut bg, &cut, 0, 0);
+            DynamicImage::ImageRgba8(bg).save(out.join(format!("sam.lasso-{name}.on-magenta.png"))).unwrap();
+        }
     }
 
     /// Runs the real path on `product-*.png` in `VEE_AI_BENCH_DIR`, with the vendored runtime

@@ -23,8 +23,7 @@ pub fn upsert_app(conn: &Connection, bundle_id: &str, name: &str, icon_png: Opti
 
 /// Unknown apps are not excluded.
 pub fn is_excluded(conn: &Connection, bundle_id: &str) -> AppResult<bool> {
-    let excluded: Option<bool> =
-        conn.query_row("SELECT excluded FROM apps WHERE bundle_id = ?1", [bundle_id], |r| r.get(0)).optional()?;
+    let excluded: Option<bool> = conn.query_row("SELECT excluded FROM apps WHERE bundle_id = ?1", [bundle_id], |r| r.get(0)).optional()?;
     Ok(excluded.unwrap_or(false))
 }
 
@@ -52,12 +51,7 @@ fn apps_with_counts(conn: &Connection, cond: &str, order: &str) -> AppResult<Vec
          ORDER BY {order}"
     ))?;
     let rows = stmt.query_map([], |r| {
-        Ok(AppDto {
-            id: r.get(0)?,
-            name: r.get(1)?,
-            icon: r.get::<_, Option<Vec<u8>>>(2)?.map(|b| data_url(&b)),
-            count: r.get(3)?,
-        })
+        Ok(AppDto { id: r.get(0)?, name: r.get(1)?, icon: r.get::<_, Option<Vec<u8>>>(2)?.map(|b| data_url(&b)), count: r.get(3)? })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
@@ -73,12 +67,7 @@ pub fn apps(conn: &Connection, query: &str) -> AppResult<Vec<AppDto>> {
     )?;
     let pattern = format!("%{}%", escape_like(query.trim()));
     let rows = stmt.query_map(params![pattern], |r| {
-        Ok(AppDto {
-            id: r.get(0)?,
-            name: r.get(1)?,
-            icon: r.get::<_, Option<Vec<u8>>>(2)?.map(|b| data_url(&b)),
-            count: r.get(3)?,
-        })
+        Ok(AppDto { id: r.get(0)?, name: r.get(1)?, icon: r.get::<_, Option<Vec<u8>>>(2)?.map(|b| data_url(&b)), count: r.get(3)? })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }

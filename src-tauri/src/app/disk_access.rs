@@ -47,9 +47,7 @@ fn app_bundle(exe: &Path) -> Option<PathBuf> {
 #[cfg(target_os = "macos")]
 fn open_pane() -> AppResult<()> {
     use std::process::Command;
-    Command::new("open")
-        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
-        .spawn()?;
+    Command::new("open").arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles").spawn()?;
     if let Some(bundle) = std::env::current_exe().ok().as_deref().and_then(app_bundle) {
         let _ = Command::new("open").arg("-R").arg(bundle).spawn();
     }
@@ -77,7 +75,10 @@ pub fn open_disk_access_settings() -> AppResult<()> {
 pub fn prompt_once(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     {
-        use crate::{app::{i18n, state::AppState}, domain::settings};
+        use crate::{
+            app::{i18n, state::AppState},
+            domain::settings,
+        };
         use tauri::Manager;
         use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
         let state = app.state::<AppState>();
@@ -89,19 +90,23 @@ pub fn prompt_once(app: &AppHandle) {
         let ko = i18n::resolve_locale(&settings::get(&conn, "locale")) == "ko";
         drop(conn);
         let (message, open, later) = if ko {
-            ("파일을 드래그해서 복사하려면 Vee에 전체 디스크 접근 권한이 필요해요.\n\n시스템 설정의 목록에서 Vee를 켜 주세요. 목록에 없으면 Finder에 보이는 Vee를 목록으로 끌어다 놓으세요.", "시스템 설정 열기", "나중에")
+            (
+                "파일을 드래그해서 복사하려면 Vee에 전체 디스크 접근 권한이 필요해요.\n\n시스템 설정의 목록에서 Vee를 켜 주세요. 목록에 없으면 Finder에 보이는 Vee를 목록으로 끌어다 놓으세요.",
+                "시스템 설정 열기",
+                "나중에",
+            )
         } else {
-            ("Vee needs Full Disk Access to copy files by dragging them.\n\nTurn on Vee in the System Settings list. If it isn't there, drag Vee from Finder into the list.", "Open System Settings", "Later")
+            (
+                "Vee needs Full Disk Access to copy files by dragging them.\n\nTurn on Vee in the System Settings list. If it isn't there, drag Vee from Finder into the list.",
+                "Open System Settings",
+                "Later",
+            )
         };
-        app.dialog()
-            .message(message)
-            .title("Vee")
-            .buttons(MessageDialogButtons::OkCancelCustom(open.into(), later.into()))
-            .show(|open| {
-                if open && let Err(e) = open_pane() {
-                    log::warn!("couldn't open Full Disk Access settings: {e}");
-                }
-            });
+        app.dialog().message(message).title("Vee").buttons(MessageDialogButtons::OkCancelCustom(open.into(), later.into())).show(|open| {
+            if open && let Err(e) = open_pane() {
+                log::warn!("couldn't open Full Disk Access settings: {e}");
+            }
+        });
     }
     #[cfg(not(target_os = "macos"))]
     let _ = app;

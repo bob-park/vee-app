@@ -64,6 +64,11 @@ export const ko: Dict = {
     working: '처리 중…',
     needsModel: '설정에서 모델을 내려받으세요',
     openSettings: '설정 열기',
+    bgTools: { auto: '자동', subject: '피사체 선택', brush: '브러시' },
+    subjectHint: (mac: boolean) => `대상을 둘러 그리거나 클릭하세요 · ${mac ? '⌥' : 'Alt+'}클릭으로 빼기`,
+    subjectReset: '초기화',
+    brushModes: { erase: '지우기', restore: '복원' },
+    brushSize: '크기',
   },
   convert: {
     needsFfmpeg: 'FFmpeg 필요',
@@ -232,6 +237,15 @@ export const ko: Dict = {
         missingHint: (mb: number | null) =>
           mb ? `편집기에서 배경을 지울 때 필요해요. 약 ${mb}MB` : '편집기에서 배경을 지울 때 필요해요.',
         removeConfirm: '모델을 삭제할까요? 다시 내려받기 전까지 배경 제거를 할 수 없어요.',
+      },
+      sam: {
+        caption: '피사체 선택 · AI 모델',
+        title: 'SAM',
+        missingHint: (mb: number | null) =>
+          mb
+            ? `편집기에서 클릭으로 피사체를 고를 때 필요해요. 약 ${mb}MB`
+            : '편집기에서 클릭으로 피사체를 고를 때 필요해요.',
+        removeConfirm: '모델을 삭제할까요? 다시 내려받기 전까지 피사체 선택을 할 수 없어요.',
       },
       libreoffice: {
         caption: 'LibreOffice · 문서 변환',

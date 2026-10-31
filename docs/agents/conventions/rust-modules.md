@@ -47,6 +47,7 @@ lib.rs → app/*, domain/*/commands.rs → domain/*/{mod,model,repository}.rs �
 
 ## Style
 
+- Format with `cargo fmt --manifest-path src-tauri/Cargo.toml`; `src-tauri/rustfmt.toml` (`max_width = 140`, `use_small_heuristics = "Max"`) sets the style, and `--check` must stay clean.
 - Log with the `log` macros (`log::info!`, `log::warn!`), never `println!`. `tauri-plugin-log` routes them to stdout and the log file. Never log clipboard contents.
 - Never use `unwrap()` on I/O or DB results outside tests. Return `AppResult` and let the command surface the error. `Mutex::lock().unwrap()` is fine, since poisoning means a prior panic.
 - A module opens with a `//!` doc line that says what it owns.

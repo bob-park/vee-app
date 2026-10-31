@@ -30,7 +30,10 @@ src/
 │   ├── toast/ToastApp.tsx    # `toast` window
 │   ├── convert/ConvertApp.tsx  # `convert` window (format donut)
 │   ├── whats-new/WhatsNewApp.tsx  # `whats-new` window
-│   └── editor/EditorApp.tsx  # `editor` window (crop / rotate / resize) + _components/
+│   └── editor/
+│       ├── EditorApp.tsx     # `editor` window: crop / rotate / resize, remove background (Auto / Subject / Brush), upscale
+│       ├── _components/      # header, tool rail, tool controls, stage layers, footer
+│       └── _hooks/           # useBgTools.ts (background-tool state)
 ├── domain/<name>/            # clip, source_app, settings, whats_new, convert, updater, panel, edit
 │   ├── apis/                 # <name>.ts (call() per command) + <name>.dto.ts (wire types)
 │   ├── queries/              # <name>.tsx — React Query hooks
@@ -97,4 +100,5 @@ Snake_case domain folders (`source_app`, `whats_new`) keep camelCase file names 
 - `shared/` is for code used by **two or more** domains/screens. Promote from a domain or screen when the second user appears, not before.
 - `utils/` holds pure functions only; anything touching React, the DOM or IPC goes elsewhere.
 - Screen-only sub-components go in a `_components/` folder next to the screen. Do not import another screen's `_components/` — promote to `shared/components/` instead.
+- Screen-only React hooks go in a `_hooks/` folder next to `_components/` (e.g. `src/app/editor/_hooks/useBgTools.ts`). Same rule: promote to `shared/` when a second screen needs one.
 - Rust: anything that is not a business domain (windows, tray, updates, shortcuts, clipboard watching, OS integration) goes in `app/`, not `domain/`.

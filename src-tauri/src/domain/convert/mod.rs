@@ -9,11 +9,11 @@ mod process;
 mod video;
 
 use self::image::convert_image;
-pub use model::{Caps, Engine, Format, Job, JobError, JobState, JobView, Quality, Slice, DONE_MS, SHOW_AFTER_MS};
 use model::eta;
+pub use model::{Caps, DONE_MS, Engine, Format, Job, JobError, JobState, JobView, Quality, SHOW_AFTER_MS, Slice};
+use model::{DocTargets, HWP_TARGETS, IMAGE_TARGETS, SHEET_TARGETS, SLIDE_TARGETS, TEXT_TARGETS, VIDEO_TARGETS};
 pub use process::{command, output};
 pub use video::{HwEncoder, Run, hw_encoder};
-use model::{DocTargets, HWP_TARGETS, IMAGE_TARGETS, SHEET_TARGETS, SLIDE_TARGETS, TEXT_TARGETS, VIDEO_TARGETS};
 
 use std::path::{Path, PathBuf};
 
@@ -58,8 +58,7 @@ pub fn formats_for(paths: &[PathBuf], caps: Caps) -> Vec<Slice> {
 /// Whether `path` has a video extension (any case).
 pub fn is_video(path: &Path) -> bool {
     // No `ts`: TypeScript files share it. MPEG-TS camcorder files come as `mts`/`m2ts`.
-    const EXTS: [&str; 13] =
-        ["mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "flv", "mpg", "mpeg", "mts", "m2ts", "3gp"];
+    const EXTS: [&str; 13] = ["mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "flv", "mpg", "mpeg", "mts", "m2ts", "3gp"];
     ext_of(path).is_some_and(|e| EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
 }
 
@@ -229,8 +228,8 @@ pub fn prune(jobs: &mut Vec<Job>, now: i64) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::image::tests::tiny_png;
+    use super::*;
     use std::sync::atomic::AtomicBool;
 
     /// macOS with every engine installed.
@@ -335,10 +334,27 @@ mod tests {
     }
 
     /// `run` for a document with these engines.
-    fn run_doc(src: &Path, to: Format, dir: &Path, tmp: &Path, rhwp: Option<PathBuf>, soffice: Option<PathBuf>) -> Result<PathBuf, JobError> {
+    fn run_doc(
+        src: &Path,
+        to: Format,
+        dir: &Path,
+        tmp: &Path,
+        rhwp: Option<PathBuf>,
+        soffice: Option<PathBuf>,
+    ) -> Result<PathBuf, JobError> {
         let cancel = AtomicBool::new(false);
         let stem = src.file_stem().unwrap().to_string_lossy().into_owned();
-        let mut ctx = Run { fell_back: false, ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, rhwp, soffice, lo_profile: tmp.join("lo"), progress: &mut |_| {} };
+        let mut ctx = Run {
+            fell_back: false,
+            ffmpeg: None,
+            quality: Quality::Normal,
+            hw: None,
+            cancel: &cancel,
+            rhwp,
+            soffice,
+            lo_profile: tmp.join("lo"),
+            progress: &mut |_| {},
+        };
         run(src, &stem, to, dir, tmp, &mut ctx)
     }
 
@@ -397,7 +413,10 @@ mod tests {
     #[test]
     fn a_failing_soffice_leaves_nothing() {
         let (src, [_s, dst, tmp, bin]) = doc_dirs("a.xlsx");
-        assert_eq!(run_doc(&src, Format::Pdf, dst.path(), tmp.path(), None, Some(fake_soffice(bin.path(), "exit 3"))), Err(JobError::Engine));
+        assert_eq!(
+            run_doc(&src, Format::Pdf, dst.path(), tmp.path(), None, Some(fake_soffice(bin.path(), "exit 3"))),
+            Err(JobError::Engine)
+        );
         // Exit 0 but nothing under the expected name (LibreOffice's way of saying it couldn't load it).
         let silent = script(bin.path(), "silent", "exit 0");
         assert_eq!(run_doc(&src, Format::Pdf, dst.path(), tmp.path(), None, Some(silent)), Err(JobError::Engine));
@@ -412,7 +431,16 @@ mod tests {
         let soffice = fake_soffice(bin.path(), "exec sleep 10");
         let out = tmp.path().join("a.pdf");
         let started = std::time::Instant::now();
-        let r = office::convert_lo(&src, Format::Pdf, &out, tmp.path(), &soffice, &tmp.path().join("lo"), std::time::Duration::from_secs(1), &AtomicBool::new(false));
+        let r = office::convert_lo(
+            &src,
+            Format::Pdf,
+            &out,
+            tmp.path(),
+            &soffice,
+            &tmp.path().join("lo"),
+            std::time::Duration::from_secs(1),
+            &AtomicBool::new(false),
+        );
         assert_eq!(r, Err(JobError::Engine));
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
         assert_eq!(leftovers(tmp.path()), 0);
@@ -429,7 +457,8 @@ mod tests {
             std::fs::write(&src, b"doc").unwrap();
             let cancel = AtomicBool::new(false);
             let started = std::time::Instant::now();
-            let mut ctx = Run { fell_back: false,
+            let mut ctx = Run {
+                fell_back: false,
                 ffmpeg: None,
                 quality: Quality::Normal,
                 hw: None,
@@ -470,7 +499,8 @@ mod tests {
         // A profile path with a space and Hangul, like `Application Support` and Korean user names.
         let profile = tmp.path().join("lo 프로필");
         let cancel = AtomicBool::new(false);
-        let mut ctx = Run { fell_back: false,
+        let mut ctx = Run {
+            fell_back: false,
             ffmpeg: None,
             quality: Quality::Normal,
             hw: None,
@@ -483,7 +513,8 @@ mod tests {
         let mut convert = |src: &Path, to: Format, magic: &[u8]| {
             let started = std::time::Instant::now();
             let stem = src.file_stem().unwrap().to_string_lossy().into_owned();
-            let out = run(src, &stem, to, dir.path(), tmp.path(), &mut ctx).unwrap_or_else(|e| panic!("{} → {}: {e:?}", src.display(), to.id()));
+            let out =
+                run(src, &stem, to, dir.path(), tmp.path(), &mut ctx).unwrap_or_else(|e| panic!("{} → {}: {e:?}", src.display(), to.id()));
             let bytes = std::fs::read(&out).unwrap();
             println!("{} → {}: {} bytes in {:?}", src.display(), out.display(), bytes.len(), started.elapsed());
             assert!(bytes.starts_with(magic), "{}", out.display());
@@ -513,7 +544,17 @@ mod tests {
         assert!(soffice.is_file(), "LibreOffice is not installed");
         let (dir, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let cancel = AtomicBool::new(false);
-        let mut ctx = Run { fell_back: false, ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, rhwp: None, soffice: Some(soffice), lo_profile: tmp.path().join("lo-profile"), progress: &mut |_| {} };
+        let mut ctx = Run {
+            fell_back: false,
+            ffmpeg: None,
+            quality: Quality::Normal,
+            hw: None,
+            cancel: &cancel,
+            rhwp: None,
+            soffice: Some(soffice),
+            lo_profile: tmp.path().join("lo-profile"),
+            progress: &mut |_| {},
+        };
         let html = dir.path().join("k.html");
         std::fs::write(&html, "<html><body><p style=\"font-family:'맑은 고딕'\">한글 문서 변환</p></body></html>").unwrap();
         let pdf = std::fs::read(run(&html, "k", Format::Pdf, dir.path(), tmp.path(), &mut ctx).unwrap()).unwrap();
@@ -530,7 +571,8 @@ mod tests {
         assert!(soffice.is_file(), "LibreOffice is not installed");
         let (dir, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let cancel = AtomicBool::new(false);
-        let mut ctx = Run { fell_back: false,
+        let mut ctx = Run {
+            fell_back: false,
             ffmpeg: None,
             quality: Quality::Normal,
             hw: None,
@@ -563,7 +605,24 @@ mod tests {
     /// `run` for an image source: no FFmpeg, never cancelled.
     fn run_image(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path) -> Result<PathBuf, JobError> {
         let cancel = AtomicBool::new(false);
-        run(src, stem, to, dir, tmp, &mut Run { fell_back: false, ffmpeg: None, quality: Quality::Normal, hw: None, cancel: &cancel, rhwp: None, soffice: None, lo_profile: PathBuf::new(), progress: &mut |_| {} })
+        run(
+            src,
+            stem,
+            to,
+            dir,
+            tmp,
+            &mut Run {
+                fell_back: false,
+                ffmpeg: None,
+                quality: Quality::Normal,
+                hw: None,
+                cancel: &cancel,
+                rhwp: None,
+                soffice: None,
+                lo_profile: PathBuf::new(),
+                progress: &mut |_| {},
+            },
+        )
     }
 
     #[test]
@@ -589,8 +648,7 @@ mod tests {
 
     #[test]
     fn mp4_keeps_720p() {
-        let f: Vec<Format> =
-            formats_for(&[PathBuf::from("a.m4v")], ALL).iter().map(|s| s.format).collect();
+        let f: Vec<Format> = formats_for(&[PathBuf::from("a.m4v")], ALL).iter().map(|s| s.format).collect();
         assert!(!f.contains(&Format::Mp4) && f.contains(&Format::Mp4720));
     }
 
@@ -753,8 +811,7 @@ mod tests {
 
     #[test]
     fn failed_jobs_show_at_once_and_queue_positions_count_from_one() {
-        let mut jobs =
-            vec![job(1, JobState::Failed(JobError::Engine), 0), job(2, JobState::Queued, 0), job(3, JobState::Queued, 0)];
+        let mut jobs = vec![job(1, JobState::Failed(JobError::Engine), 0), job(2, JobState::Queued, 0), job(3, JobState::Queued, 0)];
         let v = visible_jobs(&mut jobs, 1500);
         assert_eq!(v[0].error, Some(JobError::Engine));
         assert_eq!((v[1].position, v[2].position), (1, 2));

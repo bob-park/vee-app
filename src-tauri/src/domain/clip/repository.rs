@@ -30,11 +30,7 @@ pub fn upsert(conn: &Connection, images: &Path, clip: NewClip, app_id: Option<i6
         NewClip::Files { paths, .. } => sha256_hex(&[b"files\0", paths.join("\n").as_bytes()]),
     };
     let bumped: Option<i64> = conn
-        .query_row(
-            "UPDATE clips SET last_used_at = ?1, app_id = ?2 WHERE hash = ?3 RETURNING id",
-            params![now, app_id, hash],
-            |r| r.get(0),
-        )
+        .query_row("UPDATE clips SET last_used_at = ?1, app_id = ?2 WHERE hash = ?3 RETURNING id", params![now, app_id, hash], |r| r.get(0))
         .optional()?;
     if let Some(id) = bumped {
         return Ok(id);
@@ -71,10 +67,7 @@ pub fn set_formats(conn: &Connection, id: i64, formats: &[(String, Vec<u8>)]) ->
     let tx = conn.unchecked_transaction()?;
     tx.execute("DELETE FROM clip_formats WHERE clip_id = ?1", [id])?;
     for (format, data) in formats {
-        tx.execute(
-            "INSERT OR REPLACE INTO clip_formats (clip_id, format, data) VALUES (?1, ?2, ?3)",
-            params![id, format, data],
-        )?;
+        tx.execute("INSERT OR REPLACE INTO clip_formats (clip_id, format, data) VALUES (?1, ?2, ?3)", params![id, format, data])?;
     }
     tx.commit()?;
     Ok(())
@@ -93,14 +86,7 @@ const CLIP_COLUMNS: &str = "SELECT c.id, c.kind, substr(c.text, 1, ?), COALESCE(
              FROM clips c LEFT JOIN apps a ON a.id = c.app_id";
 
 /// The history row: unpinned clips only, newest first. Pins live in `list_pinned`.
-pub fn list(
-    conn: &Connection,
-    query: &str,
-    kind: Option<Kind>,
-    app_id: Option<i64>,
-    offset: i64,
-    limit: i64,
-) -> AppResult<Vec<ClipDto>> {
+pub fn list(conn: &Connection, query: &str, kind: Option<Kind>, app_id: Option<i64>, offset: i64, limit: i64) -> AppResult<Vec<ClipDto>> {
     let mut sql = format!("{CLIP_COLUMNS} WHERE c.pinned = 0");
     let mut args = vec![Value::Integer(PREVIEW_CHARS)];
     if let Some(k) = kind {
@@ -179,18 +165,14 @@ fn stack(conn: &Connection, id: i64, files: usize) -> AppResult<Vec<Option<Strin
 
 /// Image for dragging a clip out: its first file thumbnail or image thumbnail, else its source app's icon.
 pub fn preview_png(conn: &Connection, id: i64) -> AppResult<Option<Vec<u8>>> {
-    let thumb = conn
-        .query_row("SELECT png FROM clip_thumbs WHERE clip_id = ?1 ORDER BY idx LIMIT 1", [id], |r| r.get(0))
-        .optional()?;
+    let thumb = conn.query_row("SELECT png FROM clip_thumbs WHERE clip_id = ?1 ORDER BY idx LIMIT 1", [id], |r| r.get(0)).optional()?;
     if thumb.is_some() {
         return Ok(thumb);
     }
     Ok(conn
-        .query_row(
-            "SELECT COALESCE(c.thumb_png, a.icon_png) FROM clips c LEFT JOIN apps a ON a.id = c.app_id WHERE c.id = ?1",
-            [id],
-            |r| r.get::<_, Option<Vec<u8>>>(0),
-        )
+        .query_row("SELECT COALESCE(c.thumb_png, a.icon_png) FROM clips c LEFT JOIN apps a ON a.id = c.app_id WHERE c.id = ?1", [id], |r| {
+            r.get::<_, Option<Vec<u8>>>(0)
+        })
         .optional()?
         .flatten())
 }
@@ -255,11 +237,10 @@ pub fn set_pinned(conn: &Connection, id: i64, pinned: bool, now: i64) -> AppResu
         conn.execute("UPDATE clips SET pinned = 0, pinned_at = NULL WHERE id = ?1", [id])?;
         return Ok(true);
     }
-    let (already, count): (bool, i64) = conn.query_row(
-        "SELECT COALESCE(MAX(id = ?1), 0), COUNT(*) FROM clips WHERE pinned = 1",
-        [id],
-        |r| Ok((r.get::<_, i64>(0)? != 0, r.get(1)?)),
-    )?;
+    let (already, count): (bool, i64) =
+        conn.query_row("SELECT COALESCE(MAX(id = ?1), 0), COUNT(*) FROM clips WHERE pinned = 1", [id], |r| {
+            Ok((r.get::<_, i64>(0)? != 0, r.get(1)?))
+        })?;
     if already {
         return Ok(true);
     }
@@ -271,8 +252,7 @@ pub fn set_pinned(conn: &Connection, id: i64, pinned: bool, now: i64) -> AppResu
 }
 
 pub fn delete(conn: &Connection, id: i64) -> AppResult<()> {
-    let image_path: Option<Option<String>> =
-        conn.query_row("SELECT image_path FROM clips WHERE id = ?1", [id], |r| r.get(0)).optional()?;
+    let image_path: Option<Option<String>> = conn.query_row("SELECT image_path FROM clips WHERE id = ?1", [id], |r| r.get(0)).optional()?;
     conn.execute("DELETE FROM clips WHERE id = ?1", [id])?;
     if let Some(Some(path)) = image_path {
         let _ = std::fs::remove_file(path);
@@ -284,8 +264,7 @@ pub fn delete(conn: &Connection, id: i64) -> AppResult<()> {
 fn delete_unpinned(conn: &Connection, cond: &str, args: &[Value]) -> AppResult<usize> {
     let tx = conn.unchecked_transaction()?;
     let paths: Vec<String> = {
-        let mut stmt =
-            tx.prepare(&format!("SELECT image_path FROM clips WHERE pinned = 0 AND ({cond}) AND image_path IS NOT NULL"))?;
+        let mut stmt = tx.prepare(&format!("SELECT image_path FROM clips WHERE pinned = 0 AND ({cond}) AND image_path IS NOT NULL"))?;
         stmt.query_map(params_from_iter(args.iter()), |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
     };
     let n = tx.execute(&format!("DELETE FROM clips WHERE pinned = 0 AND ({cond})"), params_from_iter(args.iter()))?;
@@ -297,11 +276,7 @@ fn delete_unpinned(conn: &Connection, cond: &str, args: &[Value]) -> AppResult<u
 }
 
 fn count_unpinned(conn: &Connection, cond: &str, args: &[Value]) -> AppResult<i64> {
-    Ok(conn.query_row(
-        &format!("SELECT COUNT(*) FROM clips WHERE pinned = 0 AND ({cond})"),
-        params_from_iter(args.iter()),
-        |r| r.get(0),
-    )?)
+    Ok(conn.query_row(&format!("SELECT COUNT(*) FROM clips WHERE pinned = 0 AND ({cond})"), params_from_iter(args.iter()), |r| r.get(0))?)
 }
 
 /// Deletes an app's unpinned clips (when it's excluded); returns how many.
@@ -329,8 +304,7 @@ pub fn clear(conn: &Connection) -> AppResult<usize> {
 }
 
 pub fn stats(conn: &Connection, images: &Path) -> AppResult<StatsDto> {
-    let (count, pinned) =
-        conn.query_row("SELECT COUNT(*), COALESCE(SUM(pinned), 0) FROM clips", [], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    let (count, pinned) = conn.query_row("SELECT COUNT(*), COALESCE(SUM(pinned), 0) FROM clips", [], |r| Ok((r.get(0)?, r.get(1)?)))?;
     let mut image_bytes = 0;
     for entry in std::fs::read_dir(images)? {
         image_bytes += entry?.metadata()?.len();
@@ -575,8 +549,7 @@ mod tests {
         let (c, d) = db();
         let f = |pairs: &[(&str, &[u8])]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_vec())).collect::<Vec<_>>();
         let id = upsert(&c, d.path(), text("a\tb"), None, 1).unwrap();
-        set_formats(&c, id, &f(&[("public.utf8-plain-text", b"a\tb"), ("public.html", b"<table>"), ("com.adobe.pdf", b"%PDF")]))
-            .unwrap();
+        set_formats(&c, id, &f(&[("public.utf8-plain-text", b"a\tb"), ("public.html", b"<table>"), ("com.adobe.pdf", b"%PDF")])).unwrap();
         assert_eq!(formats(&c, id).unwrap()[1], ("public.html".to_string(), b"<table>".to_vec()));
         assert_eq!(formats(&c, id).unwrap().len(), 3);
         let again = upsert(&c, d.path(), text("a\tb"), None, 2).unwrap();
@@ -742,7 +715,10 @@ mod tests {
         let img = upsert(&c, d.path(), image(1), None, 2).unwrap();
         let fls = upsert(&c, d.path(), files(&["/a.png", "/b.png"]), None, 3).unwrap();
         upsert(&c, d.path(), text("https://example.com"), None, 4).unwrap();
-        assert_eq!(next_ocr_pending(&c).unwrap(), Some((fls, hash_of(&c, fls), ClipContent::Files(vec!["/a.png".into(), "/b.png".into()]))));
+        assert_eq!(
+            next_ocr_pending(&c).unwrap(),
+            Some((fls, hash_of(&c, fls), ClipContent::Files(vec!["/a.png".into(), "/b.png".into()])))
+        );
         set_ocr_text(&c, fls, &hash_of(&c, fls), "").unwrap();
         assert_eq!(next_ocr_pending(&c).unwrap(), Some((img, hash_of(&c, img), ClipContent::Image(image_path(&c, img)))));
         set_ocr_text(&c, img, &hash_of(&c, img), "x").unwrap();
