@@ -102,6 +102,7 @@ UI 배치는 목업 A(하단 모드 전환) / **B(왼쪽 도구 막대)** / C(�
   | SAM vit_b 양자화 | `vit_b-encoder-quant.onnx` 99.8MB | `vit_b-decoder-quant.onnx` 8.7MB | 약 109MB |
 
   MobileSAM이 rembg에서 실제로 어떤 디코더와 짝을 이루는지는 **빌더가 rembg 소스로 확인**한다. 그다음 `#[ignore]` 실모델 테스트(BiRefNet의 `installs_pinned_bgremove`와 같은 형태)로 두 후보 결과를 눈으로 비교해 하나를 고정한다. 품질이 비슷하면 작은 쪽을 쓴다.
+- **확정 (계획 단계, 2026-10-31):** rembg `sessions/sam.py`는 `sam_vit_*` 인코더·디코더 쌍만 쓰고 MobileSAM은 짝짓지 않는다. 그래서 **SAM vit_b 양자화(약 117MB)**로 고정한다. MD5가 rembg `SAM_CHECKSUMS`와 일치한다.
 - `remove_engine("sam")`도 `ai::forget`처럼, SAM이 도는 중이면 거부한다.
 
 ### 5.6 빌더에게 맡기는 것
