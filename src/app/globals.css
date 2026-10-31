@@ -11,11 +11,11 @@
    */
   exclude:
     rootcolor, rootscrollgutter, rootscrolllock, scrollbar, alert, aura, avatar, badge, breadcrumbs, button, calendar,
-    card, carousel, chat, checkbox, collapse, countdown, divider, dock, drawer, dropdown, fab, fieldset, fileinput,
-    filter, footer, hero, hover3d, hovergallery, indicator, input, kbd, label, link, list, loading, mask, megamenu,
-    menu, mockup, modal, navbar, otp, progress, radialprogress, radio, range, rating, select, skeleton, stack, stat,
-    status, steps, swap, tab, table, textarea, textrotate, timeline, toast, toggle, tooltip, validator, glass, join,
-    typography;
+    card, carousel, chat, checkbox, collapse, countdown, divider, dock, drawer, dropdown, fab, fieldset,
+    fileinput, filter, footer, hero, hover3d, hovergallery, indicator, input, kbd, label, link, list, loading, mask,
+    megamenu, menu, mockup, modal, navbar, otp, progress, radialprogress, radio, range, rating, select, skeleton, stack,
+    stat, status, steps, swap, tab, table, textarea, textrotate, timeline, toast, toggle, tooltip, validator, glass,
+    join, typography;
 }
 
 /*
