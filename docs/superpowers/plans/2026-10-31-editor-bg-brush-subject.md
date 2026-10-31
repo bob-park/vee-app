@@ -23,6 +23,7 @@
   - `sam_vit_b_01ec64.encoder.quant.onnx`: sha256 `181301ce3500a86c38450b56e2b71dab8008a13b1812a0d6cc812f22651e143a`, 108836115 bytes, installed as `encoder.onnx`
   - `sam_vit_b_01ec64.decoder.quant.onnx`: sha256 `b11465135b7c93a1fd65141a4e2a96f1ddf2e3dab09b5eeab640bdf5f10aadbe`, 8755366 bytes, installed as `decoder.onnx`
   - The spec preferred MobileSAM, but rembg never pairs MobileSAM with a decoder, so the plan pins vit_b quant (about 117 MB).
+- **Memory (user requirement):** the app must stay light outside editing. After the editor closes, memory must return: the app plus WebContent RSS, a few seconds after close, is at most **+50 MB** over the pre-edit baseline. Subject results are **not** cached (only the ~4 MB embedding is). Closing the editor clears the frontend's images and edit state.
 - Done means all four pass: `cargo test --manifest-path src-tauri/Cargo.toml --lib`, `yarn test`, `yarn typecheck`, `yarn lint`. Run Node/Yarn through `mise exec --`.
 - Commits use `<prefix>(<scope>): <subject>` (see `docs/agents/workflow/commit-messages.md`).
 
@@ -32,7 +33,8 @@
 2. **A click or stroke outside the image** (dragging off the edge) must clamp, not error. Tests: `toImagePx` clamp (Task 5) and `brush_clamps_outside_points` (Task 1).
 3. **Subject after a crop, then undoing the crop.** The embedding must match the image it was computed on. Test: `subject_embedding_keyed_by_prefix` (Task 4).
 4. **SAM removed in Settings while the Subject tool is open.** It must fall back to `ModelPrompt` and must not leave a pending op the next copy would fail on. Step in Task 7.
-5. **Copy (⌘Enter) with an unapplied brush or subject.** Copy includes the pending op, as today. Step in Task 7.
+5. **Many Subject clicks on a 4000×3000 photo.** Memory must not grow per click. Test: `subject_results_not_cached` (Task 4).
+6. **Copy (⌘Enter) with an unapplied brush or subject.** Copy includes the pending op, as today. Step in Task 7.
 
 ---
 
@@ -149,6 +151,7 @@ Pre- and post-processing follow rembg `sessions/sam.py`:
   cargo test --manifest-path src-tauri/Cargo.toml --lib sam_real_model -- --ignored --nocapture
   ```
   Expected: PASS, and the output PNG keeps the centre subject. Look at it.
+  Also measure peak RSS with the existing `bench_models` approach (`ps` RSS before and after each run; extend it with a SAM embed + cut pass). Record the SAM peak and the RSS after the run in `docs/agents/architecture.md` (Task 8). The RSS after the run must be back near the pre-run value, because sessions are dropped.
 
 - [ ] **Step 5: Commit.** `feat(editor): sam subject cut`
 
@@ -161,12 +164,13 @@ Pre- and post-processing follow rembg `sessions/sam.py`:
 - Consumes: `ai::{sam_embed, sam_cut, SamEmbedding}`, `Op::Subject`.
 - Changes `render`'s AI callback to `ai: impl Fn(&DynamicImage, &Op, u64) -> AppResult<DynamicImage>`, where the `u64` is `ai_key(session, &ops[..i])` (the key of the ops **before** the AI op).
 - `Session` gains `embeds: Mutex<HashMap<u64, Arc<ai::SamEmbedding>>>`, cleared with the session like `cache`.
-- `Op::Subject` joins the cached AI branch.
+- `Op::Subject` is an AI op but is **not** put in `cache`: only its embedding is cached. A click re-runs just the decoder, so the cache doesn't grow by a full-res image per click.
 - In `render_off_main`, `Op::Subject` does three things: look up `embeds[prefix_key]`; on a miss, call `sam_embed` and insert; then call `sam_cut`.
 
 - [ ] **Step 1: Write the failing test** `subject_embedding_keyed_by_prefix`. Use a counting closure that counts distinct prefix keys it sees for `Subject`.
   - Render `[Subject{p1}]`, then `[Subject{p1,p2}]` → the prefix key is the same both times. The results differ, so the result cache misses each time.
   - Render `[Crop…, Subject{p1}]` → a new prefix key.
+  - `subject_results_not_cached`: after rendering `[Subject{p1}]`, `[Subject{p1,p2}]` and `[Subject{p1,p2,p3}]`, `session.cache.len() == 0`, and `embeds.len() == 1`.
   - Update the existing `counting` helper to the 3-arg callback.
 
 - [ ] **Step 2: Run and confirm FAIL.** `cargo test --manifest-path src-tauri/Cargo.toml --lib app::editor`
@@ -278,6 +282,7 @@ Match the existing `bgremove` ko phrasing style (read `ko.ts` first) and adjust 
   - brush: `Segmented` erase/restore + a size slider (`<input type="range">` with `aria-label`) + Apply
 - **SAM removed while on Subject:** clear pending in an effect on `samReady`, the same way the existing `bgReady` effect does.
 - **Copy:** unchanged; `all` already includes `pending`.
+- **Release on close:** the window is only hidden on close, so `handleCancel` and every other path that closes the editor (a successful copy, if it closes) must reset `source`, `preview`, `result`, `ops`, `pending` and the brush/subject state to their initial values. The `BrushLayer` canvas must unmount. Listen for the close in one place: emit `editor://closed` from Rust `close()` and reset on it, so a close from Rust is covered too. Add the event name per `docs/agents/conventions/tauri-commands.md`.
 
 i18n `editor` keys:
 
@@ -299,6 +304,7 @@ i18n `editor` keys:
   - ⌘Enter copies with a pending stroke.
   - Remove SAM in Settings while on Subject → `ModelPrompt` shows.
   - Check all of the above in light/dark and ko/en.
+  - Close the editor, reopen it with another image → no leftover state from the previous image.
 - [ ] **Step 4: Commit.** `feat(editor): tool rail with subject select and brush`
 
 ### Task 8: Docs and final verification
@@ -314,4 +320,10 @@ i18n `editor` keys:
   mise exec -- yarn typecheck
   mise exec -- yarn lint
   ```
-- [ ] **Step 3: Commit.** `docs: subject select and brush in the editor`
+- [ ] **Step 3: Memory check (pass/fail).** In `yarn tauri build --no-bundle` (or a dev build if release isn't possible; say which one was used), sum the RSS of the Vee process and its WebContent process(es), e.g. `ps -o rss= -p <pids>`, at three points:
+  1. Before opening the editor, after the app has been idle for 10 s.
+  2. After using Auto, Subject (≥10 clicks) and Brush (≥10 strokes) on a ≥4000×3000 photo.
+  3. 10 s after closing the editor.
+
+  **Pass:** ③ − ① ≤ 50 MB. Record all three numbers in the PR description. If it fails, use superpowers:systematic-debugging; don't raise the bar.
+- [ ] **Step 4: Commit.** `docs: subject select and brush in the editor`
