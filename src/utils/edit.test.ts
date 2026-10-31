@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { clampPan, cropFromDrag, previewScale, resizeKeep, sizeAfter, viewportRect } from './edit.ts';
+import {
+  brushRadius,
+  clampPan,
+  cropFromDrag,
+  previewScale,
+  resizeKeep,
+  sizeAfter,
+  thinPoints,
+  toImagePx,
+  viewportRect,
+} from './edit.ts';
 
 void test('cropFromDrag maps view to image px and clamps', () => {
   assert.deepEqual(cropFromDrag({ x: 10, y: 10 }, { x: 60, y: 35 }, { w: 100, h: 50 }, { w: 1000, h: 500 }), {
@@ -80,4 +90,46 @@ void test('viewportRect maps the view onto the mini-map', () => {
     w: 80,
     h: 48,
   });
+});
+
+void test('toImagePx maps view to image px, rounded and clamped', () => {
+  const view = { w: 100, h: 50 };
+  const image = { w: 6000, h: 3000 };
+  assert.deepEqual(toImagePx({ x: 50, y: 25 }, view, image), { x: 3000, y: 1500 });
+  assert.deepEqual(toImagePx({ x: -5, y: 999 }, view, image), { x: 0, y: 2999 });
+});
+
+void test('brushRadius scales the view radius to image px, at least 1', () => {
+  assert.equal(brushRadius(12, { w: 1000, h: 500 }, { w: 6000, h: 3000 }), 72);
+  assert.equal(brushRadius(0.1, { w: 1000, h: 500 }, { w: 6000, h: 3000 }), 1);
+});
+
+void test('thinPoints drops points too close to the last kept one, keeps both ends', () => {
+  assert.deepEqual(
+    thinPoints(
+      [
+        [0, 0],
+        [1, 0],
+        [2, 0],
+        [10, 0],
+        [11, 0],
+      ],
+      4,
+    ),
+    [
+      [0, 0],
+      [10, 0],
+      [11, 0],
+    ],
+  );
+});
+
+void test('sizeAfter leaves the size alone for brush and subject', () => {
+  assert.deepEqual(
+    sizeAfter({ w: 10, h: 10 }, [
+      { type: 'brush', strokes: [] },
+      { type: 'subject', points: [] },
+    ]),
+    { w: 10, h: 10 },
+  );
 });

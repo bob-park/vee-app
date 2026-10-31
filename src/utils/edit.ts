@@ -32,6 +32,29 @@ export function cropFromDrag(start: Pt, end: Pt, view: Size, image: Size): Rect 
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
+/** A point in `view` px as image px: rounded, clamped to `[0, image-1]`. */
+export function toImagePx(p: Pt, view: Size, image: Size): Pt {
+  return {
+    x: clamp(Math.round((p.x * image.w) / view.w), image.w - 1),
+    y: clamp(Math.round((p.y * image.h) / view.h), image.h - 1),
+  };
+}
+
+/** A brush radius in `view` px as image px, at least 1. */
+export function brushRadius(viewRadius: number, view: Size, image: Size): number {
+  return Math.max(1, Math.round((viewRadius * image.w) / view.w));
+}
+
+/** `points` without those closer than `minGap` to the last kept one; the first and last always stay. */
+export function thinPoints(points: [number, number][], minGap: number): [number, number][] {
+  const kept: [number, number][] = [];
+  points.forEach((p, i) => {
+    const last = kept.at(-1);
+    if (!last || i === points.length - 1 || Math.hypot(p[0] - last[0], p[1] - last[1]) >= minGap) kept.push(p);
+  });
+  return kept;
+}
+
 /** `next` filled in from `prev`: the missing side follows `prev`'s ratio when `locked`. Rounded, at least 1. */
 export function resizeKeep(prev: Size, next: Partial<Size>, locked: boolean): Size {
   let { w = prev.w, h = prev.h } = next;
@@ -64,6 +87,8 @@ export function sizeAfter(base: Size, ops: EditOp[]): Size {
       case 'upscale':
         return upscaleSize(s, op.scale);
       case 'removeBg':
+      case 'subject':
+      case 'brush':
         return s;
     }
   }, base);
