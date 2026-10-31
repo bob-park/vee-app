@@ -79,11 +79,13 @@ fn ai_key(session: &Session, prefix: &[Op]) -> u64 {
     h.finish()
 }
 
-/// Applies `ops` to the session's source in order. AI ops go through `ai` and are cached by the ops before them.
+/// Applies `ops` to the session's source in order. AI ops go through `ai` with the key of the ops
+/// before them. RemoveBg/Upscale results are cached; Subject results aren't, so each click doesn't
+/// keep another full-res image (the worker keeps the embedding for that key instead).
 fn render(
     session: &Session,
     ops: &[Op],
-    ai: impl Fn(&DynamicImage, &Op) -> AppResult<DynamicImage>,
+    ai: impl Fn(&DynamicImage, &Op, u64) -> AppResult<DynamicImage>,
 ) -> AppResult<DynamicImage> {
     let mut img = session.source.clone();
     for (i, op) in ops.iter().enumerate() {
@@ -102,11 +104,17 @@ fn render(
                 match hit {
                     Some(done) => done,
                     None => {
-                        let done = Arc::new(ai(&img, op)?);
+                        let done = Arc::new(ai(&img, op, ai_key(session, &ops[..i]))?);
                         session.cache.lock().unwrap_or_else(|e| e.into_inner()).insert(key, done.clone());
                         done
                     }
                 }
+            }
+            Op::Subject { points } => {
+                if points.is_empty() {
+                    return Err(AppError::InvalidInput("no subject points".into()));
+                }
+                Arc::new(ai(&img, op, ai_key(session, &ops[..i]))?)
             }
             _ => Arc::new(edit::apply_geometric(Arc::unwrap_or_clone(img), op)?),
         };
@@ -126,9 +134,10 @@ fn preview(img: &DynamicImage) -> AppResult<EditImageDto> {
 async fn render_off_main(app: &AppHandle, session: Arc<Session>, ops: Vec<Op>) -> AppResult<DynamicImage> {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        render(&session, &ops, |img, op| match op {
+        render(&session, &ops, |img, op, prefix_key| match op {
             Op::RemoveBg => ai::remove_background(&app, img),
             Op::Upscale { scale } => ai::upscale(&app, img, *scale),
+            Op::Subject { points } => ai::subject(&app, img, prefix_key, points),
             _ => Err(AppError::InvalidInput("not an AI op".into())),
         })
     })
@@ -247,6 +256,7 @@ pub mod commands {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::edit::SubjectPoint;
     use ::image::RgbaImage;
     use std::cell::Cell;
 
@@ -261,8 +271,8 @@ mod tests {
     }
 
     /// A fake AI op that counts its calls and returns the input unchanged.
-    fn counting(calls: &Cell<u32>) -> impl Fn(&DynamicImage, &Op) -> AppResult<DynamicImage> + '_ {
-        move |img, _| {
+    fn counting(calls: &Cell<u32>) -> impl Fn(&DynamicImage, &Op, u64) -> AppResult<DynamicImage> + '_ {
+        move |img, _, _| {
             calls.set(calls.get() + 1);
             Ok(img.clone())
         }
@@ -272,10 +282,10 @@ mod tests {
     fn geometric_ops_apply_in_order() {
         let s = Session::new(blank(100, 50));
         let ops = [Op::Crop { x: 0, y: 0, w: 50, h: 50 }, Op::Rotate { quarter: 1 }, Op::Resize { w: 20, h: 20 }];
-        let out = render(&s, &ops, |_, _| panic!("no AI op")).unwrap();
+        let out = render(&s, &ops, |_, _, _| panic!("no AI op")).unwrap();
         assert_eq!((out.width(), out.height()), (20, 20));
         // Cropping before the rotate would give 50×50.
-        let out = render(&s, &[Op::Rotate { quarter: 1 }, Op::Crop { x: 0, y: 0, w: 50, h: 80 }], |_, _| panic!()).unwrap();
+        let out = render(&s, &[Op::Rotate { quarter: 1 }, Op::Crop { x: 0, y: 0, w: 50, h: 80 }], |_, _, _| panic!()).unwrap();
         assert_eq!((out.width(), out.height()), (50, 80));
     }
 
@@ -313,6 +323,42 @@ mod tests {
         assert_eq!(calls.get(), 0);
     }
 
+    fn subject(n: u32) -> Op {
+        Op::Subject { points: (0..n).map(|i| SubjectPoint { x: i, y: i, keep: true }).collect() }
+    }
+
+    /// Renders `ops` and returns the prefix key the AI callback saw.
+    fn subject_key(s: &Session, ops: &[Op]) -> u64 {
+        let seen = Cell::new(None);
+        render(s, ops, |img, _, key| {
+            seen.set(Some(key));
+            Ok(img.clone())
+        })
+        .unwrap();
+        seen.get().unwrap()
+    }
+
+    #[test]
+    fn subject_embedding_keyed_by_prefix() {
+        let s = Session::new(blank(10, 10));
+        let one = subject_key(&s, &[subject(1)]);
+        assert_eq!(one, subject_key(&s, &[subject(2)]));
+        assert_ne!(one, subject_key(&s, &[Op::Crop { x: 0, y: 0, w: 8, h: 8 }, subject(1)]));
+    }
+
+    #[test]
+    fn subject_results_not_cached() {
+        let s = Session::new(blank(10, 10));
+        let calls = Cell::new(0);
+        for n in 1..=3 {
+            render(&s, &[subject(n)], counting(&calls)).unwrap();
+        }
+        assert_eq!(calls.get(), 3);
+        assert_eq!(s.cache.lock().unwrap().len(), 0);
+        assert!(matches!(render(&s, &[subject(0)], counting(&calls)), Err(AppError::InvalidInput(_))));
+        assert_eq!(calls.get(), 3);
+    }
+
     #[test]
     fn preview_is_downsized() {
         use base64::{Engine, engine::general_purpose::STANDARD};
@@ -338,7 +384,7 @@ mod tests {
         let state = EditorState::default();
         state.set(Some(Session::load(&write_png(dir.path(), "a.png", 30, 20)).unwrap()));
         let first = state.current().unwrap();
-        render(&first, &[Op::RemoveBg], |img, _| Ok(img.clone())).unwrap();
+        render(&first, &[Op::RemoveBg], |img, _, _| Ok(img.clone())).unwrap();
         assert_eq!(first.cache.lock().unwrap().len(), 1);
 
         state.set(Some(Session::load(&write_png(dir.path(), "b.png", 7, 9)).unwrap()));
@@ -360,7 +406,7 @@ mod tests {
         let path = write_png(dir.path(), "clip.png", 12, 6);
         let s = Session::load(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
-        let out = render(&s, &[Op::Rotate { quarter: -1 }], |_, _| panic!()).unwrap();
+        let out = render(&s, &[Op::Rotate { quarter: -1 }], |_, _, _| panic!()).unwrap();
         assert_eq!((out.width(), out.height()), (6, 12));
     }
 }
