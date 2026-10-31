@@ -237,6 +237,15 @@ export const en = {
             : 'Needed to remove backgrounds in the editor.',
         removeConfirm: 'Remove the model? Remove background stops working until you download it again.',
       },
+      sam: {
+        caption: 'Subject selection · AI model',
+        title: 'SAM',
+        missingHint: (mb: number | null) =>
+          mb
+            ? `Needed to pick a subject by clicking in the editor. About ${mb} MB`
+            : 'Needed to pick a subject by clicking in the editor.',
+        removeConfirm: 'Remove the model? Subject selection stops working until you download it again.',
+      },
       libreoffice: {
         caption: 'LibreOffice · Document conversion',
         beta: 'Beta',

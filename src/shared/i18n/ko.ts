@@ -233,6 +233,15 @@ export const ko: Dict = {
           mb ? `편집기에서 배경을 지울 때 필요해요. 약 ${mb}MB` : '편집기에서 배경을 지울 때 필요해요.',
         removeConfirm: '모델을 삭제할까요? 다시 내려받기 전까지 배경 제거를 할 수 없어요.',
       },
+      sam: {
+        caption: '피사체 선택 · AI 모델',
+        title: 'SAM',
+        missingHint: (mb: number | null) =>
+          mb
+            ? `편집기에서 클릭으로 피사체를 고를 때 필요해요. 약 ${mb}MB`
+            : '편집기에서 클릭으로 피사체를 고를 때 필요해요.',
+        removeConfirm: '모델을 삭제할까요? 다시 내려받기 전까지 피사체 선택을 할 수 없어요.',
+      },
       libreoffice: {
         caption: 'LibreOffice · 문서 변환',
         beta: 'Beta',

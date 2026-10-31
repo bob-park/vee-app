@@ -93,7 +93,8 @@ export default function ConvertSection({ settings, run, updateSetting }: Props) 
       </EngineSection>
       <EngineSection engine="rhwp" index={2} run={run} />
       <EngineSection engine="bgremove" index={3} run={run} />
-      <LibreOfficeSection index={4} run={run} />
+      <EngineSection engine="sam" index={4} run={run} />
+      <LibreOfficeSection index={5} run={run} />
     </>
   );
 }
