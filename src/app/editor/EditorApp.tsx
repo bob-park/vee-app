@@ -1,20 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 
+import BgControls from '@/app/editor/_components/BgControls';
 import BgToolRail, { type BgTool } from '@/app/editor/_components/BgToolRail';
 import BrushLayer from '@/app/editor/_components/BrushLayer';
 import CompareView from '@/app/editor/_components/CompareView';
 import CropBox from '@/app/editor/_components/CropBox';
+import EditorHeader, { type EditorTab } from '@/app/editor/_components/EditorHeader';
 import Footer from '@/app/editor/_components/Footer';
-import ModelPrompt from '@/app/editor/_components/ModelPrompt';
 import ResizeForm from '@/app/editor/_components/ResizeForm';
 import RotatePanel from '@/app/editor/_components/RotatePanel';
+import StageImage from '@/app/editor/_components/StageImage';
 import SubjectLayer from '@/app/editor/_components/SubjectLayer';
+import UpscaleControls, { type UpscaleScale, type UpscaleZoom } from '@/app/editor/_components/UpscaleControls';
 import { TOOL_BUTTON } from '@/app/editor/_components/button';
 import { BRUSH, useBgTools } from '@/app/editor/_hooks/useBgTools';
 import { closeEditor, copyEdit, getEditSource, renderEdit } from '@/domain/edit/apis/edit';
-import type { BrushMode, EditImage, EditOp } from '@/domain/edit/apis/edit.dto';
+import type { EditImage, EditOp } from '@/domain/edit/apis/edit.dto';
 import Aurora from '@/shared/components/Aurora';
-import Segmented from '@/shared/components/Segmented';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { type Size, addLasso, addPoint, previewScale, sizeAfter } from '@/utils/edit';
 import { errorText } from '@/utils/errorText';
@@ -22,22 +24,10 @@ import { errorText } from '@/utils/errorText';
 import { listen } from '@tauri-apps/api/event';
 import cx from 'classnames';
 
-/** The editor's tools. `removeBg` and `upscale` show their result next to the original before it's applied. */
-export type EditorTab = 'crop' | 'rotate' | 'resize' | 'removeBg' | 'upscale';
-
-const TABS: EditorTab[] = ['crop', 'rotate', 'resize', 'removeBg', 'upscale'];
-
-const SCALES = ['2', '4'] as const;
 // A fresh object each time: a shown AI result is matched to its step by identity.
-const upscaleOp = (k: (typeof SCALES)[number]): EditOp => ({ type: 'upscale', scale: k === '4' ? 4 : 2 });
-const ZOOMS = ['fit', 'actual'] as const;
-const BRUSH_MODES: BrushMode[] = ['erase', 'restore'];
+const upscaleOp = (k: UpscaleScale): EditOp => ({ type: 'upscale', scale: k === '4' ? 4 : 2 });
 
 const isMac = navigator.userAgent.includes('Mac');
-
-/** The neutral button beside Apply, like the footer's Cancel. */
-const RESET_BUTTON =
-  'rounded-box bg-subtle text-base-content px-3.5 py-1.5 text-[12px] font-semibold disabled:cursor-default disabled:opacity-50';
 
 const sizeOf = (img: EditImage): Size => ({ w: img.width, h: img.height });
 
@@ -63,8 +53,8 @@ export function EditorApp() {
   const [result, setResult] = useState<{ img: EditImage; op: EditOp; ops: EditOp[] } | null>(null);
   /** The last AI step failed to render; its tab offers to try again. */
   const [aiFailed, setAiFailed] = useState(false);
-  const [scale, setScale] = useState<(typeof SCALES)[number]>('2');
-  const [zoom, setZoom] = useState<(typeof ZOOMS)[number]>('fit');
+  const [scale, setScale] = useState<UpscaleScale>('2');
+  const [zoom, setZoom] = useState<UpscaleZoom>('fit');
   /** A live step's render is running; the next click or stroke waits for it (latest wins). */
   const [liveRendering, setLiveRendering] = useState(false);
 
@@ -294,7 +284,7 @@ export function EditorApp() {
     setPending(aiStep(tab));
   };
 
-  const handleScale = (next: (typeof SCALES)[number]) => {
+  const handleScale = (next: UpscaleScale) => {
     setScale(next);
     setPending(upscaleOp(next));
   };
@@ -344,25 +334,7 @@ export function EditorApp() {
   return (
     <main className="relative flex h-full flex-col">
       <Aurora className="inset-x-0 top-0 h-[110px]" />
-      {/* macOS overlays the traffic lights on this row (`titleBarStyle: Overlay`); Windows keeps its native bar. */}
-      {isMac && (
-        <div
-          className="relative z-1 flex h-7 shrink-0 items-center justify-center font-semibold select-none"
-          data-tauri-drag-region
-        >
-          {t.editor.title}
-        </div>
-      )}
-      <div className="relative z-1 flex shrink-0 justify-center pt-1 pb-3">
-        {/* Disabled (natively, for every tab button) while a slow AI step renders. */}
-        <fieldset className="glass rounded-xl p-0.5 disabled:opacity-60" disabled={spinner}>
-          <Segmented
-            value={tab}
-            onChange={handleTab}
-            options={TABS.map((value) => ({ value, label: t.editor.tabs[value] }))}
-          />
-        </fieldset>
-      </div>
+      <EditorHeader isMac={isMac} tab={tab} onTab={handleTab} disabled={spinner} />
       <div
         ref={stageRef}
         className={cx('relative z-1 mx-5 flex min-h-0 flex-1 items-center justify-center', { 'pl-12': bgOn })}
@@ -381,46 +353,15 @@ export function EditorApp() {
           />
         )}
         {preview && (!shown || live) && image && view && (
-          <div className="relative" style={{ width: view.w, height: view.h }}>
-            {/* Brush paints on the latest render; over a checkerboard so erased parts read as transparent. */}
-            <img
-              src={brushOn && liveImg ? liveImg.dataUrl : preview.img.dataUrl}
-              alt=""
-              draggable={false}
-              className={cx('size-full rounded-md transition-opacity duration-200 select-none', {
-                'opacity-60': busy,
-                'opacity-35': subjectOn && liveImg && !busy,
-                'bg-checker': brushOn,
-              })}
-            />
-            {/* Subject: the cut on top of the dimmed original, so what's left out still shows faintly. */}
-            {subjectOn && liveImg && (
-              <img
-                src={liveImg.dataUrl}
-                alt=""
-                draggable={false}
-                className="absolute inset-0 size-full rounded-md select-none"
-              />
-            )}
-            {spinner && (
-              <div
-                className="absolute inset-0 flex items-center justify-center"
-                role="status"
-                aria-label={t.editor.working}
-              >
-                <span className="glass rounded-full p-2">
-                  <svg
-                    className="text-primary size-5 animate-spin motion-reduce:animate-none"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    aria-hidden
-                  >
-                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" />
-                    <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-                  </svg>
-                </span>
-              </div>
-            )}
+          <StageImage
+            view={view}
+            src={brushOn && liveImg ? liveImg.dataUrl : preview.img.dataUrl}
+            overlaySrc={subjectOn && liveImg ? liveImg.dataUrl : null}
+            busy={busy}
+            dimmed={!!(subjectOn && liveImg && !busy)}
+            checker={brushOn}
+            spinner={spinner}
+          >
             {tab === 'crop' && (
               <CropBox
                 disabled={busy}
@@ -452,7 +393,7 @@ export function EditorApp() {
                 onStroke={handleStroke}
               />
             )}
-          </div>
+          </StageImage>
         )}
       </div>
       <div className="relative z-1 flex h-16 shrink-0 items-center justify-center px-5">
@@ -476,74 +417,31 @@ export function EditorApp() {
             onApply={() => handleApply(pending)}
           />
         )}
-        {bgOn &&
-          bgTool === 'auto' &&
-          (bgStatus && !bgReady ? (
-            <ModelPrompt />
-          ) : (
-            <div className="flex items-center gap-3">
-              <span className="text-muted text-[12px]">{t.editor.removeBgHint}</span>
-              {aiButton}
-            </div>
-          ))}
-        {subjectOn &&
-          (samStatus && !samReady ? (
-            <ModelPrompt />
-          ) : (
-            <div className="flex items-center gap-3">
-              <span className="text-muted text-[12px]">{t.editor.subjectHint(isMac)}</span>
-              <button className={RESET_BUTTON} disabled={!live || busy} onClick={() => setPending(null)}>
-                {t.editor.subjectReset}
-              </button>
-              {liveApply}
-            </div>
-          ))}
-        {brushOn && (
-          <div className="flex items-center gap-3">
-            <div className="glass rounded-xl p-0.5">
-              <Segmented
-                value={brushMode}
-                onChange={setBrushMode}
-                options={BRUSH_MODES.map((value) => ({ value, label: t.editor.brushModes[value] }))}
-              />
-            </div>
-            <label className="text-muted flex items-center gap-2 text-[12px]">
-              {t.editor.brushSize}
-              <input
-                type="range"
-                className="accent-primary w-24"
-                min={BRUSH.min}
-                max={BRUSH.max}
-                value={brushSize}
-                aria-label={t.editor.brushSize}
-                onChange={(e) => handleBrushSize(Number(e.target.value))}
-              />
-              <span className="w-5 tabular-nums">{brushSize}</span>
-            </label>
-            {liveApply}
-          </div>
+        {bgOn && (
+          <BgControls
+            tool={bgTool}
+            bgMissing={!!bgStatus && !bgReady}
+            samMissing={!!samStatus && !samReady}
+            isMac={isMac}
+            resetDisabled={!live || busy}
+            onReset={() => setPending(null)}
+            brushMode={brushMode}
+            onBrushMode={setBrushMode}
+            brushSize={brushSize}
+            onBrushSize={handleBrushSize}
+            aiButton={aiButton}
+            liveApply={liveApply}
+          />
         )}
         {tab === 'upscale' && (
-          <div className="flex items-center gap-2.5">
-            <div className="glass rounded-xl p-0.5">
-              <Segmented
-                value={scale}
-                onChange={handleScale}
-                options={SCALES.map((value) => ({ value, label: t.editor.scales[value] }))}
-              />
-            </div>
-            <div className="glass rounded-xl p-0.5">
-              <Segmented
-                value={zoom}
-                onChange={setZoom}
-                options={ZOOMS.map((value) => ({
-                  value,
-                  label: value === 'fit' ? t.editor.zoom.fit : t.editor.zoom.actual(actualPct),
-                }))}
-              />
-            </div>
-            {aiButton}
-          </div>
+          <UpscaleControls
+            scale={scale}
+            onScale={handleScale}
+            zoom={zoom}
+            onZoom={setZoom}
+            actualPct={actualPct}
+            aiButton={aiButton}
+          />
         )}
       </div>
       <Footer
