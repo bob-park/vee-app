@@ -1,8 +1,8 @@
-//! On-device image models through ONNX Runtime: background removal with BiRefNet, and the
-//! upscale entry point (Lanczos only; no model passed the glyph check).
+//! On-device image models through ONNX Runtime: background removal with BiRefNet, subject cut
+//! with SAM (ViT-B), and the upscale entry point (Lanczos only; no model passed the glyph check).
 
 use crate::app::engines::{self, EngineId};
-use crate::domain::edit::upscale_fallback;
+use crate::domain::edit::{SubjectPoint, upscale_fallback};
 use crate::shared::error::{AppError, AppResult};
 use ::image::{DynamicImage, GrayImage, Luma, RgbaImage, imageops, imageops::FilterType};
 use ort::{
@@ -21,6 +21,10 @@ const SIDE: u32 = 1024;
 /// ImageNet mean/std, as rembg feeds BiRefNet.
 const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 const STD: [f32; 3] = [0.229, 0.224, 0.225];
+
+/// SAM's encoder input, `W × H`: the source fits inside, top-left, zero padded (rembg's `input_size`).
+const SAM_W: u32 = 1024;
+const SAM_H: u32 = 684;
 
 /// ORT allows one environment per process, so it lives until exit once built (under `RUN`'s lock).
 static ENV: OnceLock<Environment> = OnceLock::new();
@@ -106,6 +110,15 @@ fn apply_mask(mut img: RgbaImage, mask: &GrayImage) -> RgbaImage {
     img
 }
 
+/// The shared environment, loading `lib` on first use. Call with `RUN` held.
+fn env(lib: &Path) -> AppResult<&'static Environment> {
+    if let Some(env) = ENV.get() {
+        return Ok(env);
+    }
+    let env = ort::init_from(lib).map_err(ort_err)?.build().map_err(ort_err)?;
+    Ok(ENV.get_or_init(|| env))
+}
+
 /// A CPU session tuned for peak memory: no arena, no memory pattern, at most 4 threads.
 fn load(env: &Environment, model: &Path) -> AppResult<Session> {
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(4);
@@ -133,15 +146,8 @@ fn cut(lib: &Path, model: &Path, img: &DynamicImage) -> AppResult<DynamicImage> 
     let mask = {
         // The guard holds no data, so a panic in an earlier run leaves nothing to clean up.
         let _run = RUN.lock().unwrap_or_else(PoisonError::into_inner);
-        let env = match ENV.get() {
-            Some(env) => env,
-            None => {
-                let env = ort::init_from(lib).map_err(ort_err)?.build().map_err(ort_err)?;
-                ENV.get_or_init(|| env)
-            }
-        };
         let start = Instant::now();
-        let mut session = load(env, model)?;
+        let mut session = load(env(lib)?, model)?;
         log::info!("ai: loaded background model in {} ms", start.elapsed().as_millis());
         // Any ORT call (even building a tensor) needs the library loaded first, or ort panics.
         let input = Tensor::from_array(([1usize, 3, SIDE as usize, SIDE as usize], data)).map_err(ort_err)?;
@@ -162,6 +168,154 @@ pub fn remove_background(app: &AppHandle, img: &DynamicImage) -> AppResult<Dynam
     let dir = engines::model_dir(app, EngineId::Bgremove).ok_or_else(|| AppError::Other("model missing".into()))?;
     let [model] = model_paths(&dir, EngineId::Bgremove)?.try_into().map_err(|_| AppError::Other("model missing".into()))?;
     cut(&runtime_path()?, &model, img)
+}
+
+/// SAM's encoder output for one `w × h` source, scaled by `scale` into the encoder input.
+/// Reused for every click on the same image; the sessions themselves are not kept.
+pub struct SamEmbedding {
+    data: Vec<f32>,
+    shape: Vec<usize>,
+    scale: f32,
+    w: u32,
+    h: u32,
+}
+
+/// `w × h` scaled by `scale`, as it sits in SAM's input.
+fn sam_size(w: u32, h: u32, scale: f32) -> (u32, u32) {
+    (((w as f32 * scale).round() as u32).clamp(1, SAM_W), ((h as f32 * scale).round() as u32).clamp(1, SAM_H))
+}
+
+/// The encoder input, HWC f32 `SAM_H × SAM_W × 3` of raw 0..255 RGB (the model normalizes), and
+/// the scale the source was fitted by.
+fn sam_input(img: &DynamicImage) -> (Vec<f32>, f32) {
+    let (w, h) = (img.width(), img.height());
+    let scale = (SAM_W as f32 / w as f32).min(SAM_H as f32 / h as f32);
+    let (nw, nh) = sam_size(w, h, scale);
+    // The integer thumbnail filter when shrinking, as in `to_input`.
+    let small = if nw < w { img.thumbnail_exact(nw, nh) } else { img.resize_exact(nw, nh, FilterType::Triangle) }.to_rgb8();
+    let mut data = vec![0f32; (SAM_W * SAM_H * 3) as usize];
+    for (x, y, p) in small.enumerate_pixels() {
+        let i = ((y * SAM_W + x) * 3) as usize;
+        data[i..i + 3].copy_from_slice(&p.0.map(f32::from));
+    }
+    (data, scale)
+}
+
+/// Decoder `point_coords` (flat `[n+1, 2]`) and `point_labels` (`[n+1]`): the points in input
+/// space, keep → 1 and background → 0, plus the `(0, 0)` / −1 pad SAM expects without a box.
+fn sam_prompt(points: &[SubjectPoint], scale: f32) -> (Vec<f32>, Vec<f32>) {
+    let coords = points.iter().flat_map(|p| [p.x as f32 * scale, p.y as f32 * scale]).chain([0.0, 0.0]).collect();
+    let labels = points.iter().map(|p| if p.keep { 1.0 } else { 0.0 }).chain([-1.0]).collect();
+    (coords, labels)
+}
+
+/// The decoder's `k × SAM_H × SAM_W` logits as a `w × h` alpha mask: the OR of the `k` masks (the
+/// max logit), cropped to the source's area, sampled bilinearly, then `sigmoid · 255`.
+/// Logits are interpolated before the sigmoid so edges stay sharp when scaled up.
+fn sam_mask(logits: &[f32], scale: f32, w: u32, h: u32) -> GrayImage {
+    let plane = (SAM_W * SAM_H) as usize;
+    let mut best = vec![f32::MIN; plane];
+    for m in logits.chunks_exact(plane) {
+        for (b, &v) in best.iter_mut().zip(m) {
+            *b = b.max(v);
+        }
+    }
+    let (cw, ch) = sam_size(w, h, scale);
+    let at = |x: u32, y: u32| best[(y * SAM_W + x) as usize];
+    GrayImage::from_fn(w, h, |x, y| {
+        // Pixel centres map to pixel centres.
+        let sx = ((x as f32 + 0.5) * cw as f32 / w as f32 - 0.5).clamp(0.0, (cw - 1) as f32);
+        let sy = ((y as f32 + 0.5) * ch as f32 / h as f32 - 0.5).clamp(0.0, (ch - 1) as f32);
+        let (x0, y0) = (sx as u32, sy as u32);
+        let (x1, y1) = ((x0 + 1).min(cw - 1), (y0 + 1).min(ch - 1));
+        let (fx, fy) = (sx - x0 as f32, sy - y0 as f32);
+        let top = at(x0, y0) + (at(x1, y0) - at(x0, y0)) * fx;
+        let bottom = at(x0, y1) + (at(x1, y1) - at(x0, y1)) * fx;
+        let v = top + (bottom - top) * fy;
+        Luma([(255.0 / (1.0 + (-v).exp())).round() as u8])
+    })
+}
+
+/// Runs SAM's encoder from `model` on `img`. The session is dropped before returning.
+fn embed(lib: &Path, model: &Path, img: &DynamicImage) -> AppResult<SamEmbedding> {
+    if img.width() == 0 || img.height() == 0 {
+        return Err(AppError::InvalidInput("empty image".into()));
+    }
+    let (data, scale) = sam_input(img);
+    let _run = RUN.lock().unwrap_or_else(PoisonError::into_inner);
+    let start = Instant::now();
+    let mut session = load(env(lib)?, model)?;
+    log::info!("ai: loaded subject encoder in {} ms", start.elapsed().as_millis());
+    let input = Tensor::from_array(([SAM_H as usize, SAM_W as usize, 3], data)).map_err(ort_err)?;
+    let start = Instant::now();
+    let outputs = session.run(ort::inputs![input]).map_err(ort_err)?;
+    let out = outputs.values().next().ok_or_else(|| AppError::Other("onnx runtime: no output".into()))?;
+    let (shape, data) = out.try_extract_tensor::<f32>().map_err(ort_err)?;
+    log::info!("ai: embedded {}x{} in {} ms", img.width(), img.height(), start.elapsed().as_millis());
+    Ok(SamEmbedding {
+        data: data.to_vec(),
+        shape: shape.iter().map(|&d| d as usize).collect(),
+        scale,
+        w: img.width(),
+        h: img.height(),
+    })
+}
+
+/// Runs SAM's decoder from `model` for `points` on `emb` and returns `img` as RGBA with the mask
+/// as alpha. The session is dropped before returning.
+fn decode(lib: &Path, model: &Path, img: &DynamicImage, emb: &SamEmbedding, points: &[SubjectPoint]) -> AppResult<DynamicImage> {
+    if points.is_empty() {
+        return Err(AppError::InvalidInput("no subject points".into()));
+    }
+    if (emb.w, emb.h) != (img.width(), img.height()) {
+        return Err(AppError::InvalidInput("embedding is for another image".into()));
+    }
+    let (coords, labels) = sam_prompt(points, emb.scale);
+    let n = labels.len();
+    let mask = {
+        let _run = RUN.lock().unwrap_or_else(PoisonError::into_inner);
+        let start = Instant::now();
+        let mut session = load(env(lib)?, model)?;
+        log::info!("ai: loaded subject decoder in {} ms", start.elapsed().as_millis());
+        let inputs = ort::inputs! {
+            "image_embeddings" => Tensor::from_array((emb.shape.clone(), emb.data.clone())).map_err(ort_err)?,
+            "point_coords" => Tensor::from_array(([1usize, n, 2], coords)).map_err(ort_err)?,
+            "point_labels" => Tensor::from_array(([1usize, n], labels)).map_err(ort_err)?,
+            "mask_input" => Tensor::from_array(([1usize, 1, 256, 256], vec![0f32; 256 * 256])).map_err(ort_err)?,
+            "has_mask_input" => Tensor::from_array(([1usize], vec![0f32])).map_err(ort_err)?,
+            "orig_im_size" => Tensor::from_array(([2usize], vec![SAM_H as f32, SAM_W as f32])).map_err(ort_err)?,
+        };
+        let start = Instant::now();
+        let outputs = session.run(inputs).map_err(ort_err)?;
+        let out = outputs.values().next().ok_or_else(|| AppError::Other("onnx runtime: no output".into()))?;
+        let (shape, logits) = out.try_extract_tensor::<f32>().map_err(ort_err)?;
+        if shape.len() != 4 || shape[2] != SAM_H as i64 || shape[3] != SAM_W as i64 {
+            return Err(AppError::Other(format!("onnx runtime: unexpected mask shape {shape:?}")));
+        }
+        let mask = sam_mask(logits, emb.scale, emb.w, emb.h);
+        log::info!("ai: subject cut from {} points in {} ms", points.len(), start.elapsed().as_millis());
+        mask
+    };
+    Ok(DynamicImage::ImageRgba8(apply_mask(img.to_rgba8(), &mask)))
+}
+
+/// SAM's installed encoder and decoder, or `Other("model missing")`.
+fn sam_models(app: &AppHandle) -> AppResult<[PathBuf; 2]> {
+    let dir = engines::model_dir(app, EngineId::Sam).ok_or_else(|| AppError::Other("model missing".into()))?;
+    model_paths(&dir, EngineId::Sam)?.try_into().map_err(|_| AppError::Other("model missing".into()))
+}
+
+/// The SAM embedding of `img`, for `sam_cut`. `Other("model missing")` when the engine isn't installed.
+pub fn sam_embed(app: &AppHandle, img: &DynamicImage) -> AppResult<SamEmbedding> {
+    let [encoder, _] = sam_models(app)?;
+    embed(&runtime_path()?, &encoder, img)
+}
+
+/// `img` as RGBA with everything but the subject at `points` transparent. `emb` must be `img`'s
+/// embedding; `InvalidInput` on empty `points` or another image's embedding.
+pub fn sam_cut(app: &AppHandle, img: &DynamicImage, emb: &SamEmbedding, points: &[SubjectPoint]) -> AppResult<DynamicImage> {
+    let [_, decoder] = sam_models(app)?;
+    decode(&runtime_path()?, &decoder, img, emb, points)
 }
 
 fn check_upscale(img: &DynamicImage, scale: u8) -> AppResult<()> {
@@ -274,6 +428,90 @@ mod tests {
         drop(held);
         assert!(forget(EngineId::Bgremove).is_ok());
         assert!(forget(EngineId::Sam).is_ok());
+    }
+
+    fn point(x: u32, y: u32, keep: bool) -> SubjectPoint {
+        SubjectPoint { x, y, keep }
+    }
+
+    #[test]
+    fn sam_input_scales_and_pads() {
+        let (data, scale) = sam_input(&DynamicImage::new_rgb8(2048, 1368));
+        assert_eq!(scale, 0.5);
+        assert_eq!(data.len(), 684 * 1024 * 3);
+        let img = DynamicImage::ImageRgb8(RgbImage::from_pixel(1024, 100, Rgb([200, 0, 0])));
+        let (data, scale) = sam_input(&img);
+        assert_eq!(scale, 1.0);
+        // HWC: the image sits top-left, the rest is zero.
+        assert_eq!(&data[..3], &[200.0, 0.0, 0.0]);
+        let at = 200 * 1024 * 3;
+        assert_eq!(&data[at..at + 3], &[0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn sam_prompt_scales_and_pads() {
+        let (coords, labels) = sam_prompt(&[point(100, 50, true), point(10, 20, false)], 0.5);
+        assert_eq!(coords, [50.0, 25.0, 5.0, 10.0, 0.0, 0.0]);
+        assert_eq!(labels, [1.0, 0.0, -1.0]);
+    }
+
+    #[test]
+    fn sam_mask_left_half() {
+        let plane: Vec<f32> = (0..SAM_H * SAM_W).map(|i| if i % SAM_W < 512 { 10.0 } else { -10.0 }).collect();
+        // Two masks: the second is all background, so the max keeps the first's left half.
+        let logits: Vec<f32> = plane.iter().copied().chain(std::iter::repeat_n(-20.0, plane.len())).collect();
+        let mask = sam_mask(&logits, 1.0, 1024, 684);
+        assert_eq!(mask.dimensions(), (1024, 684));
+        assert_eq!(mask.get_pixel(10, 10)[0], 255);
+        assert_eq!(mask.get_pixel(1000, 10)[0], 0);
+    }
+
+    /// Runs SAM on `VEE_AI_IMAGE` with one centre point, using the vendored runtime (`node
+    /// scripts/fetch-onnxruntime.mjs`) and the quantized ViT-B pair in `VEE_SAM_ENCODER` /
+    /// `VEE_SAM_DECODER` (rembg's `sam_vit_b_01ec64.{encoder,decoder}.quant.onnx`), writing RGBA and
+    /// on-magenta PNGs to `VEE_AI_OUT`:
+    /// `cargo test --lib sam_real_model -- --ignored --nocapture`
+    /// Prints the models' inputs/outputs, and RSS before, after embed and after each run (twice,
+    /// to show sessions are dropped).
+    #[test]
+    #[ignore]
+    fn sam_real_model() {
+        let (lib, encoder, decoder) = (vendor_runtime(), env_path("VEE_SAM_ENCODER"), env_path("VEE_SAM_DECODER"));
+        let img = ::image::open(env_path("VEE_AI_IMAGE")).unwrap();
+        let out = env_path("VEE_AI_OUT");
+        std::fs::create_dir_all(&out).unwrap();
+        {
+            let _run = RUN.lock().unwrap();
+            for model in [&encoder, &decoder] {
+                let session = load(env(&lib).unwrap(), model).unwrap();
+                for o in session.inputs() {
+                    println!("in  {}: {}", o.name(), o.dtype());
+                }
+                for o in session.outputs() {
+                    println!("out {}: {}", o.name(), o.dtype());
+                }
+            }
+        }
+        println!("rss before {} KB", rss_kb());
+        let centre = [SubjectPoint { x: img.width() / 2, y: img.height() / 2, keep: true }];
+        for run in 0..2 {
+            let start = Instant::now();
+            let emb = embed(&lib, &encoder, &img).unwrap();
+            println!("embed {:?} in {} ms, rss {} KB", emb.shape, start.elapsed().as_millis(), rss_kb());
+            let start = Instant::now();
+            let cut = decode(&lib, &decoder, &img, &emb, &centre).unwrap();
+            println!("cut in {} ms, rss {} KB", start.elapsed().as_millis(), rss_kb());
+            assert_eq!(cut.color(), ::image::ColorType::Rgba8);
+            assert_eq!((cut.width(), cut.height()), (img.width(), img.height()));
+            // The clicked subject is kept.
+            assert!(cut.to_rgba8().get_pixel(centre[0].x, centre[0].y)[3] > 200);
+            drop(emb);
+            println!("run {run} done, rss {} KB", rss_kb());
+            cut.save(out.join("sam.png")).unwrap();
+            let mut bg = RgbaImage::from_pixel(img.width(), img.height(), ::image::Rgba([255, 0, 160, 255]));
+            imageops::overlay(&mut bg, &cut.to_rgba8(), 0, 0);
+            DynamicImage::ImageRgba8(bg).save(out.join("sam.on-magenta.png")).unwrap();
+        }
     }
 
     /// Runs the real path on `product-*.png` in `VEE_AI_BENCH_DIR`, with the vendored runtime
