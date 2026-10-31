@@ -36,7 +36,8 @@ export default function BrushLayer({ view, image, mode, viewRadius, synced, onSt
 
   // useEffect
   useEffect(() => {
-    if (synced) clear();
+    // Mid-drag, keep the tint: pointer-up adds the stroke, and the next sync clears it then.
+    if (synced && !drag.current) clear();
   }, [synced]);
 
   // handle
