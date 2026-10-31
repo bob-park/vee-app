@@ -16,7 +16,7 @@ import type { BrushMode, EditImage, EditOp } from '@/domain/edit/apis/edit.dto';
 import Aurora from '@/shared/components/Aurora';
 import Segmented from '@/shared/components/Segmented';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
-import { type Size, previewScale, sizeAfter } from '@/utils/edit';
+import { type Size, dropLastMark, previewScale, sizeAfter } from '@/utils/edit';
 import { errorText } from '@/utils/errorText';
 
 import { listen } from '@tauri-apps/api/event';
@@ -46,6 +46,8 @@ const sizeOf = (img: EditImage): Size => ({ w: img.width, h: img.height });
 export function EditorApp() {
   // ref
   const stageRef = useRef<HTMLDivElement>(null);
+  /** `pending` as of the last render, for a live render that returns after it changed. */
+  const pendingRef = useRef<EditOp | null>(null);
 
   // state
   const [source, setSource] = useState<EditImage | null>(null);
@@ -69,6 +71,8 @@ export function EditorApp() {
   const [brushMode, setBrushMode] = useState<BrushMode>('erase');
   /** Brush radius in CSS px. */
   const [brushSize, setBrushSize] = useState(BRUSH.size);
+  /** A live step's render is running; the next click or stroke waits for it (latest wins). */
+  const [liveRendering, setLiveRendering] = useState(false);
 
   // hooks
   const { t } = useI18n();
@@ -90,6 +94,8 @@ export function EditorApp() {
   const liveImg = live && fresh?.op.type === live.type ? fresh.img : null;
   // Only a slow render blocks: Auto, Upscale and a subject's first click (it embeds the image), never a stroke.
   const spinner = !!aiPending && !shown && aiPending.type !== 'brush' && !liveImg;
+  /** The image shows every click or stroke of the live step (or there is none). */
+  const liveSynced = !live || fresh?.op === live;
 
   // useEffect
   useEffect(() => {
@@ -109,13 +115,13 @@ export function EditorApp() {
       setBrushMode('erase');
       setBrushSize(BRUSH.size);
     };
-    const load = () =>
+    const load = () => {
+      // Reset first, so a reopen never shows the last image while the new one loads.
+      reset();
       void getEditSource()
-        .then((img) => {
-          reset();
-          setSource(img);
-        })
+        .then(setSource)
         .catch((e) => setError(errorText(e)));
+    };
     // The window may have been opened before this listener existed, so load once on mount too.
     load();
     const offOpened = listen('editor://opened', load);
@@ -158,9 +164,13 @@ export function EditorApp() {
     if (tab === 'removeBg' && bgTool === 'subject' && !samReady) setPending(null);
   }, [tab, bgTool, samReady]);
 
+  useEffect(() => {
+    pendingRef.current = pending;
+  });
+
   // An AI step renders once the steps before it have; a failure drops only the step, never `ops`.
   useEffect(() => {
-    if (!aiPending || !opsShown) return;
+    if (!aiPending || live || !opsShown) return;
     setAiFailed(false);
     let stale = false;
     renderEdit([...ops, aiPending])
@@ -176,7 +186,28 @@ export function EditorApp() {
     return () => {
       stale = true;
     };
-  }, [aiPending, ops, opsShown]);
+  }, [aiPending, live, ops, opsShown]);
+
+  // A live step renders one request at a time, so quick clicks or strokes never queue full-res
+  // renders: the latest step renders once the running one returns. A failure takes back only the
+  // last click or stroke.
+  useEffect(() => {
+    if (!live || liveSynced || !opsShown || liveRendering) return;
+    setAiFailed(false);
+    setLiveRendering(true);
+    renderEdit([...ops, live])
+      .then((img) => {
+        // Dropped once the step is gone (applied, reset or the editor closed).
+        if (pendingRef.current?.type === live.type) setResult({ img, op: live, ops });
+      })
+      .catch((e) => {
+        if (pendingRef.current !== live) return;
+        setError(errorText(e));
+        setAiFailed(true);
+        setPending(dropLastMark(live));
+      })
+      .finally(() => setLiveRendering(false));
+  }, [live, liveSynced, ops, opsShown, liveRendering]);
 
   useEffect(() => {
     const el = stageRef.current;
@@ -236,13 +267,7 @@ export function EditorApp() {
   /** ⌘Z: before a live step is applied, it takes back its last click or stroke. */
   const handleUndoKey = () => {
     if (!live) return handleUndo();
-    if (live.type === 'subject') {
-      const points = live.points.slice(0, -1);
-      setPending(points.length > 0 ? { type: 'subject', points } : null);
-    } else {
-      const strokes = live.strokes.slice(0, -1);
-      setPending(strokes.length > 0 ? { type: 'brush', strokes } : null);
-    }
+    setPending(dropLastMark(live));
   };
 
   const handleTab = (next: EditorTab) => {
@@ -424,6 +449,7 @@ export function EditorApp() {
                 image={image}
                 mode={brushMode}
                 viewRadius={brushSize}
+                synced={liveSynced}
                 disabled={busy}
                 onStroke={(stroke) =>
                   setPending((cur) => ({

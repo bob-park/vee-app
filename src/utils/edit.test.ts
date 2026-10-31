@@ -5,6 +5,7 @@ import {
   brushRadius,
   clampPan,
   cropFromDrag,
+  dropLastMark,
   previewScale,
   resizeKeep,
   sizeAfter,
@@ -132,4 +133,13 @@ void test('sizeAfter leaves the size alone for brush and subject', () => {
     ]),
     { w: 10, h: 10 },
   );
+});
+
+void test('dropLastMark takes back one click or stroke, null when none is left', () => {
+  const p = (x: number) => ({ x, y: 0, keep: true });
+  assert.deepEqual(dropLastMark({ type: 'subject', points: [p(1), p(2)] }), { type: 'subject', points: [p(1)] });
+  assert.equal(dropLastMark({ type: 'subject', points: [p(1)] }), null);
+  const s = (r: number) => ({ mode: 'erase' as const, radius: r, points: [[0, 0]] as [number, number][] });
+  assert.deepEqual(dropLastMark({ type: 'brush', strokes: [s(1), s(2)] }), { type: 'brush', strokes: [s(1)] });
+  assert.equal(dropLastMark({ type: 'brush', strokes: [s(1)] }), null);
 });

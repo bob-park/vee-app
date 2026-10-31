@@ -115,3 +115,10 @@ export function viewportRect(pan: Pt, zoomed: Size, view: Size, map: Size): Rect
     h: Math.min(view.h, zoomed.h) * sy,
   };
 }
+
+/** A live Subject or Brush step without its last click or stroke; `null` once nothing is left. */
+export function dropLastMark(op: EditOp): EditOp | null {
+  if (op.type === 'subject') return op.points.length > 1 ? { type: 'subject', points: op.points.slice(0, -1) } : null;
+  if (op.type === 'brush') return op.strokes.length > 1 ? { type: 'brush', strokes: op.strokes.slice(0, -1) } : null;
+  return null;
+}

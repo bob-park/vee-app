@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 
 import type { BrushMode, Stroke } from '@/domain/edit/apis/edit.dto';
 import { type Pt, type Size, brushRadius, thinPoints, toImagePx } from '@/utils/edit';
@@ -19,17 +19,25 @@ interface BrushLayerProps {
   mode: BrushMode;
   /** Brush radius in CSS px; it stays the same on screen whatever the image size. */
   viewRadius: number;
+  /** The image shows every stroke handed over; drawn strokes stay on the canvas until then. */
+  synced: boolean;
   onStroke: (stroke: Stroke) => void;
   disabled: boolean;
 }
 
-/** Drag to paint a stroke: drawn live on a canvas, handed over as image px on release. */
-export default function BrushLayer({ view, image, mode, viewRadius, onStroke, disabled }: BrushLayerProps) {
+/** Drag to paint a stroke: drawn live on a canvas, handed over as image px on release, and kept
+ *  on the canvas until the render that includes it shows. */
+export default function BrushLayer({ view, image, mode, viewRadius, synced, onStroke, disabled }: BrushLayerProps) {
   // ref
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
   /** The drag's points in view px while a stroke is on. */
   const drag = useRef<Pt[] | null>(null);
+
+  // useEffect
+  useEffect(() => {
+    if (synced) clear();
+  }, [synced]);
 
   // handle
   const context = () => canvasRef.current?.getContext('2d') ?? null;
@@ -84,7 +92,6 @@ export default function BrushLayer({ view, image, mode, viewRadius, onStroke, di
   const handlePointerUp = () => {
     const pts = drag.current;
     drag.current = null;
-    clear();
     if (!pts) return;
     const radius = brushRadius(viewRadius, view, image);
     const imagePts = pts.map((p): [number, number] => {
