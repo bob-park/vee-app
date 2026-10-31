@@ -133,6 +133,13 @@ export function classifyGesture(path: Pt[], minMove = 8): 'click' | 'lasso' {
   return moved >= minMove && span >= minMove ? 'lasso' : 'click';
 }
 
+/** Whether a lasso path (view px) is too flat to outline anything: its bbox short side is under `minSide`. */
+export function isFlatLasso(path: Pt[], minSide = 8): boolean {
+  const xs = path.map((p) => p.x);
+  const ys = path.map((p) => p.y);
+  return Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) < minSide;
+}
+
 /** Every `step`-th point so at most `max` stay; the worker's frame header has room for a few thousand. */
 export function capPoints(points: [number, number][], max: number): [number, number][] {
   if (points.length <= max) return points;

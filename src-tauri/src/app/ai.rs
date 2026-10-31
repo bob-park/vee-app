@@ -227,7 +227,8 @@ fn crossings(lasso: &[[u32; 2]], yc: f32, out: &mut Vec<f32>) {
 fn point_in_lasso(lasso: &[[u32; 2]], x: u32, y: u32) -> bool {
     let mut xs = Vec::new();
     crossings(lasso, y as f32 + 0.5, &mut xs);
-    xs.iter().filter(|&&cx| cx < x as f32 + 0.5).count() % 2 == 1
+    // `<=` matches the fill's `[a, b)` spans: a centre on a crossing counts as past it.
+    xs.iter().filter(|&&cx| cx <= x as f32 + 0.5).count() % 2 == 1
 }
 
 /// `w × h`, 255 inside `lasso` (even-odd scanline fill at pixel centres, so a self-crossing path
@@ -276,13 +277,16 @@ fn lasso_mask(lasso: &[[u32; 2]], w: u32, h: u32, margin: u32) -> GrayImage {
 }
 
 /// `img` with `mask` as alpha, then, with a `lasso`, alpha cleared outside it plus `clip_margin`,
-/// unless a keep point lies outside the lasso (the user marked something it misses).
+/// unless a keep point lies outside the lasso (the user marked something it misses) or the lasso
+/// holds no pixel centre (a flat one would otherwise blank the image).
 fn finish_cut(img: RgbaImage, mask: &GrayImage, points: &[SubjectPoint], lasso: Option<&[[u32; 2]]>) -> RgbaImage {
     let mut img = apply_mask(img, mask);
+    let (w, h) = img.dimensions();
+    // ponytail: a second full-size fill just to test emptiness; scan only the bbox rows if it shows up in profiles.
     if let Some(lasso) = lasso
         && points.iter().all(|p| !p.keep || point_in_lasso(lasso, p.x, p.y))
+        && lasso_mask(lasso, w, h, 0).pixels().any(|p| p[0] != 0)
     {
-        let (w, h) = img.dimensions();
         let clip = lasso_mask(lasso, w, h, clip_margin(w, h));
         for (p, c) in img.pixels_mut().zip(clip.pixels()) {
             if c[0] == 0 {
@@ -631,6 +635,25 @@ mod tests {
         let out = finish_cut(img.clone(), &mask, &[point(95, 50, true)], Some(&SQUARE));
         assert_eq!(out.get_pixel(95, 50)[3], 200);
         assert_eq!(finish_cut(img, &mask, &[point(95, 50, true)], None).get_pixel(95, 50)[3], 200);
+    }
+
+    #[test]
+    fn clip_skipped_for_flat_lasso() {
+        let img = RgbaImage::from_pixel(100, 100, ::image::Rgba([10, 20, 30, 255]));
+        let mask = GrayImage::from_pixel(100, 100, Luma([200]));
+        let out = finish_cut(img, &mask, &[], Some(&[[10, 50], [50, 50], [90, 50]]));
+        assert!(out.pixels().all(|p| p[3] == 200));
+    }
+
+    /// A pixel centre exactly on a diagonal edge's crossing: `point_in_lasso` agrees with the fill.
+    #[test]
+    fn point_in_lasso_matches_fill_on_edge() {
+        for tri in [[[0, 0], [100, 100], [0, 100]], [[0, 0], [100, 0], [100, 100]]] {
+            let m = lasso_mask(&tri, 100, 100, 0);
+            for (x, y) in [(50, 50), (20, 20), (49, 50), (51, 50)] {
+                assert_eq!(point_in_lasso(&tri, x, y), m.get_pixel(x, y)[0] == 255, "{tri:?} ({x}, {y})");
+            }
+        }
     }
 
     #[test]

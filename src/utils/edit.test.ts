@@ -11,6 +11,7 @@ import {
   cropFromDrag,
   dropLastMark,
   emptyMarks,
+  isFlatLasso,
   previewScale,
   resizeKeep,
   sizeAfter,
@@ -154,6 +155,15 @@ void test('classifyGesture: a shaky press stays a click, a drag of 8+ view px is
   assert.equal(g([0, 0], [10, 0], [10, 10]), 'lasso');
   assert.equal(g([0, 0], [9, 0], [0, 0]), 'lasso');
   assert.equal(g([0, 0], [7, 0]), 'click');
+});
+
+void test('isFlatLasso: a straight drag is dropped, a 20×20 loop is a lasso', () => {
+  const pts = (...p: [number, number][]) => p.map(([x, y]) => ({ x, y }));
+  const line = pts([0, 0], [40, 0], [80, 0]);
+  assert.equal(classifyGesture(line), 'lasso');
+  assert.equal(isFlatLasso(line), true);
+  assert.equal(isFlatLasso(pts([0, 0], [80, 7], [40, 3])), true);
+  assert.equal(isFlatLasso(pts([0, 0], [20, 0], [20, 20], [0, 20])), false);
 });
 
 void test('undoMark restores previous lasso', () => {

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 import type { SubjectPoint } from '@/domain/edit/apis/edit.dto';
-import { type Pt, type Size, capPoints, classifyGesture, thinPoints, toImagePx } from '@/utils/edit';
+import { type Pt, type Size, capPoints, classifyGesture, isFlatLasso, thinPoints, toImagePx } from '@/utils/edit';
 
 import cx from 'classnames';
 
@@ -55,6 +55,8 @@ export default function SubjectLayer({ view, image, points, lasso, onPoint, onLa
       onPoint({ ...toImagePx(full[0], view, image), keep: !e.altKey });
       return;
     }
+    // A near-straight drag outlines nothing (and would clip the whole image away): drop it.
+    if (isFlatLasso(full)) return;
     const gap = Math.max(1, Math.round(Math.max(image.w, image.h) / 400));
     const imagePts = full.map((p): [number, number] => {
       const q = toImagePx(p, view, image);
