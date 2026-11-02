@@ -269,7 +269,9 @@ export function SettingsApp() {
               <Row key={key} label={shortcutLabel(s, key).label} hint={shortcutLabel(s, key).hint}>
                 <ShortcutRecorder
                   value={settings[key]}
-                  onSave={key === 'shortcut' ? setShortcut : (accel) => setSetting(key, accel)}
+                  onSave={
+                    key === 'shortcut' ? (accel) => setShortcut('shortcut', accel) : (accel) => setSetting(key, accel)
+                  }
                   taken={[...PANEL_KEYS, ...SHORTCUT_KEYS.filter((k) => k !== key).map((k) => settings[k])]}
                 />
               </Row>

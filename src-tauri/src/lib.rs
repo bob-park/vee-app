@@ -83,7 +83,7 @@ pub fn run() {
             retention::spawn_pruner(app.handle().clone());
             watcher::spawn(app.handle().clone());
             ocr::spawn(app.handle().clone());
-            shortcut::register_stored_shortcut(app.handle());
+            shortcut::register_stored(app.handle());
             updater::spawn_periodic(app.handle().clone());
             Ok(())
         })
@@ -150,6 +150,8 @@ pub fn run() {
             settings::commands::set_setting,
             autostart::set_autostart,
             settings::commands::set_shortcut,
+            settings::commands::get_shortcut_failures,
+            settings::commands::open_keyboard_settings,
             settings::commands::count_prunable,
             disk_access::get_disk_access,
             disk_access::open_disk_access_settings,

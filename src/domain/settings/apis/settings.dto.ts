@@ -7,6 +7,13 @@ export type PanelPosition = (typeof PANEL_POSITIONS)[number];
 export const SOUND_NAMES = ['none', 'pop', 'click', 'chime', 'bubble', 'tap'] as const;
 export type SoundName = (typeof SOUND_NAMES)[number];
 
+export const RECORD_FORMATS = ['mp4', 'mov', 'webm', 'gif'] as const;
+/** Container a screen recording is saved as. */
+export type RecordFormat = (typeof RECORD_FORMATS)[number];
+
+/** Setting keys of the OS-wide shortcuts, saved through `set_shortcut`. */
+export type GlobalShortcutKey = 'shortcut' | 'captureShortcut' | 'recordShortcut';
+
 /** Keys `set_setting` accepts. */
 export type SettingKey =
   | 'theme'
@@ -26,12 +33,18 @@ export type SettingKey =
   | 'dragConvert'
   | 'convertKey'
   | 'videoQuality'
-  | 'videoHwAccel';
+  | 'videoHwAccel'
+  | 'recordFolder'
+  | 'recordFormat';
 
 export interface Settings {
   theme: 'system' | 'light' | 'dark';
   locale: 'system' | 'ko' | 'en';
   shortcut: string;
+  /** Global: opens the screen capture overlay. */
+  captureShortcut: string;
+  /** Global: starts or stops a screen recording. */
+  recordShortcut: string;
   /** Toggles panel pinning while the panel has focus; not a global shortcut. */
   panelPinShortcut: string;
   resetSearchShortcut: string;
@@ -58,6 +71,9 @@ export interface Settings {
   videoQuality: 'small' | 'normal' | 'original';
   /** Encodes MP4 / MOV / 720p with the GPU's H.264 encoder, falling back to software. */
   videoHwAccel: 'on' | 'off';
+  /** Where recordings are saved; "" means the OS Downloads folder. */
+  recordFolder: string;
+  recordFormat: RecordFormat;
   autostart: boolean;
   version: string;
 }

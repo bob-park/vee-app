@@ -4,7 +4,7 @@ use super::{SILENT, SettingsDto, get};
 use crate::app::{
     ocr,
     retention::prune_now,
-    shortcut::register_shortcut,
+    shortcut::{self, Global},
     sound,
     state::{AppState, now_ms},
     tray, window,
@@ -26,6 +26,8 @@ pub fn get_settings(app: AppHandle, state: State<AppState>) -> SettingsDto {
         theme: get(&conn, "theme"),
         locale: get(&conn, "locale"),
         shortcut: get(&conn, "shortcut"),
+        capture_shortcut: get(&conn, "captureShortcut"),
+        record_shortcut: get(&conn, "recordShortcut"),
         panel_pin_shortcut: get(&conn, "panelPinShortcut"),
         reset_search_shortcut: get(&conn, "resetSearchShortcut"),
         pinned_copy1_shortcut: get(&conn, "pinnedCopy1Shortcut"),
@@ -44,6 +46,8 @@ pub fn get_settings(app: AppHandle, state: State<AppState>) -> SettingsDto {
         convert_key: get(&conn, "convertKey"),
         video_quality: get(&conn, "videoQuality"),
         video_hw_accel: get(&conn, "videoHwAccel"),
+        record_folder: get(&conn, "recordFolder"),
+        record_format: get(&conn, "recordFormat"),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         version: app.package_info().version.to_string(),
     }
@@ -68,20 +72,44 @@ pub fn set_setting(app: AppHandle, state: State<AppState>, key: String, value: S
     Ok(())
 }
 
-/// Swaps the global shortcut; on failure the previous one is restored.
+/// Swaps one global shortcut (`key` = its setting key); on failure the previous one is restored.
 #[tauri::command]
-pub fn set_shortcut(app: AppHandle, state: State<AppState>, accel: String) -> AppResult<()> {
-    let old = get(&state.db.lock().unwrap(), "shortcut");
-    if accel == old {
+pub fn set_shortcut(app: AppHandle, state: State<AppState>, key: String, accel: String) -> AppResult<()> {
+    let global = Global::from_key(&key).ok_or_else(|| AppError::InvalidInput(format!("unknown shortcut {key}")))?;
+    let (old, taken) = {
+        let conn = state.db.lock().unwrap();
+        let others: Vec<String> = Global::ALL.into_iter().filter(|g| *g != global).map(|g| get(&conn, g.key())).collect();
+        (get(&conn, &key), others)
+    };
+    let failed = shortcut::failures().contains(&global.key());
+    if accel == old && !failed {
         return Ok(());
     }
+    if taken.iter().any(|t| shortcut::same_accel(t, &accel)) {
+        return Err(AppError::InvalidInput(format!("shortcut {accel} is already used")));
+    }
     let _ = app.global_shortcut().unregister(old.as_str());
-    if let Err(e) = register_shortcut(&app, &accel) {
-        let _ = register_shortcut(&app, &old);
+    if let Err(e) = shortcut::register(&app, global, &accel) {
+        let _ = shortcut::register(&app, global, &old);
         return Err(e);
     }
-    super::set_raw(&state.db.lock().unwrap(), "shortcut", &accel)?;
+    shortcut::set_failed(global, false);
+    super::set_raw(&state.db.lock().unwrap(), &key, &accel)?;
     changed(&app);
+    Ok(())
+}
+
+/// Setting keys of the global shortcuts that failed to register at startup.
+#[tauri::command]
+pub fn get_shortcut_failures() -> Vec<String> {
+    shortcut::failures().into_iter().map(String::from).collect()
+}
+
+/// Opens the OS keyboard shortcut settings, where a conflicting system shortcut can be turned off.
+#[tauri::command]
+pub fn open_keyboard_settings() -> AppResult<()> {
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open").arg("x-apple.systempreferences:com.apple.Keyboard-Settings.extension").spawn()?;
     Ok(())
 }
 
