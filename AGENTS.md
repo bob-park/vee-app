@@ -11,6 +11,43 @@ Find the matching entry in the Map or in "How to use", open that doc, and check 
 - **Design/UI work:** before building or changing any UI (screens, components, styles, tokens), read [`docs/design/`](docs/design/) and [design](docs/agents/design.md) first.
 - **UI mockups:** for any design or UI work, show at least 3 mockup options in the `superpowers` visual companion before implementing. Always use the `ui-ux-pro-max` skill to create them.
 - **Node/Yarn versions:** use the versions pinned in [`mise.toml`](mise.toml) (Node 26, Yarn 4.18.1). Run `mise install` once, then run every `node`/`yarn` command through mise (activated shell or `mise exec --`). Don't use a global Node or Yarn 1; it rewrites `yarn.lock`.
+- **UI/UX testing:** after a UI change, drive the running app yourself with [`agent-desktop`](https://github.com/vercel-labs/agent-desktop). See [UI testing with agent-desktop](#ui-testing-with-agent-desktop).
+
+## UI testing with agent-desktop
+
+`agent-desktop` is a CLI that reads and operates desktop apps through the OS accessibility tree. Every command prints one JSON envelope. The loop is: snapshot, act on a ref, then snapshot again to check the result.
+
+**Setup (macOS)**
+- Install it globally through mise Node: `mise exec -- npm install -g agent-desktop`. Changing it needs the user's OK, like any dependency.
+- `agent-desktop permissions` must report Accessibility `granted`, and Screen Recording `granted` for `screenshot`. Otherwise ask the user to run `agent-desktop permissions --guide`.
+- Before first use in a session, read `agent-desktop skills get desktop` and `agent-desktop skills get platform`.
+
+**Run Vee for testing**
+- Start the dev app under its own identifier ([build-run](docs/agents/build-run.md#gotchas)): `yarn tauri dev --config '{"identifier":"com.bobpark.vee.dev"}'`. In agent-desktop the app is named `vee-app`.
+- All windows start hidden. To open Settings without input, launch the dev binary a second time: `src-tauri/target/debug/vee-app &`. Single-instance then shows Settings in the running process.
+- Quit with `agent-desktop close-app vee-app` when done. Restore any setting you changed first.
+
+**Drive it**
+```bash
+agent-desktop snapshot --app vee-app -i --compact                    # tree with refs (@<snapshot>:eN)
+agent-desktop find --app vee-app --role radiobutton --name "Dark" --exact --first
+agent-desktop click @s1qbke7qcjiswg:e1                              # semantic AXPress, no mouse
+agent-desktop focus-window --app vee-app                            # before every screenshot
+agent-desktop screenshot --app vee-app /path/to/shot.png
+```
+- Refs live for one snapshot. Take a new one after every change; theme and language switches re-render the page.
+- A successful `click` doesn't prove the effect. Check the result with `find`/`snapshot` (`value`, `states: checked`) or a screenshot.
+- **`focus-window` before `screenshot`:** WebKit pauses CSS transitions in a background window, so a screenshot can show a stale state. For example, a theme tile border stays on the old choice.
+- Settings tabs, the theme tiles and the language segment are all `radiobutton`s, named in the current language (`일반`/`General`, `라이트`/`Light`).
+
+**Limits found in practice**
+- **The panel is not reachable.** `list-windows`/`snapshot`/`find` skip the `alwaysOnTop` panel window, even though its accessibility tree exists.
+  - `--surface menubar` shows the app menu only, not the tray icon.
+  - `--headed press cmd+shift+v` goes to the foreground process, so global shortcuts never fire.
+  - Ask the user to open the panel (and pin it with ⌘⇧P so it stays). Check it with `agent-desktop screenshot --screen 0` and crop the panel area.
+- **Don't use `--headed`** (real mouse and keyboard) without the user's explicit OK.
+- **The clipboard is live.** `agent-desktop clipboard-set` lands in every running Vee, including an installed one. Don't use it to seed data while the installed Vee runs.
+- **What to check for a UI change:** light **and** dark, 한국어 **and** English (Settings → General), and the panel if it changed ([design](docs/agents/design.md)).
 
 ## Map
 
