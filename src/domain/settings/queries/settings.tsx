@@ -2,7 +2,13 @@ import { useEffect } from 'react';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { countPrunable, getDiskAccess, getSettings, setSetting } from '@/domain/settings/apis/settings';
+import {
+  countPrunable,
+  getDiskAccess,
+  getScreenAccess,
+  getSettings,
+  setSetting,
+} from '@/domain/settings/apis/settings';
 import type { Retention, SettingKey, Settings } from '@/domain/settings/apis/settings.dto';
 import type { AppError } from '@/shared/api/common.dto';
 import type { QueryMutationHandle } from '@/shared/queries';
@@ -12,6 +18,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 /** Seeded by main.tsx before the first paint; refetched on `settings://changed` (ThemeProvider). */
 export const SETTINGS_QUERY_KEY = ['settings'];
 const DISK_ACCESS_QUERY_KEY = ['settings', 'diskAccess'];
+const SCREEN_ACCESS_QUERY_KEY = ['settings', 'screenAccess'];
 
 export function useSettings() {
   const { data, isLoading } = useQuery<Settings>({
@@ -55,6 +62,32 @@ export function useDiskAccess() {
   useEffect(() => {
     const unlisten = getCurrentWindow().onFocusChanged(
       (e) => e.payload && void queryClient.invalidateQueries({ queryKey: DISK_ACCESS_QUERY_KEY }),
+    );
+
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [queryClient]);
+
+  return { granted: data ?? null };
+}
+
+/**
+ * Screen & System Audio Recording (macOS); null where the permission doesn't exist (Windows) or while unknown.
+ * Re-checked on focus, though macOS only reports a new grant after Vee relaunches.
+ */
+export function useScreenAccess() {
+  const queryClient = useQueryClient();
+
+  const { data } = useQuery<boolean | null>({
+    queryKey: SCREEN_ACCESS_QUERY_KEY,
+    queryFn: getScreenAccess,
+    staleTime: 0,
+  });
+
+  useEffect(() => {
+    const unlisten = getCurrentWindow().onFocusChanged(
+      (e) => e.payload && void queryClient.invalidateQueries({ queryKey: SCREEN_ACCESS_QUERY_KEY }),
     );
 
     return () => {

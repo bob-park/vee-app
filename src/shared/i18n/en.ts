@@ -124,6 +124,9 @@ export const en = {
     diskAccessHint: 'Needed to drag files out',
     diskAccessGranted: 'Allowed',
     diskAccessGrant: 'Allow',
+    screenAccess: 'Screen & System Audio Recording',
+    screenAccessHint: 'Needed to capture and record the screen',
+    screenAccessRelaunchHint: 'Quit and reopen Vee after allowing',
     panelResize: 'Resizable panel',
     panelResizeHints: {
       bottom: "Drag the panel's top edge to change its height (up to 50% of the screen)",

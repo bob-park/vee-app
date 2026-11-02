@@ -49,3 +49,17 @@ export async function getDiskAccess() {
 export async function openDiskAccessSettings() {
   return call<void>('open_disk_access_settings');
 }
+
+/** Screen & System Audio Recording; null where the permission doesn't exist (Windows). */
+export async function getScreenAccess() {
+  return call<boolean | null>('get_screen_access');
+}
+
+/** Shows the macOS prompt; only the first call ever does. */
+export async function requestScreenAccess() {
+  return call<void>('request_screen_access');
+}
+
+export async function openScreenAccessSettings() {
+  return call<void>('open_screen_access_settings');
+}

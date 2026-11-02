@@ -124,6 +124,9 @@ export const ko: Dict = {
     diskAccessHint: '파일을 드래그해 복사할 때 필요해요',
     diskAccessGranted: '허용됨',
     diskAccessGrant: '허용하기',
+    screenAccess: '화면 및 시스템 오디오 기록',
+    screenAccessHint: '화면 캡처와 녹화에 필요해요',
+    screenAccessRelaunchHint: '허용한 뒤 Vee를 다시 실행해 주세요',
     panelResize: '패널 크기 조절',
     panelResizeHints: {
       bottom: '패널 위 가장자리를 끌어 높이를 바꿉니다 (최대 화면의 50%)',

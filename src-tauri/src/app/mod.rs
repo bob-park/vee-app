@@ -14,6 +14,7 @@ pub mod i18n;
 pub mod ocr;
 pub mod office;
 pub mod retention;
+pub mod screen_access;
 pub mod shortcut;
 pub mod sound;
 pub mod state;

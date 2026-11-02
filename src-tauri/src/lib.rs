@@ -3,8 +3,8 @@ mod domain;
 mod shared;
 
 use app::{
-    autostart, convert, disk_access, drop_target, editor, engines, ocr, office, retention, shortcut, state::AppState, tray, updater,
-    watcher, window,
+    autostart, convert, disk_access, drop_target, editor, engines, ocr, office, retention, screen_access, shortcut, state::AppState, tray,
+    updater, watcher, window,
 };
 use domain::{clip, settings, source_app, whats_new};
 use std::sync::atomic::Ordering;
@@ -155,6 +155,9 @@ pub fn run() {
             settings::commands::count_prunable,
             disk_access::get_disk_access,
             disk_access::open_disk_access_settings,
+            screen_access::get_screen_access,
+            screen_access::request_screen_access,
+            screen_access::open_screen_access_settings,
             drop_target::get_finder_access,
             drop_target::request_finder_access,
             drop_target::open_automation_settings,
