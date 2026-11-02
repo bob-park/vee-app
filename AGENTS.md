@@ -11,6 +11,44 @@ Find the matching entry in the Map or in "How to use", open that doc, and check 
 - **Design/UI work:** before building or changing any UI (screens, components, styles, tokens), read [`docs/design/`](docs/design/) and [design](docs/agents/design.md) first.
 - **UI mockups:** for any design or UI work, show at least 3 mockup options in the `superpowers` visual companion before implementing. Always use the `ui-ux-pro-max` skill to create them.
 - **Node/Yarn versions:** use the versions pinned in [`mise.toml`](mise.toml) (Node 26, Yarn 4.18.1). Run `mise install` once, then run every `node`/`yarn` command through mise (activated shell or `mise exec --`). Don't use a global Node or Yarn 1; it rewrites `yarn.lock`.
+- **UI/UX testing:** after a UI change, drive the running app yourself with [`agent-desktop`](https://github.com/vercel-labs/agent-desktop). See [UI testing with agent-desktop](#ui-testing-with-agent-desktop).
+
+## UI testing with agent-desktop
+
+`agent-desktop` is a CLI that reads and operates desktop apps through the OS accessibility tree. Every command prints one JSON envelope. The loop is: snapshot, act on a ref, then snapshot again to check the result.
+
+**Setup (macOS)**
+- If `agent-desktop version` fails, ask the user before installing it (`mise exec -- npm install -g agent-desktop`). The same goes for upgrading or removing it.
+- `agent-desktop permissions` must report Accessibility `granted`, and Screen Recording `granted` for `screenshot`. Otherwise ask the user to run `agent-desktop permissions --guide`.
+- Before first use in a session, read `agent-desktop skills get desktop` and `agent-desktop skills get platform`.
+
+**Run Vee for testing**
+- Start the dev app under its own identifier ([build-run](docs/agents/build-run.md#gotchas)): `yarn tauri dev --config '{"identifier":"com.bobpark.vee.dev"}'`. If the installed Vee is running, give the dev app another panel shortcut in its Settings. In agent-desktop the app is named `vee-app`.
+- All windows start hidden. To open Settings without input, and **only while the dev app from the line above is running** (`agent-desktop list-apps` shows `vee-app`), launch the dev binary a second time: `src-tauri/target/debug/vee-app &`. Single-instance then shows Settings in the running process. Otherwise the binary may carry the installed identifier and touch the installed Vee's data.
+- Quit with `agent-desktop close-app vee-app` when done. Restore any setting you changed first.
+
+**Drive it**
+```bash
+agent-desktop snapshot --app vee-app -i --compact                    # tree with refs (@<snapshot>:eN)
+agent-desktop find --app vee-app --role radiobutton --name "Dark" --exact --first
+agent-desktop click @s1qbke7qcjiswg:e1                              # semantic AXPress, no mouse
+agent-desktop focus-window --app vee-app                            # before every screenshot
+agent-desktop screenshot --app vee-app /path/to/shot.png
+```
+- Refs live for one snapshot. Take a new one after every change; theme and language switches re-render the page.
+- A successful `click` doesn't prove the effect. Check the result with `find`/`snapshot` (`value`, `states: checked`) or a screenshot.
+- **`focus-window` before `screenshot`:** WebKit pauses CSS transitions in a background window, so a screenshot can show a stale state. For example, a theme tile border stays on the old choice.
+- Settings tabs, the theme tiles and the language segment are all `radiobutton`s, named in the current language (`일반`/`General`, `라이트`/`Light`).
+
+**Limits found in practice**
+- **The panel is not reachable.** `list-windows`/`snapshot`/`find` skip the `alwaysOnTop` panel window, even though its accessibility tree exists.
+  - `--surface menubar` shows the app menu only, not the tray icon.
+  - `--headed press cmd+shift+v` goes to the foreground process, so global shortcuts never fire.
+  - Ask the user to open the **dev** app's panel (its shortcut or tray icon, not the installed Vee's) and pin it so it stays.
+  - Check it with `agent-desktop screenshot --screen 0`. This captures the whole desktop: crop to the panel, look only at that, and don't keep or share the full capture.
+- **Don't use `--headed`** (real mouse and keyboard) without the user's explicit OK.
+- **Don't seed data with `clipboard-set`** ([build-run](docs/agents/build-run.md#gotchas)). It overwrites the user's clipboard and lands in every running Vee. Ask the user first if you need clipboard data.
+- **What to check for a UI change:** light **and** dark, 한국어 **and** English (Settings → General), and the panel if it changed ([design](docs/agents/design.md)).
 
 ## Map
 
