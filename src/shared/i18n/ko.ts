@@ -41,6 +41,10 @@ export const ko: Dict = {
   restart: '재시작',
   updateFailed: '업데이트하지 못했어요',
   updateInstalling: '최신 버전 확인 중…',
+  capture: {
+    regionHint: '드래그해서 선택 · space 창 · esc 취소',
+    windowHint: '창을 클릭 · space 영역 · esc 취소',
+  },
   whatsNew: { title: '새로워진 Vee', ok: '확인' },
   editor: {
     title: '이미지 편집',

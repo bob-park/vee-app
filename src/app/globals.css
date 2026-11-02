@@ -133,6 +133,8 @@
   /* The two squares behind a transparent image. */
   --vee-checker-a: #ffffff;
   --vee-checker-b: #e6e6ec;
+  /* Recording red (stop button, live dot); the mockup's #ff3b4e, a shade deeper on light. */
+  --vee-rec: #e5283c;
 }
 
 [data-theme='dark'] {
@@ -164,6 +166,7 @@
   --vee-aurora-3: #7a2d63;
   --vee-checker-a: #2a2b33;
   --vee-checker-b: #1f2027;
+  --vee-rec: #ff3b4e;
 }
 
 @theme inline {
@@ -191,6 +194,7 @@
   --color-aurora-1: var(--vee-aurora-1);
   --color-aurora-2: var(--vee-aurora-2);
   --color-aurora-3: var(--vee-aurora-3);
+  --color-rec: var(--vee-rec);
   /* Second stop of the CTA/link gradient (primary → sky); one value reads on both themes. */
   --color-sky: #5fc3ff;
   /* Theme picker thumbnails: fixed per depicted theme, so they read the same in either app theme. */
@@ -500,7 +504,8 @@
 
   html[data-window='panel'] body,
   html[data-window='toast'] body,
-  html[data-window='convert'] body {
+  html[data-window='convert'] body,
+  html[data-window='capture'] body {
     background: transparent;
   }
 

@@ -71,7 +71,7 @@ pub struct ToastPayload {
 }
 
 impl ToastPayload {
-    fn copied(content: &ClipContent, plain: bool) -> Self {
+    pub(crate) fn copied(content: &ClipContent, plain: bool) -> Self {
         match content {
             ClipContent::Text(t) => Self {
                 ok: true,

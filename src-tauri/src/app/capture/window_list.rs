@@ -43,7 +43,6 @@ pub fn keep(raw: Vec<RawWin>, own_pid: u32, m: &MonitorInfo) -> Vec<WinInfo> {
 }
 
 /// Windows on `monitor` that the user can pick, front to back.
-#[allow(dead_code)] // used by `app::capture` (Task 5)
 pub fn list(monitor: &MonitorInfo) -> Vec<WinInfo> {
     keep(raw_windows(monitor), std::process::id(), monitor)
 }

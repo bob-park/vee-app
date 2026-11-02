@@ -6,7 +6,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// macOS's own screenshot sound; played from the system, never bundled.
 #[cfg(target_os = "macos")]
-#[allow(dead_code)] // used by `app::capture` (Task 5)
 const SYSTEM_SHUTTER: &str = "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system/Screen Capture.aif";
 
 static RECORDING: AtomicBool = AtomicBool::new(false);
@@ -51,7 +50,6 @@ pub fn play_record(start: bool) {
 /// Plays the capture sound: the system screenshot sound, or nothing if it is missing.
 /// Main thread only.
 #[cfg(target_os = "macos")]
-#[allow(dead_code)] // used by `app::capture` (Task 5)
 pub fn play_shutter() {
     use objc2::{AnyThread, rc::Retained};
     use objc2_app_kit::NSSound;
@@ -73,7 +71,6 @@ pub fn play_shutter() {
 }
 
 #[cfg(windows)]
-#[allow(dead_code)] // used by `app::capture` (Task 5)
 pub fn play_shutter() {
     play_wav("shutter");
 }

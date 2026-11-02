@@ -14,7 +14,6 @@ pub struct MonitorInfo {
 }
 
 /// What the user picked in the overlay. A rect is in monitor-local logical px.
-#[allow(dead_code)] // used by `app::capture` (Task 5)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Selection {
@@ -26,7 +25,6 @@ pub enum Selection {
 pub type RectF = (f64, f64, f64, f64);
 
 /// Monitor-local logical rect → global logical rect.
-#[allow(dead_code)] // used by `app::capture` (Task 5)
 pub fn to_global(r: RectF, m: &MonitorInfo) -> RectF {
     (m.x + r.0, m.y + r.1, r.2, r.3)
 }

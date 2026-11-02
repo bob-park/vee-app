@@ -40,6 +40,10 @@ export const en = {
   restart: 'Restart',
   updateFailed: "Couldn't update",
   updateInstalling: 'Getting the latest version…',
+  capture: {
+    regionHint: 'Drag to select · space Windows · esc Cancel',
+    windowHint: 'Click a window · space Area · esc Cancel',
+  },
   whatsNew: { title: "What's new in Vee", ok: 'OK' },
   editor: {
     title: 'Edit image',

@@ -24,3 +24,12 @@ export interface WinInfo extends Rect {
 }
 
 export type Selection = ({ kind: 'rect' } & Rect) | { kind: 'window'; id: number };
+
+export type CaptureMode = 'capture' | 'record';
+
+/** `capture://open` payload. */
+export interface CaptureOpen {
+  mode: CaptureMode;
+  monitor: MonitorInfo;
+  windows: WinInfo[];
+}

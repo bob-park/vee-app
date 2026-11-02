@@ -3,8 +3,8 @@ mod domain;
 mod shared;
 
 use app::{
-    autostart, convert, disk_access, drop_target, editor, engines, ocr, office, retention, screen_access, shortcut, state::AppState, tray,
-    updater, watcher, window,
+    autostart, capture, convert, disk_access, drop_target, editor, engines, ocr, office, retention, screen_access, shortcut,
+    state::AppState, tray, updater, watcher, window,
 };
 use domain::{clip, settings, source_app, whats_new};
 use std::sync::atomic::Ordering;
@@ -169,7 +169,9 @@ pub fn run() {
             editor::commands::get_edit_source,
             editor::commands::render_edit,
             editor::commands::copy_edit,
-            editor::commands::close_editor
+            editor::commands::close_editor,
+            capture::commands::take_capture,
+            capture::commands::cancel_capture
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

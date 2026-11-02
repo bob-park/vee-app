@@ -185,7 +185,7 @@ fn check_png_size(len: usize) -> AppResult<()> {
     Ok(())
 }
 
-fn copy_to_history(app: &AppHandle, img: &DynamicImage) -> AppResult<(i64, clip::ClipContent)> {
+pub(crate) fn copy_to_history(app: &AppHandle, img: &DynamicImage) -> AppResult<(i64, clip::ClipContent)> {
     let png = edit::to_png(img)?;
     check_png_size(png.len())?;
     let thumb_png = edit::to_png(&img.thumbnail(THUMB_SIZE, THUMB_SIZE))?;

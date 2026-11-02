@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 
+import CaptureApp from '@/app/capture/CaptureApp';
 import ConvertApp from '@/app/convert/ConvertApp';
 import { EditorApp } from '@/app/editor/EditorApp';
 import { PanelApp } from '@/app/panel/PanelApp';
@@ -33,7 +34,9 @@ const View =
           ? WhatsNewApp
           : label === 'editor'
             ? EditorApp
-            : SettingsApp;
+            : label === 'capture'
+              ? CaptureApp
+              : SettingsApp;
 
 // Seed settings before the first paint so there is no flash of the wrong theme or language.
 // On failure the query fetches (and retries) on mount instead.
