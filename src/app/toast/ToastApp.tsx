@@ -23,6 +23,14 @@ function convertLines(note: ConvertNote, t: Dict): [string, string | null] {
       return [t.convert.notFolder, note.finderBlocked ? t.convert.finderBlockedHint : null];
     case 'unsupported':
       return [t.convert.unsupported, null];
+    case 'recordFolderMissing':
+      return [t.convert.savedOne(formatLabel(note.format)), t.record.folderMissing];
+    case 'recordFailed':
+      return [t.record.failed, null];
+    case 'recordUnsupported':
+      return [t.record.unsupported, null];
+    case 'recordNeedsFfmpeg':
+      return [t.record.needsFfmpeg, t.record.needsFfmpegHint];
   }
 }
 

@@ -42,7 +42,11 @@ export type ConvertNote =
   | { type: 'saved'; format: Format; count: number; folder: string }
   | { type: 'failed'; name: string; error: ConvertError }
   | { type: 'notFolder'; finderBlocked: boolean }
-  | { type: 'unsupported' };
+  | { type: 'unsupported' }
+  | { type: 'recordFolderMissing'; format: Format; folder: string }
+  | { type: 'recordFailed' }
+  | { type: 'recordUnsupported' }
+  | { type: 'recordNeedsFfmpeg' };
 
 /** One conversion in the panel's job list; mirrors Rust `JobView`. */
 export interface ConvertJob {

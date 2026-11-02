@@ -23,7 +23,6 @@ fn version_ok(major_or_build: u32, min: u32) -> bool {
 }
 
 /// Whether this OS is new enough to record (capture works everywhere).
-#[allow(dead_code)] // used by `app::recorder` (Task 7)
 pub fn recording_supported() -> bool {
     #[cfg(target_os = "macos")]
     {

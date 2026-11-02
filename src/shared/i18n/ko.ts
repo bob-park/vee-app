@@ -45,6 +45,13 @@ export const ko: Dict = {
     regionHint: '드래그해서 선택 · space 창 · esc 취소',
     windowHint: '창을 클릭 · space 영역 · esc 취소',
   },
+  record: {
+    failed: '화면을 녹화하지 못했어요',
+    unsupported: '화면 녹화는 macOS 15 / Windows 10 2004 이상에서 쓸 수 있어요',
+    needsFfmpeg: '화면 녹화에는 FFmpeg가 필요해요',
+    needsFfmpegHint: '설정 › 변환에서 FFmpeg를 받아 주세요',
+    folderMissing: '녹화 폴더가 없어서 다운로드에 저장했어요',
+  },
   whatsNew: { title: '새로워진 Vee', ok: '확인' },
   editor: {
     title: '이미지 편집',

@@ -181,7 +181,7 @@ fn convert_doc(src: &Path, to: Format, out: &Path, tmp: &Path, targets: DocTarge
 }
 
 /// Rename, or copy + remove when `from` and `to` are on different volumes.
-fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
+pub fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::rename(from, to).or_else(|_| {
         std::fs::copy(from, to).inspect_err(|_| {
             let _ = std::fs::remove_file(to);

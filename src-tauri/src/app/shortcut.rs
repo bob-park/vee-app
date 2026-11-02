@@ -64,9 +64,10 @@ pub fn register(app: &AppHandle, global: Global, accel: &str) -> AppResult<()> {
             }
             match global {
                 Global::Panel => crate::app::window::toggle_panel(app),
-                Global::Capture => crate::app::capture::open(app, crate::app::capture::Mode::Capture),
-                // Task 7 swaps this for `crate::app::recorder::on_shortcut(app)`.
-                Global::Record => log::info!("record shortcut pressed"),
+                Global::Capture => {
+                    crate::app::capture::open(app, crate::app::capture::Mode::Capture);
+                }
+                Global::Record => crate::app::recorder::on_shortcut(app),
             }
         })
         .map_err(|e| AppError::Other(e.to_string()))

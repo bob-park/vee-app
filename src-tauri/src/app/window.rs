@@ -105,7 +105,7 @@ impl ToastPayload {
 
     /// A convert note; `ok` only for a saved file.
     pub(crate) fn convert(note: ConvertNote, kind: Kind) -> Self {
-        let ok = matches!(note, ConvertNote::Saved { .. });
+        let ok = matches!(note, ConvertNote::Saved { .. } | ConvertNote::RecordFolderMissing { .. });
         Self { ok, kind, text: None, files: 0, plain: false, convert: Some(note), pins_fit: None, drag_missing: false }
     }
 

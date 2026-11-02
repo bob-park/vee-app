@@ -60,6 +60,23 @@
         "height": 600
       },
       {
+        "label": "recorder",
+        "create": false,
+        "title": "Vee",
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "focus": false,
+        "focusable": false,
+        "visibleOnAllWorkspaces": true,
+        "width": 360,
+        "height": 64
+      },
+      {
         "label": "convert",
         "create": false,
         "title": "Vee",

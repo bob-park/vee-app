@@ -3,7 +3,7 @@ mod domain;
 mod shared;
 
 use app::{
-    autostart, capture, convert, disk_access, drop_target, editor, engines, ocr, office, retention, screen_access, shortcut,
+    autostart, capture, convert, disk_access, drop_target, editor, engines, ocr, office, recorder, retention, screen_access, shortcut,
     state::AppState, tray, updater, watcher, window,
 };
 use domain::{clip, settings, source_app, whats_new};
@@ -35,6 +35,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updater::UpdateState::default())
         .manage(editor::EditorState::default())
+        .manage(recorder::Recorder::default())
         .setup(|app| {
             // No "DLL not found" system dialog: a child missing the VC++ runtime exits with a code instead (inherited).
             #[cfg(windows)]
@@ -172,12 +173,16 @@ pub fn run() {
             editor::commands::close_editor,
             capture::commands::get_capture_session,
             capture::commands::take_capture,
-            capture::commands::cancel_capture
+            capture::commands::cancel_capture,
+            recorder::commands::start_recording,
+            recorder::commands::stop_recording,
+            recorder::commands::cancel_recording
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
             if let RunEvent::Exit = event {
+                recorder::shutdown(app);
                 convert::shutdown(app);
                 engines::shutdown(app);
                 app::ai_worker::disable();

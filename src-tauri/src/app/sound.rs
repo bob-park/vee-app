@@ -11,7 +11,6 @@ const SYSTEM_SHUTTER: &str = "/System/Library/Components/CoreAudio.component/Con
 static RECORDING: AtomicBool = AtomicBool::new(false);
 
 /// While on, copy sounds are muted so they don't end up in the recording.
-#[allow(dead_code)] // used by `app::recorder` (Task 7)
 pub fn set_recording(on: bool) {
     RECORDING.store(on, Ordering::Relaxed);
 }
@@ -42,7 +41,6 @@ pub fn play(name: &str) {
 }
 
 /// Plays the record start/stop cue. Main thread only on macOS.
-#[allow(dead_code)] // used by `app::recorder` (Task 7)
 pub fn play_record(start: bool) {
     play_wav(if start { "record-start" } else { "record-stop" });
 }

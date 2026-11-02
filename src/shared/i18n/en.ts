@@ -44,6 +44,13 @@ export const en = {
     regionHint: 'Drag to select · space Windows · esc Cancel',
     windowHint: 'Click a window · space Area · esc Cancel',
   },
+  record: {
+    failed: "Couldn't record the screen",
+    unsupported: 'Screen recording needs macOS 15 or Windows 10 2004 or later',
+    needsFfmpeg: 'Screen recording needs FFmpeg',
+    needsFfmpegHint: 'Download it in Settings › Convert',
+    folderMissing: 'The recording folder is gone, so it went to Downloads',
+  },
   whatsNew: { title: "What's new in Vee", ok: 'OK' },
   editor: {
     title: 'Edit image',

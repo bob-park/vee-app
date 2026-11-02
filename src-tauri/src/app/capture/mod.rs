@@ -6,7 +6,7 @@ pub mod shot;
 pub mod window_list;
 
 use crate::{
-    app::{front_app, screen_access, state::AppState, window},
+    app::{front_app, recorder, screen_access, state::AppState, window},
     domain::settings,
     shared::error::{AppError, AppResult},
 };
@@ -29,7 +29,6 @@ const CLAIM_TIMEOUT_MS: u64 = 1000;
 #[serde(rename_all = "camelCase")]
 pub enum Mode {
     Capture,
-    #[allow(dead_code)] // opened by `app::recorder` (Task 7)
     Record,
 }
 
@@ -78,18 +77,18 @@ fn source_pid(selection: &Selection, windows: &[WinInfo]) -> Option<u32> {
     }
 }
 
-/// Opens the overlay on the monitor under the cursor; ignored while a session is open.
+/// Opens the overlay on the monitor under the cursor; ignored while a session is open. False when not opened.
 /// The window is placed now but shown only when the page claims the session (`get_capture_session`).
-pub fn open(app: &AppHandle, mode: Mode) {
+pub fn open(app: &AppHandle, mode: Mode) -> bool {
     if !screen_access::granted() {
         window::show_settings(app, "permissions");
-        return;
+        return false;
     }
-    let Some(overlay) = app.get_webview_window(CAPTURE) else { return };
+    let Some(overlay) = app.get_webview_window(CAPTURE) else { return false };
     if SESSION.lock().unwrap().is_some() {
-        return;
+        return false;
     }
-    let Some(m) = window::cursor_monitor(app) else { return };
+    let Some(m) = window::cursor_monitor(app) else { return false };
     let scale = m.scale_factor();
     let (pos, size) = (m.position(), m.size());
     let monitor = MonitorInfo {
@@ -109,12 +108,17 @@ pub fn open(app: &AppHandle, mode: Mode) {
     raise_above_menu_bar(&overlay);
     let _ = app.emit_to(CAPTURE, "capture://open", ());
     // Safety net: a page that never answers (not loaded, JS error) must not leave the next shortcut ignored.
+    let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(CLAIM_TIMEOUT_MS));
         if expire(&mut SESSION.lock().unwrap(), generation) {
             log::warn!("capture overlay didn't answer; dropped the session");
+            if mode == Mode::Record {
+                recorder::overlay_closed(&app);
+            }
         }
     });
+    true
 }
 
 /// macOS: a normal always-on-top window sits under the menu bar; the screen-saver level covers it.
@@ -141,6 +145,11 @@ fn close(app: &AppHandle) -> Option<Session> {
         front_app::activate(pid);
     }
     session
+}
+
+/// Closes a claimed record session for the recording to start; its monitor.
+pub(crate) fn take_record(app: &AppHandle) -> Option<MonitorInfo> {
+    close(app).filter(|s| s.ready && s.payload.mode == Mode::Record).map(|s| s.payload.monitor)
 }
 
 fn capture(app: &AppHandle, selection: Selection) -> AppResult<()> {
@@ -194,7 +203,9 @@ pub mod commands {
 
     #[tauri::command]
     pub fn cancel_capture(app: AppHandle) {
-        super::close(&app);
+        if super::close(&app).is_some_and(|s| s.payload.mode == super::Mode::Record) {
+            crate::app::recorder::overlay_closed(&app);
+        }
     }
 }
 

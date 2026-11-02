@@ -1,7 +1,58 @@
-//! Pure pieces of recording: the container for a format and the FFmpeg args of the Windows engine.
+//! Pure pieces of recording: formats, the saved file's name and folder, and the FFmpeg args of the Windows engine.
 
+use crate::domain::convert::Format;
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// How long a GIF may record before it stops itself.
+pub const GIF_LIMIT_MS: i64 = 30_000;
+
+/// The `Format` of a `recordFormat` value (`mp4` · `mov` · `webm` · `gif`).
+pub fn record_format(value: &str) -> Option<Format> {
+    Some(match value {
+        "mp4" => Format::Mp4,
+        "mov" => Format::Mov,
+        "webm" => Format::Webm,
+        "gif" => Format::Gif,
+        _ => return None,
+    })
+}
+
+/// The auto-stop of `format`: GIF only.
+pub fn limit_ms(format: Format) -> Option<i64> {
+    (format == Format::Gif).then_some(GIF_LIMIT_MS)
+}
+
+/// Whether recording `format` needs FFmpeg: on macOS only to convert to WEBM / GIF, on Windows always.
+pub fn needs_ffmpeg(format: Format, macos: bool) -> bool {
+    !macos || matches!(format, Format::Webm | Format::Gif)
+}
+
+/// The saved file's name from the local time `(year, month, day, hour, minute, second)`; the same in every locale.
+pub fn file_name((y, mo, d, h, mi, s): (i32, u32, u32, u32, u32, u32), ext: &str) -> String {
+    format!("Vee Recording {y:04}-{mo:02}-{d:02} at {h:02}.{mi:02}.{s:02}.{ext}")
+}
+
+/// `dir/name`, or the first free `dir/<stem> (2).<ext>`, `(3)`, …
+pub fn unique_path(dir: &Path, name: &str, exists: impl Fn(&Path) -> bool) -> PathBuf {
+    let first = dir.join(name);
+    if !exists(&first) {
+        return first;
+    }
+    let (stem, ext) = name.rsplit_once('.').unwrap_or((name, ""));
+    let ext = if ext.is_empty() { String::new() } else { format!(".{ext}") };
+    (2..).map(|n| dir.join(format!("{stem} ({n}){ext}"))).find(|p| !exists(p)).unwrap()
+}
+
+/// The folder a recording is saved in: the `recordFolder` setting, or `downloads` when it is unset or gone.
+/// Second: the setting's folder is gone, so the user is told.
+pub fn resolve_folder(setting: &str, downloads: &Path, is_dir: impl Fn(&Path) -> bool) -> (PathBuf, bool) {
+    match setting {
+        "" => (downloads.to_path_buf(), false),
+        s if is_dir(Path::new(s)) => (PathBuf::from(s), false),
+        _ => (downloads.to_path_buf(), true),
+    }
+}
 
 /// The file the OS engine writes; WEBM and GIF are recorded as MP4 and converted afterwards.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +75,7 @@ pub fn even(n: u32) -> u32 {
 /// which stays readable if FFmpeg dies mid-write). gdigrab, not ddagrab: it works on every GPU and in RDP / VM
 /// sessions and takes a plain offset + size, where ddagrab is per-output and needs a D3D11 device.
 /// `ultrafast` keeps the encoder from dropping frames; the file is re-muxed, not re-encoded, on stop.
+#[cfg_attr(not(windows), allow(dead_code))] // the Windows engine
 pub fn grab_args(phys: (i32, i32, u32, u32), out: &Path) -> Vec<OsString> {
     let (x, y, w, h) = phys;
     let mut a: Vec<OsString> =
@@ -39,6 +91,7 @@ pub fn grab_args(phys: (i32, i32, u32, u32), out: &Path) -> Vec<OsString> {
 
 /// FFmpeg args joining the grabbed `video` and the loopback `audio` WAV into `out` (MP4 or MOV by extension):
 /// the video stream is copied, the audio encoded to AAC, and the longer input is cut to the shorter.
+#[cfg_attr(not(windows), allow(dead_code))] // the Windows engine
 pub fn mux_args(video: &Path, audio: &Path, out: &Path) -> Vec<OsString> {
     let mut a: Vec<OsString> = ["-y", "-hide_banner", "-loglevel", "error", "-nostats", "-i"].map(OsString::from).into();
     a.push(video.into());
@@ -54,6 +107,7 @@ pub fn mux_args(video: &Path, audio: &Path, out: &Path) -> Vec<OsString> {
 
 /// FFmpeg args remuxing the grabbed `video` alone into `out`, at its full length: the fallback when the loopback
 /// audio failed mid-recording, where `-shortest` against the cut WAV would trim the video.
+#[cfg_attr(not(windows), allow(dead_code))] // the Windows engine
 pub fn mux_args_video_only(video: &Path, out: &Path) -> Vec<OsString> {
     let mut a: Vec<OsString> = ["-y", "-hide_banner", "-loglevel", "error", "-nostats", "-i"].map(OsString::from).into();
     a.push(video.into());
@@ -116,6 +170,46 @@ mod tests {
         assert_eq!(clip_to_display((1600.0, 100.0, 400.0, 300.0), d), Some((88.0, 100.0, 400.0, 300.0)));
         assert_eq!(clip_to_display((1400.0, -50.0, 400.0, 300.0), d), Some((0.0, 0.0, 288.0, 250.0)));
         assert_eq!(clip_to_display((0.0, 0.0, 400.0, 300.0), d), None);
+    }
+
+    #[test]
+    fn file_name_is_fixed_format() {
+        assert_eq!(file_name((2026, 11, 3, 15, 12, 8), "mp4"), "Vee Recording 2026-11-03 at 15.12.08.mp4");
+    }
+
+    #[test]
+    fn unique_path_appends_counter() {
+        let dir = Path::new("/d");
+        let taken = [dir.join("a.mp4"), dir.join("a (2).mp4")];
+        assert_eq!(unique_path(dir, "a.mp4", |p| taken.iter().any(|t| t == p)), dir.join("a (3).mp4"));
+        assert_eq!(unique_path(dir, "b.mp4", |p| taken.iter().any(|t| t == p)), dir.join("b.mp4"));
+        let name = "Vee Recording 2026-11-03 at 15.12.08.gif";
+        assert_eq!(unique_path(dir, name, |p| p == dir.join(name)), dir.join("Vee Recording 2026-11-03 at 15.12.08 (2).gif"));
+    }
+
+    #[test]
+    fn resolve_folder_falls_back_to_downloads() {
+        let dl = Path::new("/Users/u/Downloads");
+        assert_eq!(resolve_folder("", dl, |_| true), (dl.to_path_buf(), false));
+        assert_eq!(resolve_folder("/gone", dl, |_| false), (dl.to_path_buf(), true));
+        assert_eq!(resolve_folder("/Movies", dl, |p| p == Path::new("/Movies")), (PathBuf::from("/Movies"), false));
+    }
+
+    #[test]
+    fn needs_ffmpeg_per_os() {
+        assert!(!needs_ffmpeg(Format::Mp4, true) && !needs_ffmpeg(Format::Mov, true));
+        assert!(needs_ffmpeg(Format::Webm, true) && needs_ffmpeg(Format::Gif, true));
+        for f in [Format::Mp4, Format::Mov, Format::Webm, Format::Gif] {
+            assert!(needs_ffmpeg(f, false));
+        }
+    }
+
+    #[test]
+    fn record_format_parses_and_only_gif_has_a_limit() {
+        assert_eq!(record_format("gif"), Some(Format::Gif));
+        assert_eq!(record_format("mkv"), None);
+        assert_eq!(limit_ms(Format::Gif), Some(30_000));
+        assert_eq!(limit_ms(Format::Mp4), None);
     }
 
     #[test]
