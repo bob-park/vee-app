@@ -9,11 +9,13 @@ interface RowProps {
   col?: boolean;
   /** Id on the label, for a control that names itself by it. */
   labelId?: string;
+  /** Cuts a long hint (a path) to one line with an ellipsis; the full text is its tooltip. */
+  truncateHint?: boolean;
   children: React.ReactNode;
 }
 
 /** One settings line: label and hint left, control right. */
-export default function Row({ label, hint, dim, col, labelId, children }: RowProps) {
+export default function Row({ label, hint, dim, col, labelId, truncateHint, children }: RowProps) {
   return (
     <div
       className={cx(
@@ -23,9 +25,16 @@ export default function Row({ label, hint, dim, col, labelId, children }: RowPro
       )}
     >
       {label && (
-        <div id={labelId}>
+        <div id={labelId} className={cx({ 'min-w-0': truncateHint })}>
           {label}
-          {hint && <small className="text-muted mt-0.5 block text-[11px]">{hint}</small>}
+          {hint && (
+            <small
+              className={cx('text-muted mt-0.5 block text-[11px]', { truncate: truncateHint })}
+              title={truncateHint ? hint : undefined}
+            >
+              {hint}
+            </small>
+          )}
         </div>
       )}
       {children}

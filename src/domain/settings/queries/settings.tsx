@@ -7,9 +7,10 @@ import {
   getDiskAccess,
   getScreenAccess,
   getSettings,
+  getShortcutFailures,
   setSetting,
 } from '@/domain/settings/apis/settings';
-import type { Retention, SettingKey, Settings } from '@/domain/settings/apis/settings.dto';
+import type { GlobalShortcutKey, Retention, SettingKey, Settings } from '@/domain/settings/apis/settings.dto';
 import type { AppError } from '@/shared/api/common.dto';
 import type { QueryMutationHandle } from '@/shared/queries';
 
@@ -19,6 +20,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 export const SETTINGS_QUERY_KEY = ['settings'];
 const DISK_ACCESS_QUERY_KEY = ['settings', 'diskAccess'];
 const SCREEN_ACCESS_QUERY_KEY = ['settings', 'screenAccess'];
+/** Under SETTINGS_QUERY_KEY, so `settings://changed` (a successful shortcut save) refetches it too. */
+const SHORTCUT_FAILURES_QUERY_KEY = ['settings', 'shortcutFailures'];
 
 export function useSettings() {
   const { data, isLoading } = useQuery<Settings>({
@@ -96,6 +99,29 @@ export function useScreenAccess() {
   }, [queryClient]);
 
   return { granted: data ?? null };
+}
+
+/** Global shortcuts that failed to register; re-checked on focus and after every settings change. */
+export function useShortcutFailures() {
+  const queryClient = useQueryClient();
+
+  const { data } = useQuery<GlobalShortcutKey[]>({
+    queryKey: SHORTCUT_FAILURES_QUERY_KEY,
+    queryFn: getShortcutFailures,
+    staleTime: 0,
+  });
+
+  useEffect(() => {
+    const unlisten = getCurrentWindow().onFocusChanged(
+      (e) => e.payload && void queryClient.invalidateQueries({ queryKey: SHORTCUT_FAILURES_QUERY_KEY }),
+    );
+
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [queryClient]);
+
+  return { failures: data ?? [] };
 }
 
 /** How many clips a retention value would delete right away; always recounted, never cached. */
