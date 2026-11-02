@@ -320,6 +320,8 @@
   --animate-ring: ring 900ms ease-out 200ms;
   --animate-drift: drift 12s ease-in-out infinite alternate;
   --animate-bob: bob 1.6s ease-in-out infinite;
+  /* The recording dot's pulse: a --color-rec ring that fades out (box-shadow, like `ring`). */
+  --animate-rec-pulse: rec-pulse 1.4s ease-out infinite;
   /* The update pill hops until hovered; ~7px so the panel's 10px top padding never clips it. Same timing for its shadow. */
   --animate-jump: jump 1.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
   --animate-jump-shadow: jump-shadow 1.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
@@ -408,6 +410,15 @@
     }
     66% {
       transform: translate(-15px, 10px) scale(0.95);
+    }
+  }
+
+  @keyframes rec-pulse {
+    from {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-rec) 60%, transparent);
+    }
+    to {
+      box-shadow: 0 0 0 8px transparent;
     }
   }
 
@@ -505,7 +516,8 @@
   html[data-window='panel'] body,
   html[data-window='toast'] body,
   html[data-window='convert'] body,
-  html[data-window='capture'] body {
+  html[data-window='capture'] body,
+  html[data-window='recorder'] body {
     background: transparent;
   }
 
@@ -610,6 +622,7 @@
   .animate-pop,
   .animate-ring,
   .animate-bob,
+  .animate-rec-pulse,
   .animate-jump,
   .animate-jump-shadow,
   .animate-slice-in,

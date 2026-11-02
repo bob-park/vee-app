@@ -164,9 +164,10 @@ pub struct Recorder {
     cancel: AtomicBool,
 }
 
+/// The `recorder://started` payload, and `get_recorder_state` while recording.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Started {
+pub struct Started {
     started_ms: i64,
     format: Format,
     limit_ms: Option<i64>,
@@ -407,6 +408,33 @@ fn begin(app: &AppHandle, session: u64, monitor: &MonitorInfo, selection: &Selec
     Ok(())
 }
 
+/// The running recording, for a pill that missed `recorder://started`.
+fn started(app: &AppHandle) -> Option<Started> {
+    match phase(app) {
+        Phase::Recording { started_ms, format, limit_ms, .. } => Some(Started { started_ms, format, limit_ms }),
+        _ => None,
+    }
+}
+
+/// Windows: keeps the overlay and the pill out of every capture and recording.
+/// macOS needs nothing: ScreenCaptureKit leaves out Vee's own windows.
+pub fn exclude_from_capture(app: &AppHandle) {
+    #[cfg(windows)]
+    for label in [capture::CAPTURE, RECORDER] {
+        use ::windows::Win32::{
+            Foundation::HWND,
+            UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE},
+        };
+        let Some(Ok(hwnd)) = app.get_webview_window(label).map(|w| w.hwnd()) else { continue };
+        // SAFETY: a live top-level window of this process.
+        if let Err(e) = unsafe { SetWindowDisplayAffinity(HWND(hwnd.0 as _), WDA_EXCLUDEFROMCAPTURE) } {
+            log::warn!("couldn't exclude {label} from capture: {e}");
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = app;
+}
+
 /// The pill at the bottom centre of the recorded monitor's work area.
 fn show_pill(app: &AppHandle, monitor: &MonitorInfo) {
     let Some(pill) = app.get_webview_window(RECORDER) else { return };
@@ -561,6 +589,12 @@ pub mod commands {
         tauri::async_runtime::spawn_blocking(move || super::start(&app, selection, &format))
             .await
             .map_err(|e| AppError::Other(e.to_string()))?
+    }
+
+    /// The running recording, or `None`; the pill asks on mount in case it missed `recorder://started`.
+    #[tauri::command]
+    pub fn get_recorder_state(app: AppHandle) -> Option<super::Started> {
+        super::started(&app)
     }
 
     /// Stops and saves the recording.

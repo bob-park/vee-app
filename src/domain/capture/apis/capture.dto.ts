@@ -1,3 +1,5 @@
+import type { RecordFormat } from '@/domain/settings/apis/settings.dto';
+
 /** Mirrors `app::capture::{geometry, window_list}` (serde camelCase). */
 
 export interface Point {
@@ -33,4 +35,13 @@ export interface CaptureOpen {
   mode: CaptureMode;
   monitor: MonitorInfo;
   windows: WinInfo[];
+}
+
+/** The `recorder://started` payload and `get_recorder_state`; mirrors Rust `recorder::Started`. */
+export interface RecorderStarted {
+  /** Unix ms. */
+  startedMs: number;
+  format: RecordFormat;
+  /** GIF's time limit; null for the other formats. */
+  limitMs: number | null;
 }

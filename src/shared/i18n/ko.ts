@@ -51,6 +51,12 @@ export const ko: Dict = {
     needsFfmpeg: '화면 녹화에는 FFmpeg가 필요해요',
     needsFfmpegHint: '설정 › 변환에서 FFmpeg를 받아 주세요',
     folderMissing: '녹화 폴더가 없어서 다운로드에 저장했어요',
+    format: '녹화 포맷',
+    start: '녹화',
+    stop: '녹화 정지',
+    cancel: '녹화 취소',
+    ffmpegNeeded: 'FFmpeg 필요',
+    gifLeft: (s: number) => `GIF · ${s}초 남음`,
   },
   whatsNew: { title: '새로워진 Vee', ok: '확인' },
   editor: {

@@ -50,6 +50,12 @@ export const en = {
     needsFfmpeg: 'Screen recording needs FFmpeg',
     needsFfmpegHint: 'Download it in Settings › Convert',
     folderMissing: 'The recording folder is gone, so it went to Downloads',
+    format: 'Recording format',
+    start: 'Record',
+    stop: 'Stop recording',
+    cancel: 'Cancel recording',
+    ffmpegNeeded: 'FFmpeg needed',
+    gifLeft: (s: number) => `GIF · ${s}s left`,
   },
   whatsNew: { title: "What's new in Vee", ok: 'OK' },
   editor: {

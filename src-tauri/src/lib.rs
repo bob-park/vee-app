@@ -72,6 +72,7 @@ pub fn run() {
             for config in app.config().app.windows.clone() {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
             }
+            recorder::exclude_from_capture(app.handle());
             // `convert` is built visible (off-screen): wry takes over drops only on the WebView2
             // child windows that exist when the webview is built, and a hidden one creates them later.
             if let Some(overlay) = app.get_webview_window(convert::CONVERT) {
@@ -175,6 +176,7 @@ pub fn run() {
             capture::commands::take_capture,
             capture::commands::cancel_capture,
             recorder::commands::start_recording,
+            recorder::commands::get_recorder_state,
             recorder::commands::stop_recording,
             recorder::commands::cancel_recording
         ])

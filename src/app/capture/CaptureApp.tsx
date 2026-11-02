@@ -1,14 +1,26 @@
-import { type PointerEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { cancelCapture, getCaptureSession, takeCapture } from '@/domain/capture/apis/capture';
+import { cancelCapture, getCaptureSession, startRecording, takeCapture } from '@/domain/capture/apis/capture';
 import type { CaptureOpen, Point, Rect, Selection } from '@/domain/capture/apis/capture.dto';
+import { useEngineStatus } from '@/domain/convert/queries/engines';
+import { RECORD_FORMATS, type RecordFormat } from '@/domain/settings/apis/settings.dto';
+import { useSettings } from '@/domain/settings/queries/settings';
+import Segmented from '@/shared/components/Segmented';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { normalizeRect, windowAt } from '@/utils/captureSelection';
+import { initialFormat, needsFfmpeg } from '@/utils/recording';
 
 import { listen } from '@tauri-apps/api/event';
 
 /** Room between the selection and its size label. */
 const LABEL_GAP = 6;
+const isMac = navigator.userAgent.includes('Mac');
+
+/** A record-mode selection waiting for Record, with the rect it covers. */
+interface Pending {
+  selection: Selection;
+  rect: Rect;
+}
 
 /** The selection overlay: drag a region, or Space to pick a window. Shared by capture and record. */
 export default function CaptureApp() {
@@ -20,9 +32,30 @@ export default function CaptureApp() {
   const [windowMode, setWindowMode] = useState(false);
   const [pointer, setPointer] = useState<Point | null>(null);
   const [dragFrom, setDragFrom] = useState<Point | null>(null);
+  const [pending, setPending] = useState<Pending | null>(null);
+  /** The format picked in the pill; null until the user picks one. */
+  const [picked, setPicked] = useState<RecordFormat | null>(null);
 
   // hooks
   const { t } = useI18n();
+
+  // queries
+  const { settings } = useSettings();
+  const { status: ffmpegStatus } = useEngineStatus('ffmpeg');
+
+  const ffmpeg = ffmpegStatus?.state === 'installed';
+  const format = picked ?? initialFormat(settings?.recordFormat ?? 'mp4', ffmpeg, isMac);
+
+  // callback
+  // Before the effects: the Enter key starts it.
+  const handleRecord = useCallback(() => {
+    if (!pending) return;
+    openRef.current = null;
+    setOpen(null);
+    setPending(null);
+    // A refused start (FFmpeg gone, session expired) must not leave the overlay up with nothing drawn.
+    void startRecording(pending.selection, format).catch(() => cancelCapture());
+  }, [pending, format]);
 
   // useEffect
   useEffect(() => {
@@ -36,6 +69,8 @@ export default function CaptureApp() {
         setWindowMode(false);
         setPointer(null);
         setDragFrom(null);
+        setPending(null);
+        setPicked(null);
       });
     claim();
     const off = listen('capture://open', claim);
@@ -55,11 +90,22 @@ export default function CaptureApp() {
         setDragFrom(null);
         setWindowMode((on) => !on);
       }
-      // Record mode: Enter starts the recording from the pill (Task 8).
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  useEffect(() => {
+    if (!pending) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.repeat) {
+        e.preventDefault();
+        handleRecord();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pending, handleRecord]);
 
   // handle
   const reset = () => {
@@ -67,10 +113,20 @@ export default function CaptureApp() {
     setOpen(null);
     setDragFrom(null);
     setPointer(null);
+    setPending(null);
   };
 
-  const select = (selection: Selection) => {
-    if (openRef.current?.mode !== 'capture') return; // Record mode: the pill takes over here (Task 8).
+  const handleCancel = () => {
+    reset();
+    void cancelCapture();
+  };
+
+  /** Capture grabs it now; record waits in the pill, and a new drag or click replaces it. */
+  const select = (selection: Selection, rect: Rect) => {
+    if (openRef.current?.mode === 'record') {
+      setPending({ selection, rect });
+      return;
+    }
     reset();
     void takeCapture(selection);
   };
@@ -81,7 +137,7 @@ export default function CaptureApp() {
     if (e.button !== 0 || !open) return;
     if (windowMode) {
       const win = windowAt(open.windows, point(e));
-      if (win) select({ kind: 'window', id: win.id });
+      if (win) select({ kind: 'window', id: win.id }, win);
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -93,17 +149,20 @@ export default function CaptureApp() {
     if (!dragFrom) return;
     const rect = normalizeRect(dragFrom, point(e));
     setDragFrom(null);
-    if (rect) select({ kind: 'rect', ...rect });
+    if (rect) select({ kind: 'rect', ...rect }, rect);
   };
 
   // memorize
   const hole = useMemo<Rect | null>(() => {
-    if (!open || !pointer) return null;
-    if (windowMode) return windowAt(open.windows, pointer);
-    return dragFrom ? normalizeRect(dragFrom, pointer) : null;
-  }, [open, pointer, windowMode, dragFrom]);
+    if (!open) return null;
+    const drawn = pending?.rect ?? null;
+    if (!pointer) return drawn;
+    if (windowMode) return windowAt(open.windows, pointer) ?? drawn;
+    return dragFrom ? normalizeRect(dragFrom, pointer) : drawn;
+  }, [open, pointer, windowMode, dragFrom, pending]);
 
   if (!open) return null;
+  const r = t.record;
   const { width, height, scale } = open.monitor;
   const holePath = hole ? ` M${hole.x} ${hole.y}h${hole.width}v${hole.height}h${-hole.width}Z` : '';
   const labelBelow = hole && hole.y + hole.height + LABEL_GAP + 24 < height;
@@ -138,10 +197,45 @@ export default function CaptureApp() {
           {Math.round(hole.width * scale)} × {Math.round(hole.height * scale)}
         </span>
       )}
-      {!dragFrom && (
-        <div className="glass text-base-content shadow-glass absolute bottom-10 left-1/2 -translate-x-1/2 rounded-full px-4 py-2 text-[13px]">
-          {windowMode ? t.capture.windowHint : t.capture.regionHint}
+      {pending && !dragFrom ? (
+        // Its own clicks must not start a new drag on the overlay.
+        <div
+          className="glass text-base-content shadow-glass absolute bottom-10 left-1/2 flex -translate-x-1/2 cursor-default items-center gap-1.5 rounded-full p-1.5"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <Segmented
+            ariaLabel={r.format}
+            value={format}
+            onChange={setPicked}
+            options={RECORD_FORMATS.map((f) => {
+              const locked = !ffmpeg && needsFfmpeg(f, isMac);
+              return { value: f, label: f.toUpperCase(), disabled: locked, title: locked ? r.ffmpegNeeded : undefined };
+            })}
+          />
+          <button
+            className="from-primary to-sky flex items-center gap-1.5 rounded-full bg-linear-to-r px-3 py-1.5 text-[12px] font-semibold text-white transition-transform duration-150 active:scale-96 motion-reduce:transition-none"
+            onClick={handleRecord}
+          >
+            <span className="size-2 rounded-full bg-white" aria-hidden />
+            {r.start}
+          </button>
+          <button
+            className="hover:bg-subtle grid size-7.5 place-items-center rounded-full"
+            aria-label={r.cancel}
+            title={r.cancel}
+            onClick={handleCancel}
+          >
+            <svg className="size-4" viewBox="0 0 24 24" aria-hidden>
+              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth={2} strokeLinecap="round" fill="none" />
+            </svg>
+          </button>
         </div>
+      ) : (
+        !dragFrom && (
+          <div className="glass text-base-content shadow-glass absolute bottom-10 left-1/2 -translate-x-1/2 rounded-full px-4 py-2 text-[13px]">
+            {windowMode ? t.capture.windowHint : t.capture.regionHint}
+          </div>
+        )
       )}
     </div>
   );
