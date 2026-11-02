@@ -5,7 +5,7 @@ use super::JobError;
 use super::process::{command, exec};
 use pdfium_render::prelude::Pdfium;
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::ExitCode;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -91,6 +91,7 @@ pub fn to_markdown(title: &str, pages: &[String]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     /// The PDFium `scripts/fetch-pdfium.mjs` put in the source tree, or `None` (test skipped).
     fn vendor_pdfium() -> Option<PathBuf> {

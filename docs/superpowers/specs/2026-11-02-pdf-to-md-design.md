@@ -112,7 +112,8 @@ C 안에서 다시 고른 결과:
 
 - `Format::Md`를 추가한다. 확장자와 serde 이름은 모두 `"md"`다.
 - `doc_source`에 `"pdf" => (PDF_TARGETS, None)`을 추가한다. PDF는 Md가 아니므로 own은 `None`이다.
-- `PDF_TARGETS = &[(Format::Md, <엔진>)]`
+- **구현 시 변경:** `Engine::Pdfium`과 `PDF_TARGETS`는 만들지 않았다. PDF는 영상처럼 `formats_for`/`run`에서 별도 분기(`is_pdf`)로 처리하고 `MD` 조각은 `needs: None`이다. 엔진 이름이 프론트엔드에 새지 않아 더 작은 변경이다.
+- (원안) `PDF_TARGETS = &[(Format::Md, <엔진>)]`
   - 엔진: `Engine::Pdfium`을 추가하되, `Caps::has`가 항상 `true`를 돌려준다. 번들돼 있어 설치할 것이 없으므로 조각이 흐리게 표시되지 않는다. *내 판단*이며, `DocTargets` 타입을 그대로 쓰기 위한 최소 변경이다. builder가 더 작은 방법을 찾으면 그쪽을 써도 된다. 단, 프론트엔드에 설치 UI가 생기면 안 된다.
   - `Engine`은 serde로 프론트엔드에 노출된다. 프론트엔드 `Engine` 유니언과 엔진 이름을 쓰는 곳(dim 툴팁 등)에 영향이 없는지 builder가 확인한다.
 - `convert_doc`에서 `Engine::Pdfium` 분기는 위 2번의 워커를 호출한다.
