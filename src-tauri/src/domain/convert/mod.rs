@@ -5,6 +5,7 @@ mod icon;
 mod image;
 mod model;
 mod office;
+mod pdf;
 mod process;
 mod video;
 
@@ -12,6 +13,7 @@ use self::image::convert_image;
 use model::eta;
 pub use model::{Caps, DONE_MS, Engine, Format, Job, JobError, JobState, JobView, Quality, SHOW_AFTER_MS, Slice};
 use model::{DocTargets, HWP_TARGETS, IMAGE_TARGETS, SHEET_TARGETS, SLIDE_TARGETS, TEXT_TARGETS, VIDEO_TARGETS};
+pub use pdf::{FLAG as PDF_WORKER_FLAG, LIB as PDFIUM_LIB, worker_main as pdf_worker_main};
 pub use process::{command, output};
 pub use video::{HwEncoder, Run, hw_encoder};
 
@@ -125,7 +127,12 @@ pub fn run(src: &Path, stem: &str, to: Format, dir: &Path, tmp: &Path, ctx: &mut
         return Err(JobError::Missing);
     }
     let staged = unique_path(tmp, stem, to.ext());
-    let converted = if is_video(src) {
+    let converted = if is_pdf(src) {
+        match (&ctx.pdf, to) {
+            (Some((exe, lib)), Format::Md) => pdf::convert(src, &staged, exe, lib, ctx.cancel),
+            _ => Err(JobError::Engine),
+        }
+    } else if is_video(src) {
         match ctx.ffmpeg {
             Some((ffmpeg, ffprobe)) => video::convert(src, to, &staged, ffmpeg, ffprobe, ctx),
             None => Err(JobError::Engine),
@@ -363,6 +370,7 @@ mod tests {
         let cancel = AtomicBool::new(false);
         let stem = src.file_stem().unwrap().to_string_lossy().into_owned();
         let mut ctx = Run {
+            pdf: None,
             fell_back: false,
             ffmpeg: None,
             quality: Quality::Normal,
@@ -476,6 +484,7 @@ mod tests {
             let cancel = AtomicBool::new(false);
             let started = std::time::Instant::now();
             let mut ctx = Run {
+            pdf: None,
                 fell_back: false,
                 ffmpeg: None,
                 quality: Quality::Normal,
@@ -518,6 +527,7 @@ mod tests {
         let profile = tmp.path().join("lo 프로필");
         let cancel = AtomicBool::new(false);
         let mut ctx = Run {
+            pdf: None,
             fell_back: false,
             ffmpeg: None,
             quality: Quality::Normal,
@@ -563,6 +573,7 @@ mod tests {
         let (dir, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let cancel = AtomicBool::new(false);
         let mut ctx = Run {
+            pdf: None,
             fell_back: false,
             ffmpeg: None,
             quality: Quality::Normal,
@@ -590,6 +601,7 @@ mod tests {
         let (dir, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let cancel = AtomicBool::new(false);
         let mut ctx = Run {
+            pdf: None,
             fell_back: false,
             ffmpeg: None,
             quality: Quality::Normal,
@@ -630,6 +642,7 @@ mod tests {
             dir,
             tmp,
             &mut Run {
+                pdf: None,
                 fell_back: false,
                 ffmpeg: None,
                 quality: Quality::Normal,

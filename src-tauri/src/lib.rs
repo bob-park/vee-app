@@ -17,6 +17,13 @@ pub fn ai_worker_main() {
     app::ai_worker::main()
 }
 
+pub use domain::convert::PDF_WORKER_FLAG;
+
+/// The `--pdf-worker` child's entry point (see `domain::convert::pdf`); `args` follow the flag.
+pub fn pdf_worker_main(args: &[std::ffi::OsString]) -> std::process::ExitCode {
+    domain::convert::pdf_worker_main(args)
+}
+
 pub fn run() {
     tauri::Builder::default()
         // Must be first: a second launch just opens the settings window.

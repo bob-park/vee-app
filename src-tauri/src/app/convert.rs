@@ -3,7 +3,7 @@
 use crate::{
     app::{
         drop_target::{self, DropFolder},
-        editor, engines, office,
+        ai, editor, engines, office,
         state::{AppState, now_ms},
         window::{self, PANEL, Rect, ToastPayload, USES_POINTS},
     },
@@ -175,6 +175,18 @@ pub fn spawn(app: &AppHandle) {
             work(&app, id);
         }
     });
+}
+
+/// `(this exe, PDFium)` for the `--pdf-worker` child: the bundled library, or in a debug build
+/// (not bundled on macOS) the one `scripts/fetch-pdfium.mjs` put in the source tree.
+fn pdfium() -> Option<(PathBuf, PathBuf)> {
+    let exe = std::env::current_exe().ok()?;
+    let mut candidates = vec![ai::bundled_lib(exe.parent()?, convert::PDFIUM_LIB)];
+    if cfg!(debug_assertions) {
+        candidates.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor/pdfium").join(convert::PDFIUM_LIB));
+    }
+    let lib = candidates.into_iter().find(|p| p.is_file())?;
+    Some((exe, lib))
 }
 
 /// Arms the convert key for a drag of `files` (an image clip's staged PNG, or a files clip's paths).
@@ -415,6 +427,7 @@ fn work(app: &AppHandle, id: u64) {
         rhwp: engines::rhwp(app),
         soffice: office::soffice(),
         lo_profile,
+        pdf: pdfium(),
         progress: &mut progress,
     };
     let mut failed: Option<(JobError, &Path)> = None;
