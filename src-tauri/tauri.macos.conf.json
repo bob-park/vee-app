@@ -1,7 +1,7 @@
 {
   "bundle": {
     "macOS": {
-      "frameworks": ["./vendor/onnxruntime/libonnxruntime.dylib"]
+      "frameworks": ["./vendor/onnxruntime/libonnxruntime.dylib", "./vendor/pdfium/libpdfium.dylib"]
     }
   }
 }

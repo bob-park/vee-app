@@ -35,6 +35,8 @@ pub struct Run<'a> {
     pub soffice: Option<PathBuf>,
     /// LibreOffice's own profile dir, so a LibreOffice the user has open doesn't take the job.
     pub lo_profile: PathBuf,
+    /// `(worker exe, PDFium library)` for PDF → Markdown; `None` when PDFium is missing.
+    pub pdf: Option<(PathBuf, PathBuf)>,
 }
 
 /// A hardware H.264 encoder FFmpeg can drive.
@@ -411,6 +413,7 @@ mod tests {
         let (ffmpeg, ffprobe) = fake(bin.path(), "exit 1");
         let cancel = AtomicBool::new(false);
         let mut ctx = Run {
+            pdf: None,
             fell_back: false,
             ffmpeg: Some((&ffmpeg, &ffprobe)),
             quality: Quality::Normal,
@@ -443,6 +446,7 @@ mod tests {
         };
         let started = std::time::Instant::now();
         let mut ctx = Run {
+            pdf: None,
             fell_back: false,
             ffmpeg: Some((&ffmpeg, &ffprobe)),
             quality: Quality::Normal,
@@ -475,6 +479,7 @@ mod tests {
             }
         };
         let mut ctx = Run {
+            pdf: None,
             fell_back: false,
             ffmpeg: Some((&ffmpeg, &ffprobe)),
             quality: Quality::Normal,
@@ -500,6 +505,7 @@ mod tests {
         let (ffmpeg, ffprobe) = fake(bin.path(), &format!("touch '{}'", marker.display()));
         let cancel = AtomicBool::new(true);
         let mut ctx = Run {
+            pdf: None,
             fell_back: false,
             ffmpeg: Some((&ffmpeg, &ffprobe)),
             quality: Quality::Normal,
@@ -526,6 +532,7 @@ mod tests {
         let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut progress = |p: Option<f64>| assert!(p.is_none_or(|p| p == 0.0), "boom");
             let mut ctx = Run {
+            pdf: None,
                 fell_back: false,
                 ffmpeg: Some((&ffmpeg, &ffprobe)),
                 quality: Quality::Normal,
@@ -609,6 +616,7 @@ mod tests {
         let mut seen = Vec::new();
         let mut progress = |p: Option<f64>| seen.push(p);
         let mut ctx = Run {
+            pdf: None,
             fell_back: false,
             ffmpeg: Some((&ffmpeg, &ffprobe)),
             quality: Quality::Normal,
@@ -634,6 +642,7 @@ mod tests {
         std::fs::write(&src, b"v").unwrap();
         let cancel = AtomicBool::new(false);
         let mut ctx = Run {
+            pdf: None,
             fell_back: false,
             ffmpeg: None,
             quality: Quality::Normal,
@@ -695,6 +704,7 @@ mod tests {
             let mut last = None;
             let mut progress = |p: Option<f64>| last = p;
             let mut ctx = Run {
+            pdf: None,
                 fell_back: false,
                 ffmpeg: Some((&ffmpeg, &ffprobe)),
                 quality: q,
@@ -721,6 +731,7 @@ mod tests {
         let before = std::fs::read_dir(dir.path()).unwrap().count();
         let cancelled = AtomicBool::new(true);
         let mut ctx = Run {
+            pdf: None,
             fell_back: false,
             ffmpeg: Some((&ffmpeg, &ffprobe)),
             quality: Quality::Normal,

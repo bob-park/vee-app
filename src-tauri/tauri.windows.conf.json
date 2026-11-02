@@ -1,7 +1,8 @@
 {
   "bundle": {
     "resources": {
-      "vendor/onnxruntime/onnxruntime.dll": "onnxruntime.dll"
+      "vendor/onnxruntime/onnxruntime.dll": "onnxruntime.dll",
+      "vendor/pdfium/pdfium.dll": "pdfium.dll"
     }
   }
 }

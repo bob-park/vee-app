@@ -4,9 +4,9 @@
   "version": "1.6.1",
   "identifier": "com.bobpark.vee",
   "build": {
-    "beforeDevCommand": "node scripts/fetch-onnxruntime.mjs && yarn dev",
+    "beforeDevCommand": "node scripts/fetch-onnxruntime.mjs && node scripts/fetch-pdfium.mjs && yarn dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "node scripts/fetch-onnxruntime.mjs && yarn build",
+    "beforeBuildCommand": "node scripts/fetch-onnxruntime.mjs && node scripts/fetch-pdfium.mjs && yarn build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -120,6 +120,10 @@
       "icons/icon.ico"
     ],
     "createUpdaterArtifacts": true,
+    "resources": {
+      "vendor/onnxruntime/notices/": "licenses/onnxruntime/",
+      "vendor/pdfium/notices/": "licenses/pdfium/"
+    },
     "macOS": {
       "entitlements": "Entitlements.plist"
     }

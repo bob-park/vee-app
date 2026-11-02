@@ -48,10 +48,10 @@ fn model_paths(dir: &Path, id: EngineId) -> AppResult<Vec<PathBuf>> {
 /// The ONNX Runtime library the app ships (`scripts/fetch-onnxruntime.mjs`, bundled by `tauri.<os>.conf.json`).
 const ORT_LIB: &str = if cfg!(windows) { "onnxruntime.dll" } else { "libonnxruntime.dylib" };
 
-/// Where the bundle keeps the runtime: macOS `Contents/Frameworks/` (signed with the app, so the
-/// hardened runtime loads it), Windows the install dir beside the exe.
-fn bundled_runtime(exe_dir: &Path) -> PathBuf {
-    if cfg!(target_os = "macos") { exe_dir.join("../Frameworks").join(ORT_LIB) } else { exe_dir.join(ORT_LIB) }
+/// Where the bundle keeps a shipped library (ONNX Runtime, PDFium): macOS `Contents/Frameworks/`
+/// (signed with the app, so the hardened runtime loads it), Windows the install dir beside the exe.
+pub(crate) fn bundled_lib(exe_dir: &Path, name: &str) -> PathBuf {
+    if cfg!(target_os = "macos") { exe_dir.join("../Frameworks").join(name) } else { exe_dir.join(name) }
 }
 
 /// The runtime as fetched into the source tree; what dev builds and tests load.
@@ -62,7 +62,7 @@ pub(crate) fn vendor_runtime() -> PathBuf {
 /// The bundled runtime, or in a debug build (not bundled on macOS) the vendored one.
 fn runtime_path() -> AppResult<PathBuf> {
     let exe = std::env::current_exe().map_err(|e| AppError::Other(format!("onnx runtime: {e}")))?;
-    let mut candidates = vec![bundled_runtime(exe.parent().unwrap_or(Path::new(".")))];
+    let mut candidates = vec![bundled_lib(exe.parent().unwrap_or(Path::new(".")), ORT_LIB)];
     if cfg!(debug_assertions) {
         candidates.push(vendor_runtime());
     }
@@ -591,10 +591,12 @@ mod tests {
     }
 
     #[test]
-    fn runtime_is_looked_up_in_the_bundle() {
+    fn bundled_libraries_are_looked_up_in_the_bundle() {
         let exe_dir = Path::new("/Applications/Vee.app/Contents/MacOS");
-        let expected = if cfg!(target_os = "macos") { exe_dir.join("../Frameworks/libonnxruntime.dylib") } else { exe_dir.join(ORT_LIB) };
-        assert_eq!(bundled_runtime(exe_dir), expected);
+        for lib in [ORT_LIB, crate::domain::convert::PDFIUM_LIB] {
+            let expected = if cfg!(target_os = "macos") { exe_dir.join("../Frameworks").join(lib) } else { exe_dir.join(lib) };
+            assert_eq!(bundled_lib(exe_dir, lib), expected);
+        }
     }
 
     #[test]

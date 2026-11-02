@@ -3,7 +3,7 @@
 use crate::{
     app::{
         drop_target::{self, DropFolder},
-        editor, engines, office,
+        ai, editor, engines, office,
         state::{AppState, now_ms},
         window::{self, PANEL, Rect, ToastPayload, USES_POINTS},
     },
@@ -177,6 +177,18 @@ pub fn spawn(app: &AppHandle) {
     });
 }
 
+/// `(this exe, PDFium)` for the `--pdf-worker` child: the bundled library, or in a debug build
+/// (not bundled on macOS) the one `scripts/fetch-pdfium.mjs` put in the source tree.
+fn pdfium() -> Option<(PathBuf, PathBuf)> {
+    let exe = std::env::current_exe().ok()?;
+    let mut candidates = vec![ai::bundled_lib(exe.parent()?, convert::PDFIUM_LIB)];
+    if cfg!(debug_assertions) {
+        candidates.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor/pdfium").join(convert::PDFIUM_LIB));
+    }
+    let lib = candidates.into_iter().find(|p| p.is_file())?;
+    Some((exe, lib))
+}
+
 /// Arms the convert key for a drag of `files` (an image clip's staged PNG, or a files clip's paths).
 /// Call after `dragging` is set and before `drag::start_drag`, which blocks on Windows.
 pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
@@ -196,6 +208,7 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
         ffmpeg: engines::ffmpeg(app).is_some(),
         rhwp: engines::rhwp(app).is_some(),
         libreoffice: office::soffice().is_some(),
+        pdfium: pdfium().is_some(),
     };
     let slices = convert::formats_for(&files, caps);
     *c.session.lock().unwrap() = Some(Session { generation, clip_id, files, slices, dir: None, noted: false, dropped: false });
@@ -415,6 +428,7 @@ fn work(app: &AppHandle, id: u64) {
         rhwp: engines::rhwp(app),
         soffice: office::soffice(),
         lo_profile,
+        pdf: pdfium(),
         progress: &mut progress,
     };
     let mut failed: Option<(JobError, &Path)> = None;
@@ -462,8 +476,8 @@ fn work(app: &AppHandle, id: u64) {
 
 /// Stops a running video job; the worker then drops it. Image jobs can't stop mid-file.
 fn cancel(jobs: &Jobs, id: u64) -> AppResult<()> {
-    let job = jobs.list.iter().find(|j| j.id == id && j.state == JobState::Running && j.files.iter().all(|f| convert::is_video(f)));
-    let job = job.ok_or_else(|| AppError::InvalidInput(format!("no running video convert job {id}")))?;
+    let job = jobs.list.iter().find(|j| j.id == id && j.state == JobState::Running && convert::can_cancel(&j.files));
+    let job = job.ok_or_else(|| AppError::InvalidInput(format!("no cancellable running convert job {id}")))?;
     job.cancel.store(true, Ordering::SeqCst);
     Ok(())
 }

@@ -11,6 +11,7 @@ void test('other formats are upper case', () => {
   assert.equal(formatLabel('mp4'), 'MP4');
   assert.equal(formatLabel('webp'), 'WEBP');
   assert.equal(formatLabel('hwpx'), 'HWPX');
+  assert.equal(formatLabel('md'), 'MD');
 });
 
 void test('only the edit slice is an edit', () => {

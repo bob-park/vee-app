@@ -34,6 +34,8 @@ pub enum Format {
     Ods,
     Pptx,
     Odp,
+    /// Plain text from a PDF, page by page.
+    Md,
     /// Not a conversion: the slice that opens a single image in the editor.
     Edit,
 }
@@ -84,6 +86,8 @@ pub struct Caps {
     pub rhwp: bool,
     /// LibreOffice is installed.
     pub libreoffice: bool,
+    /// PDFium ships with the app (missing only from a bare, unbundled build).
+    pub pdfium: bool,
 }
 
 impl Caps {
@@ -125,6 +129,7 @@ impl Format {
             Format::Ods => "ods",
             Format::Pptx => "pptx",
             Format::Odp => "odp",
+            Format::Md => "md",
             // Never written: `run` refuses it before a file is named.
             Format::Edit => "edit",
         }
