@@ -210,18 +210,24 @@ export function Toolbar({
       <span className="flex-1" />
       {updateVersion && (
         // `update` is the hook PanelApp keeps a click inside from cancelling the prompt by.
-        <div className="update relative">
+        // mr-3: the hopping pill needs more room from the pin button than the toolbar's 6px gap.
+        <div className="update relative mr-3">
           <button
-            className="bg-ok-bg text-ok-fg flex items-center gap-1.25 rounded-md py-0.75 pr-2 pl-1.5 text-[12px] font-semibold"
+            // Hops until hovered so a ready update isn't missed; `group` pauses the shadow with it.
+            className="group bg-success text-success-content animate-jump relative flex items-center gap-1.25 rounded-md py-0.75 pr-2 pl-1.5 text-[12px] font-semibold hover:animate-none"
             onClick={onUpdate}
             tabIndex={-1}
           >
-            <i className="size-1.5 rounded-full bg-current" aria-hidden />
+            <span
+              className="bg-success/45 animate-jump-shadow pointer-events-none absolute inset-x-[15%] -bottom-1.5 h-1 rounded-full blur-[2px] group-hover:animate-none"
+              aria-hidden
+            />
+            <span aria-hidden>↑</span>
             {t.newVersion(updateVersion)}
           </button>
           {updateConfirming && (
             <div
-              className="rounded-box border-base-300 bg-card shadow-suggest absolute top-[calc(100%+6px)] right-0 z-2 grid w-60 gap-2.5 border p-3"
+              className="rounded-box border-base-300 bg-card shadow-suggest animate-spring-in absolute top-[calc(100%+6px)] right-0 z-2 grid w-60 origin-top-right gap-2.5 border p-3"
               role="dialog"
             >
               <div>

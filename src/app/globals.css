@@ -309,6 +309,9 @@
   --animate-ring: ring 900ms ease-out 200ms;
   --animate-drift: drift 12s ease-in-out infinite alternate;
   --animate-bob: bob 1.6s ease-in-out infinite;
+  /* The update pill hops until hovered; ~7px so the panel's 10px top padding never clips it. Same timing for its shadow. */
+  --animate-jump: jump 1.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
+  --animate-jump-shadow: jump-shadow 1.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
   /* Donut slices spin in from half size, a beat after the donut pops (ConvertApp staggers them). */
   --animate-slice-in: slice-in 500ms var(--ease-spring) both;
   /* Pinning the panel: the sheet sinks a hair and its inner edge glows. No overshoot and an inset glow,
@@ -400,6 +403,45 @@
   @keyframes bob {
     50% {
       transform: translateY(3px);
+    }
+  }
+
+  /* Rests for the first 55%, then squashes, leaps, lands squashed and settles. */
+  @keyframes jump {
+    0%,
+    55%,
+    100% {
+      transform: translateY(0) scale(1, 1);
+    }
+    60% {
+      transform: translateY(0) scale(1.12, 0.85);
+    }
+    72% {
+      transform: translateY(-7px) scale(0.95, 1.08);
+    }
+    84% {
+      transform: translateY(0) scale(1.08, 0.9);
+    }
+    90% {
+      transform: translateY(0) scale(0.98, 1.03);
+    }
+  }
+
+  /* The landing shadow shrinks and fades while the pill is in the air. */
+  @keyframes jump-shadow {
+    0%,
+    55%,
+    100% {
+      opacity: 0.9;
+      transform: scaleX(1);
+    }
+    72% {
+      opacity: 0.25;
+      transform: scaleX(0.6);
+    }
+    84% {
+      opacity: 1;
+      transform: scaleX(1.15);
     }
   }
 
@@ -556,6 +598,8 @@
   .animate-pop,
   .animate-ring,
   .animate-bob,
+  .animate-jump,
+  .animate-jump-shadow,
   .animate-slice-in,
   .animate-pin-press,
   .animate-pin-drop,

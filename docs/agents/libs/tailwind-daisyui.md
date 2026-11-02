@@ -20,7 +20,7 @@ related:
 3. `[data-theme='light']` / `[data-theme='dark']` blocks for vee tokens daisyUI has no slot for: `--vee-card`, `--vee-divider`, `--vee-subtle`, `--vee-muted`, `--vee-accent-subtle`, `--vee-badge-*`, `--vee-ok-*`, `--vee-toast-*`, `--vee-donut*`, `--vee-slice-lit`, and the Aurora Glass `--vee-glass`, `--vee-glass-edge`, `--vee-aurora-1..3`.
 4. `@theme inline` maps those to Tailwind names (`bg-card`, `text-muted`, `border-divider`, `bg-badge-bg`, `text-toast-fg`, `bg-glass`, `bg-aurora-1`, …), adds theme-independent colors (`sky`, `danger-*`, `backdrop`, `tip`, `keycap-*`, …) and sets `--font-sans` / `--font-mono`.
 5. `@utility shadow-*` rules (`shadow-seg`, `shadow-glass`, `shadow-card`, `shadow-card-selected`, `shadow-modal`, `shadow-donut`, …) and `slice-lit`.
-6. `@theme` motion: the shared spring easing `--ease-spring` (the `ease-spring` utility) and the animations `animate-toast-in`, `animate-toast-out`, `animate-spring-in`, `animate-pop`, `animate-ring` (colour from `--ring-color`), `animate-drift`, `animate-bob`, `animate-slice-in`.
+6. `@theme` motion: the shared spring easing `--ease-spring` (the `ease-spring` utility) and the animations `animate-toast-in`, `animate-toast-out`, `animate-spring-in`, `animate-pop`, `animate-ring` (colour from `--ring-color`), `animate-drift`, `animate-bob`, `animate-jump` + `animate-jump-shadow` (the panel's update pill, paused on hover), `animate-slice-in`.
 7. `@layer base`: `line-height: normal`, `overflow: clip` on `html, body, #root`, body 13px + `user-select: none`, transparent body for `html[data-window='panel'|'toast'|'convert']`, the focus ring.
 8. `@layer components`:
    - `.ghost`: the dragged card copy.
