@@ -27,6 +27,9 @@ pub fn formats_for(paths: &[PathBuf], caps: Caps) -> Vec<Slice> {
         let needs = (!caps.ffmpeg).then_some(Engine::Ffmpeg);
         return VIDEO_TARGETS.into_iter().filter(|f| !own.contains(f)).map(|format| Slice { format, needs }).collect();
     }
+    if !paths.is_empty() && paths.iter().all(|p| is_pdf(p)) {
+        return vec![Slice { format: Format::Md, needs: None }];
+    }
     if let Some((first, _)) = paths.first().and_then(|p| doc_source(p)) {
         let sources: Option<Vec<Option<Format>>> =
             paths.iter().map(|p| doc_source(p).filter(|(t, _)| *t == first).map(|(_, own)| own)).collect();
@@ -60,6 +63,11 @@ pub fn is_video(path: &Path) -> bool {
     // No `ts`: TypeScript files share it. MPEG-TS camcorder files come as `mts`/`m2ts`.
     const EXTS: [&str; 13] = ["mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "flv", "mpg", "mpeg", "mts", "m2ts", "3gp"];
     ext_of(path).is_some_and(|e| EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
+/// Whether `path` has a `pdf` extension (any case). PDFs only become Markdown.
+pub fn is_pdf(path: &Path) -> bool {
+    ext_of(path).is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
 }
 
 /// A document source's family targets and the target format it already is (`None` for `doc`, `xls`, `ppt`).
@@ -243,6 +251,16 @@ mod tests {
 
     fn doc_formats(paths: &[&str], caps: Caps) -> Vec<Format> {
         doc_slices(paths, caps).into_iter().map(|(f, _)| f).collect()
+    }
+
+    #[test]
+    fn pdfs_become_markdown() {
+        use Format::*;
+        assert_eq!(doc_slices(&["a.pdf"], ALL), [(Md, None)]);
+        let none = Caps { heic: false, ffmpeg: false, rhwp: false, libreoffice: false };
+        assert_eq!(doc_slices(&["a.PDF", "b.pdf"], none), [(Md, None)]);
+        assert!(doc_formats(&["a.pdf", "b.docx"], ALL).is_empty());
+        assert!(doc_formats(&["a.pdf", "b.png"], ALL).is_empty());
     }
 
     #[test]

@@ -24,6 +24,7 @@ export type Format =
   | 'ods'
   | 'pptx'
   | 'odp'
+  | 'md'
   /** Not a format: the slice that opens a single image in the editor. */
   | 'edit';
 
