@@ -14,7 +14,8 @@ use model::eta;
 pub use model::{Caps, DONE_MS, Engine, Format, Job, JobError, JobState, JobView, Quality, SHOW_AFTER_MS, Slice};
 use model::{DocTargets, HWP_TARGETS, IMAGE_TARGETS, SHEET_TARGETS, SLIDE_TARGETS, TEXT_TARGETS, VIDEO_TARGETS};
 pub use pdf::{FLAG as PDF_WORKER_FLAG, LIB as PDFIUM_LIB, worker_main as pdf_worker_main};
-pub use process::{command, output};
+#[cfg_attr(not(windows), allow(unused_imports))] // `Killed`: the Windows recorder
+pub use process::{Killed, command, output};
 pub use video::{HwEncoder, Run, hw_encoder};
 
 use std::path::{Path, PathBuf};

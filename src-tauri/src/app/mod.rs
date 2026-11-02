@@ -13,6 +13,7 @@ pub mod front_app;
 pub mod i18n;
 pub mod ocr;
 pub mod office;
+pub mod recorder;
 pub mod retention;
 pub mod screen_access;
 pub mod shortcut;

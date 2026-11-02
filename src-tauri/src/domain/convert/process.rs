@@ -26,7 +26,7 @@ pub fn command(program: &Path) -> Command {
 
 /// A running converter, killed and reaped when dropped: on cancel, on error, and on a panic mid-run.
 /// After `try_wait` has reaped it, `kill` is a no-op (std keeps the status), so no stray PID is signalled.
-pub(super) struct Killed(pub(super) Child);
+pub struct Killed(pub Child);
 
 impl Drop for Killed {
     fn drop(&mut self) {

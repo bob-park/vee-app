@@ -40,7 +40,7 @@ objc2-core-graphics = { version = "0.3.2", default-features = false, features = 
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFCGTypes", "CFDictionary", "CFNumber", "CFString"] }
 objc2-vision = { version = "0.3.2", default-features = false, features = ["std", "VNRequest", "VNRequestHandler", "VNRecognizeTextRequest", "VNObservation"] }
 image = { version = "0.25", default-features = false, features = ["png", "gif", "webp", "bmp"] }
-objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "SCStream", "SCRecordingOutput", "SCShareableContent"] }
+objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "SCStream", "SCRecordingOutput", "SCShareableContent", "objc2-core-foundation", "objc2-core-graphics", "libc"] }
 block2 = "0.6.2"
 
 [target.'cfg(windows)'.dependencies]
