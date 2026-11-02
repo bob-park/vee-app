@@ -3,6 +3,7 @@
 pub mod ai;
 pub mod ai_worker;
 pub mod autostart;
+pub mod capture;
 pub mod convert;
 pub mod disk_access;
 pub mod drop_target;
