@@ -35,9 +35,9 @@ use crate::{
 };
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Condvar, Mutex};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const RECORDER: &str = "recorder";
@@ -52,22 +52,29 @@ const EXIT_WAIT: Duration = Duration::from_secs(5);
 pub enum Phase {
     #[default]
     Idle,
-    /// The overlay is open in record mode, or the engine is starting.
-    Selecting,
+    /// The overlay of record session `session` is open, or its engine is starting.
+    Selecting {
+        session: u64,
+    },
     Recording {
+        session: u64,
         started_ms: i64,
         format: Format,
         limit_ms: Option<i64>,
     },
-    /// Stopping, converting and saving, or cancelling.
+    /// Stopping, converting and saving, or cancelling; or the app is quitting.
     Finishing,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Event {
-    Shortcut,
-    /// The engine is running.
+    /// `session`: the number a session opened now gets.
+    Shortcut {
+        session: u64,
+    },
+    /// The engine of `session` is running.
     Start {
+        session: u64,
         format: Format,
         started_ms: i64,
     },
@@ -94,14 +101,14 @@ pub enum Action {
 /// The recording state machine.
 pub fn next(phase: &Phase, ev: Event) -> (Phase, Action) {
     match (*phase, ev) {
-        (Phase::Idle, Event::Shortcut) => (Phase::Selecting, Action::OpenOverlay),
-        (Phase::Selecting, Event::Cancel) => (Phase::Idle, Action::Nothing),
-        (Phase::Selecting, Event::Start { format, started_ms }) => {
-            (Phase::Recording { started_ms, format, limit_ms: plan::limit_ms(format) }, Action::StartEngine)
+        (Phase::Idle, Event::Shortcut { session }) => (Phase::Selecting { session }, Action::OpenOverlay),
+        (Phase::Selecting { .. }, Event::Cancel) => (Phase::Idle, Action::Nothing),
+        (Phase::Selecting { session }, Event::Start { session: s, format, started_ms }) if s == session => {
+            (Phase::Recording { session, started_ms, format, limit_ms: plan::limit_ms(format) }, Action::StartEngine)
         }
-        // The start lost a race (the app is quitting): drop the engine it just started.
+        // A start that lost a race (an older session, the app quitting): drop the engine it just started.
         (p, Event::Start { .. }) => (p, Action::CancelEngine),
-        (Phase::Recording { .. }, Event::Shortcut | Event::Stop) => (Phase::Finishing, Action::StopEngine),
+        (Phase::Recording { .. }, Event::Shortcut { .. } | Event::Stop) => (Phase::Finishing, Action::StopEngine),
         (Phase::Recording { started_ms, .. }, Event::LimitReached { started_ms: s }) if s == started_ms => {
             (Phase::Finishing, Action::StopEngine)
         }
@@ -111,17 +118,48 @@ pub fn next(phase: &Phase, ev: Event) -> (Phase, Action) {
     }
 }
 
+/// What a start does with its engine once `next` answered `action`.
+#[derive(Debug, PartialEq, Eq)]
+enum AfterStart {
+    Keep,
+    /// The app is quitting: leave it for `shutdown` to cancel, as the process may end before this thread does.
+    HandBack,
+    Cancel,
+}
+
+fn after_start(action: Action, closing: bool) -> AfterStart {
+    match action {
+        Action::StartEngine => AfterStart::Keep,
+        _ if closing => AfterStart::HandBack,
+        _ => AfterStart::Cancel,
+    }
+}
+
+/// Whether app exit must still wait: an engine is starting and hasn't handed itself over yet.
+fn exit_waits(starting: Option<u64>) -> bool {
+    starting.is_some()
+}
+
 #[derive(Default)]
 struct Inner {
     phase: Phase,
-    /// Set exactly while `phase` is `Recording`.
+    /// Set while `phase` is `Recording`, or once handed back to `shutdown`.
     running: Option<Running>,
+    /// The session whose engine is starting.
+    starting: Option<u64>,
+    /// The session that muted the copy sounds.
+    muted: Option<u64>,
+    /// `shutdown` ran.
+    closing: bool,
 }
 
 /// Managed state of the one recording.
 #[derive(Default)]
 pub struct Recorder {
     inner: Mutex<Inner>,
+    /// Signalled when a start ends (`Inner::starting` cleared).
+    started: Condvar,
+    sessions: AtomicU64,
     /// Stops a WEBM / GIF conversion (app exit).
     cancel: AtomicBool,
 }
@@ -155,17 +193,17 @@ fn dispatch(app: &AppHandle, ev: Event) {
                 dispatch(app, Event::Cancel);
             }
         }
-        (Action::StopEngine | Action::CancelEngine, Some(running), Phase::Recording { format, .. }) => {
+        (Action::StopEngine | Action::CancelEngine, Some(running), Phase::Recording { session, format, .. }) => {
             if let Some(pill) = app.get_webview_window(RECORDER) {
                 let _ = pill.hide();
             }
             let (app, keep) = (app.clone(), action == Action::StopEngine);
             std::thread::spawn(move || {
                 if keep {
-                    finalize(&app, running, format);
+                    finalize(&app, running, format, session);
                 } else {
                     running.cancel();
-                    sound::set_recording(false);
+                    unmute(&app, session);
                 }
                 let _ = std::fs::remove_dir_all(temp_dir(&app));
                 dispatch(&app, Event::Finished);
@@ -180,7 +218,8 @@ pub fn on_shortcut(app: &AppHandle) {
     if phase(app) == Phase::Idle && !can_record(app) {
         return;
     }
-    dispatch(app, Event::Shortcut);
+    let session = app.state::<Recorder>().sessions.fetch_add(1, Ordering::SeqCst) + 1;
+    dispatch(app, Event::Shortcut { session });
 }
 
 /// The OS and engine gates; tells the user why not. Screen access is checked by `capture::open`.
@@ -200,18 +239,25 @@ fn can_record(app: &AppHandle) -> bool {
 
 /// The record overlay closed without a recording (Esc, or the page never answered).
 pub fn overlay_closed(app: &AppHandle) {
-    if phase(app) == Phase::Selecting {
+    if matches!(phase(app), Phase::Selecting { .. }) {
         dispatch(app, Event::Cancel);
     }
 }
 
-/// App exit: cancels a running recording (bounded) and stops a conversion.
+/// App exit: waits (bounded) for an engine that is starting, cancels the running one, stops a conversion.
+/// SCK and the Windows engine never need the main thread to stop, so blocking it here can't deadlock.
 pub fn shutdown(app: &AppHandle) {
     let Some(r) = app.try_state::<Recorder>() else { return };
     r.cancel.store(true, Ordering::SeqCst);
+    let deadline = Instant::now() + EXIT_WAIT;
     let running = {
         let mut g = r.inner.lock().unwrap();
+        g.closing = true;
         g.phase = Phase::Finishing;
+        while exit_waits(g.starting) {
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else { break };
+            g = r.started.wait_timeout(g, left).unwrap().0;
+        }
         g.running.take()
     };
     if let Some(running) = running {
@@ -220,11 +266,12 @@ pub fn shutdown(app: &AppHandle) {
             running.cancel();
             let _ = tx.send(());
         });
-        let _ = rx.recv_timeout(EXIT_WAIT);
+        let _ = rx.recv_timeout(deadline.saturating_duration_since(Instant::now()).max(Duration::from_secs(1)));
     }
     let _ = std::fs::remove_dir_all(temp_dir(app));
 }
 
+/// The root of every recording's temp files; removed whenever no recording runs.
 fn temp_dir(app: &AppHandle) -> PathBuf {
     std::env::temp_dir().join(format!("vee-record-{}", app.config().identifier))
 }
@@ -233,15 +280,26 @@ fn sounds_on(app: &AppHandle) -> bool {
     settings::capture_sounds(&app.state::<AppState>().db.lock().unwrap())
 }
 
-/// Plays a record cue (AppKit: main thread), then sets the copy-sound mute.
-fn cue(app: &AppHandle, start: bool) {
+/// Lifts the copy-sound mute, if `session` is the one that set it.
+fn unmute(app: &AppHandle, session: u64) {
+    let r = app.state::<Recorder>();
+    let mut g = r.inner.lock().unwrap();
+    if g.muted == Some(session) {
+        g.muted = None;
+        sound::set_recording(false);
+    }
+}
+
+/// Plays a record cue (AppKit: main thread); after the stop cue, lifts `session`'s copy-sound mute.
+fn cue(app: &AppHandle, start: bool, session: u64) {
     let sound = sounds_on(app);
+    let app2 = app.clone();
     let _ = app.run_on_main_thread(move || {
         if sound {
             sound::play_record(start);
         }
         if !start {
-            sound::set_recording(false);
+            unmute(&app2, session);
         }
     });
 }
@@ -252,55 +310,88 @@ fn start(app: &AppHandle, selection: Selection, format: &str) -> AppResult<()> {
     if plan::needs_ffmpeg(format, cfg!(target_os = "macos")) && engines::ffmpeg(app).is_none() {
         return Err(AppError::InvalidInput(format!("{format:?} needs FFmpeg")));
     }
-    if phase(app) != Phase::Selecting {
+    let Phase::Selecting { session } = phase(app) else {
         return Err(AppError::InvalidInput("not selecting a recording".into()));
-    }
+    };
     let monitor = capture::take_record(app).ok_or_else(|| AppError::InvalidInput("record overlay is not open".into()))?;
-    begin(app, &monitor, &selection, format)
+    begin(app, session, &monitor, &selection, format)
+}
+
+/// Ends the start of `session`: `shutdown` may stop waiting.
+fn end_start(r: &Recorder, g: &mut Inner, session: u64) {
+    if g.starting == Some(session) {
+        g.starting = None;
+    }
+    r.started.notify_all();
 }
 
 /// The start once the overlay is closed: the start sound, the engine, the pill and the GIF timer.
-fn begin(app: &AppHandle, monitor: &MonitorInfo, selection: &Selection, format: Format) -> AppResult<()> {
-    app.state::<Recorder>().cancel.store(false, Ordering::SeqCst);
-    // Muted before the start sound, so a copy can't sound while the recording runs.
-    sound::set_recording(true);
-    cue(app, true);
+fn begin(app: &AppHandle, session: u64, monitor: &MonitorInfo, selection: &Selection, format: Format) -> AppResult<()> {
+    let r = app.state::<Recorder>();
+    {
+        let mut g = r.inner.lock().unwrap();
+        if g.closing || g.phase != (Phase::Selecting { session }) || g.starting.is_some() {
+            return Err(AppError::InvalidInput("record session is gone".into()));
+        }
+        g.starting = Some(session);
+        // Muted before the start sound, so a copy can't sound while the recording runs.
+        g.muted = Some(session);
+        sound::set_recording(true);
+    }
+    r.cancel.store(false, Ordering::SeqCst);
+    cue(app, true, session);
     std::thread::sleep(Duration::from_millis(START_DELAY_MS));
 
-    let dir = temp_dir(app);
-    let _ = std::fs::remove_dir_all(&dir);
+    // Its own dir, so a stale start never touches a newer session's files.
+    let dir = temp_dir(app).join(session.to_string());
     let container = container_for(format.ext());
     let out = dir.join(if container == Container::Mov { "recording.mov" } else { "recording.mp4" });
-    let running =
-        std::fs::create_dir_all(&dir).map_err(AppError::from).and_then(|()| Running::start(app, monitor, selection, container, &out));
+    let quitting = r.inner.lock().unwrap().closing;
+    let running = if quitting {
+        Err(AppError::Other("the app is quitting".into()))
+    } else {
+        std::fs::create_dir_all(&dir).map_err(AppError::from).and_then(|()| Running::start(app, monitor, selection, container, &out))
+    };
     let running = match running {
-        Ok(r) => r,
+        Ok(running) => running,
         Err(e) => {
             log::warn!("recording didn't start: {e}");
-            sound::set_recording(false);
             let _ = std::fs::remove_dir_all(&dir);
-            dispatch(app, Event::Cancel);
-            window::show_toast(app, ToastPayload::convert(ConvertNote::RecordFailed, Kind::Files));
+            {
+                let mut g = r.inner.lock().unwrap();
+                if g.phase == (Phase::Selecting { session }) {
+                    g.phase = Phase::Idle;
+                }
+                end_start(&r, &mut g, session);
+            }
+            unmute(app, session);
+            if !quitting {
+                window::show_toast(app, ToastPayload::convert(ConvertNote::RecordFailed, Kind::Files));
+            }
             return Err(e);
         }
     };
     let started_ms = now_ms();
-    let lost = {
-        let recorder = app.state::<Recorder>();
-        let mut g = recorder.inner.lock().unwrap();
-        let (phase, action) = next(&g.phase, Event::Start { format, started_ms });
+    let (action, lost) = {
+        let mut g = r.inner.lock().unwrap();
+        let (phase, action) = next(&g.phase, Event::Start { session, format, started_ms });
         g.phase = phase;
-        if action == Action::StartEngine {
-            g.running = Some(running);
-            None
-        } else {
-            Some(running)
-        }
+        let lost = match after_start(action, g.closing) {
+            AfterStart::Keep | AfterStart::HandBack => {
+                g.running = Some(running);
+                None
+            }
+            AfterStart::Cancel => Some(running),
+        };
+        end_start(&r, &mut g, session);
+        (action, lost)
     };
-    if let Some(running) = lost {
-        running.cancel();
-        sound::set_recording(false);
-        let _ = std::fs::remove_dir_all(&dir);
+    if action != Action::StartEngine {
+        if let Some(running) = lost {
+            running.cancel();
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+        unmute(app, session);
         return Err(AppError::Other("recording stopped while starting".into()));
     }
     show_pill(app, monitor);
@@ -367,9 +458,9 @@ fn local_now() -> (i32, u32, u32, u32, u32, u32) {
 }
 
 /// Stops the engine, plays the stop sound, then converts and saves the file and tells the user.
-fn finalize(app: &AppHandle, running: Running, format: Format) {
+fn finalize(app: &AppHandle, running: Running, format: Format, session: u64) {
     let recorded = running.stop();
-    cue(app, false);
+    cue(app, false, session);
     let note = save(app, recorded, format);
     window::show_toast(app, ToastPayload::convert(note, Kind::Files));
 }
@@ -489,22 +580,28 @@ pub mod commands {
 mod tests {
     use super::*;
 
+    const SEL: Phase = Phase::Selecting { session: 3 };
+
     fn recording(started_ms: i64) -> Phase {
-        Phase::Recording { started_ms, format: Format::Gif, limit_ms: Some(30_000) }
+        Phase::Recording { session: 3, started_ms, format: Format::Gif, limit_ms: Some(30_000) }
+    }
+
+    fn start(session: u64, format: Format) -> Event {
+        Event::Start { session, format, started_ms: 5 }
     }
 
     #[test]
     fn shortcut_opens_then_start_records() {
-        assert_eq!(next(&Phase::Idle, Event::Shortcut), (Phase::Selecting, Action::OpenOverlay));
-        assert_eq!(next(&Phase::Selecting, Event::Start { format: Format::Gif, started_ms: 5 }), (recording(5), Action::StartEngine));
-        let mp4 = next(&Phase::Selecting, Event::Start { format: Format::Mp4, started_ms: 5 }).0;
-        assert_eq!(mp4, Phase::Recording { started_ms: 5, format: Format::Mp4, limit_ms: None });
-        assert_eq!(next(&Phase::Selecting, Event::Cancel), (Phase::Idle, Action::Nothing));
+        assert_eq!(next(&Phase::Idle, Event::Shortcut { session: 3 }), (SEL, Action::OpenOverlay));
+        assert_eq!(next(&SEL, start(3, Format::Gif)), (recording(5), Action::StartEngine));
+        let mp4 = next(&SEL, start(3, Format::Mp4)).0;
+        assert_eq!(mp4, Phase::Recording { session: 3, started_ms: 5, format: Format::Mp4, limit_ms: None });
+        assert_eq!(next(&SEL, Event::Cancel), (Phase::Idle, Action::Nothing));
     }
 
     #[test]
     fn shortcut_while_recording_stops() {
-        assert_eq!(next(&recording(1), Event::Shortcut), (Phase::Finishing, Action::StopEngine));
+        assert_eq!(next(&recording(1), Event::Shortcut { session: 4 }), (Phase::Finishing, Action::StopEngine));
         assert_eq!(next(&recording(1), Event::Stop), (Phase::Finishing, Action::StopEngine));
         assert_eq!(next(&recording(1), Event::Cancel), (Phase::Finishing, Action::CancelEngine));
         assert_eq!(next(&Phase::Finishing, Event::Finished), (Phase::Idle, Action::Nothing));
@@ -512,8 +609,8 @@ mod tests {
 
     #[test]
     fn shortcut_while_selecting_or_finishing_does_nothing() {
-        for p in [Phase::Selecting, Phase::Finishing] {
-            assert_eq!(next(&p, Event::Shortcut), (p, Action::Nothing));
+        for p in [SEL, Phase::Finishing] {
+            assert_eq!(next(&p, Event::Shortcut { session: 4 }), (p, Action::Nothing));
         }
         assert_eq!(next(&Phase::Idle, Event::Stop), (Phase::Idle, Action::Nothing));
         assert_eq!(next(&Phase::Idle, Event::Cancel), (Phase::Idle, Action::Nothing));
@@ -531,7 +628,27 @@ mod tests {
     #[test]
     fn a_start_that_lost_the_race_cancels_its_engine() {
         for p in [Phase::Idle, Phase::Finishing, recording(1)] {
-            assert_eq!(next(&p, Event::Start { format: Format::Mp4, started_ms: 9 }), (p, Action::CancelEngine));
+            assert_eq!(next(&p, start(3, Format::Mp4)), (p, Action::CancelEngine));
         }
+    }
+
+    #[test]
+    fn a_stale_session_start_is_rejected() {
+        assert_eq!(next(&SEL, start(2, Format::Mp4)), (SEL, Action::CancelEngine));
+    }
+
+    #[test]
+    fn a_start_during_exit_hands_its_engine_back() {
+        // `shutdown` set Finishing, so the start is refused and its engine goes to `shutdown`.
+        let (_, action) = next(&Phase::Finishing, start(3, Format::Mp4));
+        assert_eq!(after_start(action, true), AfterStart::HandBack);
+        assert_eq!(after_start(action, false), AfterStart::Cancel);
+        assert_eq!(after_start(Action::StartEngine, false), AfterStart::Keep);
+    }
+
+    #[test]
+    fn exit_waits_while_an_engine_is_starting() {
+        assert!(exit_waits(Some(3)));
+        assert!(!exit_waits(None));
     }
 }

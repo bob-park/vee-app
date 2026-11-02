@@ -635,6 +635,35 @@ mod tests {
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
     }
 
+    /// The recorder keeps the MP4 when converting it fails, so a failed run must leave the source.
+    #[cfg(unix)]
+    #[test]
+    fn a_failing_convert_keeps_the_source_and_leaves_no_output() {
+        let (bin, dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (src, stage) = (dir.path().join("recording.mp4"), dir.path().join("stage"));
+        std::fs::write(&src, b"v").unwrap();
+        std::fs::create_dir(&stage).unwrap();
+        let ffmpeg = script(bin.path(), "ffmpeg", "for a; do out=$a; done\necho partial > \"$out\"\nexit 1");
+        let ffprobe = script(bin.path(), "ffprobe", "echo 2.0");
+        let cancel = AtomicBool::new(false);
+        let mut ctx = Run {
+            pdf: None,
+            fell_back: false,
+            ffmpeg: Some((&ffmpeg, &ffprobe)),
+            quality: Quality::Original,
+            hw: None,
+            cancel: &cancel,
+            rhwp: None,
+            soffice: None,
+            lo_profile: PathBuf::new(),
+            progress: &mut |_| {},
+        };
+        assert_eq!(run(&src, "recording", Format::Gif, dir.path(), &stage, &mut ctx), Err(JobError::Engine));
+        assert_eq!(std::fs::read(&src).unwrap(), b"v");
+        assert!(!dir.path().join("recording.gif").exists());
+        assert_eq!(std::fs::read_dir(&stage).unwrap().count(), 0);
+    }
+
     #[test]
     fn a_video_without_ffmpeg_is_an_engine_error() {
         let d = tempfile::tempdir().unwrap();
