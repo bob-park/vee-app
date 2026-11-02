@@ -43,8 +43,9 @@ use tauri::{AppHandle, Emitter, Manager};
 pub const RECORDER: &str = "recorder";
 /// The start sound is over by then (0.34 s), so it isn't recorded; the overlay is gone too.
 const START_DELAY_MS: u64 = 400;
-/// The pill's gap above the bottom of the work area, in design points.
-const PILL_BOTTOM: f64 = 24.0;
+/// The pill window's gap above the bottom of the work area, in design points. The window is taller than
+/// the pill (room for its shadow), so the pill itself sits ~35 pt up.
+const PILL_BOTTOM: f64 = 12.0;
 /// How long app exit waits for a running recording to stop.
 const EXIT_WAIT: Duration = Duration::from_secs(5);
 

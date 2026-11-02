@@ -52,7 +52,8 @@ export default function RecorderApp() {
   const gif = started.limitMs !== null ? gifRemaining(elapsed, started.limitMs) : null;
   return (
     <div className="flex h-screen items-center justify-center">
-      <div className="glass text-base-content shadow-glass flex items-center gap-1.5 rounded-full p-1.5">
+      {/* Solid, not glass: it floats over any desktop and must be read (aurora-glass §3). */}
+      <div className="bg-card border-toast-border text-base-content shadow-toast flex items-center gap-1.5 rounded-full border p-1.5">
         <span className="bg-rec animate-rec-pulse ml-2 size-2.25 rounded-full" aria-hidden />
         <span className="min-w-11 text-[13px] font-semibold tabular-nums" role="timer">
           {formatElapsed(elapsed)}

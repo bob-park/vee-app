@@ -198,9 +198,10 @@ export default function CaptureApp() {
         </span>
       )}
       {pending && !dragFrom ? (
-        // Its own clicks must not start a new drag on the overlay.
+        // Solid, not glass: it floats over any desktop and must be read (aurora-glass §3). Its own clicks
+        // must not start a new drag on the overlay.
         <div
-          className="glass text-base-content shadow-glass absolute bottom-10 left-1/2 flex -translate-x-1/2 cursor-default items-center gap-1.5 rounded-full p-1.5"
+          className="bg-card border-toast-border text-base-content shadow-toast absolute bottom-10 left-1/2 flex -translate-x-1/2 cursor-default items-center gap-1.5 rounded-full border p-1.5"
           onPointerDown={(e) => e.stopPropagation()}
         >
           <Segmented

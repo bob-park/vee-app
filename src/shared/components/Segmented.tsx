@@ -62,7 +62,7 @@ export default function Segmented<T extends string>({
           aria-disabled={o.disabled}
           title={o.title}
           className={cx(
-            'relative rounded-lg px-2.5 py-1 text-[12px] aria-disabled:cursor-not-allowed aria-disabled:opacity-40',
+            'relative rounded-lg px-2.5 py-1 text-[12px] aria-disabled:cursor-not-allowed aria-disabled:opacity-60',
             {
               'font-semibold': i === index,
               'outline-error text-error outline-[1.5px] outline-dashed': o.value === pending,

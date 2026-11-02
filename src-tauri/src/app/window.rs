@@ -313,12 +313,13 @@ pub(crate) fn work_area(monitor: &Monitor) -> (Rect, f64) {
 }
 
 pub(crate) fn place(window: &WebviewWindow, r: Rect) -> tauri::Result<()> {
+    // Size first: macOS resizes around the bottom-left corner, so a resize after the move shifts the top edge.
     if USES_POINTS {
-        window.set_position(LogicalPosition::new(r.x, r.y))?;
         window.set_size(LogicalSize::new(r.w, r.h))?;
+        window.set_position(LogicalPosition::new(r.x, r.y))?;
     } else {
-        window.set_position(PhysicalPosition::new(r.x.round() as i32, r.y.round() as i32))?;
         window.set_size(PhysicalSize::new(r.w.round() as u32, r.h.round() as u32))?;
+        window.set_position(PhysicalPosition::new(r.x.round() as i32, r.y.round() as i32))?;
     }
     Ok(())
 }
