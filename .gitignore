@@ -86,3 +86,6 @@ src-tauri/gen/
 # ONNX Runtime fetched at build time (scripts/fetch-onnxruntime.mjs)
 src-tauri/vendor/onnxruntime/
 src-tauri/vendor/pdfium/
+
+# agent-desktop UI test reports
+.ui-test-results/

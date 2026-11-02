@@ -109,6 +109,9 @@
   --vee-badge-fg: #484b5e;
   --vee-ok-bg: rgba(20, 158, 97, 0.16);
   --vee-ok-fg: #026b3f;
+  /* Solid green for the update pill: darker than --color-success so white 12px text clears AA (4.8:1). */
+  --vee-ok-solid: #0e8350;
+  --vee-ok-solid-fg: #ffffff;
   --vee-toast-fg: #101114;
   --vee-toast-border: #dedee5;
   /* Donut slices on the aurora plate; the plate floats, so it has the one shadow, and a 1px edge. */
@@ -143,6 +146,8 @@
   --vee-badge-fg: #c9cad6;
   --vee-ok-bg: rgba(20, 158, 97, 0.22);
   --vee-ok-fg: #5fd39c;
+  --vee-ok-solid: #5fd39c;
+  --vee-ok-solid-fg: #101114;
   --vee-toast-fg: #ececf1;
   --vee-toast-border: #3a3b47;
   --vee-donut: #34364a;
@@ -174,6 +179,8 @@
   --color-badge-fg: var(--vee-badge-fg);
   --color-ok-bg: var(--vee-ok-bg);
   --color-ok-fg: var(--vee-ok-fg);
+  --color-ok-solid: var(--vee-ok-solid);
+  --color-ok-solid-fg: var(--vee-ok-solid-fg);
   --color-toast-fg: var(--vee-toast-fg);
   --color-toast-border: var(--vee-toast-border);
   --color-donut: var(--vee-donut);
@@ -309,6 +316,9 @@
   --animate-ring: ring 900ms ease-out 200ms;
   --animate-drift: drift 12s ease-in-out infinite alternate;
   --animate-bob: bob 1.6s ease-in-out infinite;
+  /* The update pill hops until hovered; ~7px so the panel's 10px top padding never clips it. Same timing for its shadow. */
+  --animate-jump: jump 1.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
+  --animate-jump-shadow: jump-shadow 1.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
   /* Donut slices spin in from half size, a beat after the donut pops (ConvertApp staggers them). */
   --animate-slice-in: slice-in 500ms var(--ease-spring) both;
   /* Pinning the panel: the sheet sinks a hair and its inner edge glows. No overshoot and an inset glow,
@@ -400,6 +410,45 @@
   @keyframes bob {
     50% {
       transform: translateY(3px);
+    }
+  }
+
+  /* Rests for the first 55%, then squashes, leaps, lands squashed and settles. */
+  @keyframes jump {
+    0%,
+    55%,
+    100% {
+      transform: translateY(0) scale(1, 1);
+    }
+    60% {
+      transform: translateY(0) scale(1.12, 0.85);
+    }
+    72% {
+      transform: translateY(-7px) scale(0.95, 1.08);
+    }
+    84% {
+      transform: translateY(0) scale(1.08, 0.9);
+    }
+    90% {
+      transform: translateY(0) scale(0.98, 1.03);
+    }
+  }
+
+  /* The landing shadow shrinks and fades while the pill is in the air. */
+  @keyframes jump-shadow {
+    0%,
+    55%,
+    100% {
+      opacity: 0.9;
+      transform: scaleX(1);
+    }
+    72% {
+      opacity: 0.25;
+      transform: scaleX(0.6);
+    }
+    84% {
+      opacity: 1;
+      transform: scaleX(1.15);
     }
   }
 
@@ -556,6 +605,8 @@
   .animate-pop,
   .animate-ring,
   .animate-bob,
+  .animate-jump,
+  .animate-jump-shadow,
   .animate-slice-in,
   .animate-pin-press,
   .animate-pin-drop,
