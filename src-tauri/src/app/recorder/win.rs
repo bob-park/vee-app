@@ -100,7 +100,7 @@ impl Running {
 
     /// Stops and deletes everything.
     pub fn cancel(mut self) {
-        self.halt();
+        let _ = self.halt();
         self.remove_parts();
         let _ = std::fs::remove_file(&self.out);
     }
@@ -121,12 +121,17 @@ impl Running {
                 None => return Err(other("ffmpeg", "did not stop")),
             }
         }
-        self.halt();
+        // A loopback failure mid-recording (device removed, default device changed) cut the WAV short:
+        // keep the full video without sound rather than trimming it to the audio.
+        let args = match self.halt() {
+            Ok(()) => plan::mux_args(&self.video_file, &self.audio_file, &self.out),
+            Err(e) => {
+                log::warn!("recording: audio: {e}; saving without sound");
+                plan::mux_args_video_only(&self.video_file, &self.out)
+            }
+        };
         let mut mux = command(&self.ffmpeg);
-        mux.args(plan::mux_args(&self.video_file, &self.audio_file, &self.out))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        mux.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         let mut child = Killed(mux.spawn().map_err(|e| other("mux", e))?);
         // ponytail: no deadline on the mux; it only copies video and encodes the audio, seconds even for long recordings.
         match child.0.wait()? {
@@ -135,17 +140,16 @@ impl Running {
         }
     }
 
-    /// Stops the audio thread (joined) and kills FFmpeg if it still runs.
-    fn halt(&mut self) {
+    /// Stops the audio thread (joined) and kills FFmpeg if it still runs. `Err` when the audio thread failed.
+    fn halt(&mut self) -> Result<(), String> {
         self.stop_audio.store(true, Ordering::SeqCst);
-        if let Some(audio) = self.audio.take() {
-            match audio.join() {
-                Ok(Err(e)) => log::warn!("recording: audio: {e}"),
-                Err(_) => log::warn!("recording: audio thread panicked"),
-                Ok(Ok(())) => {}
-            }
-        }
+        let audio = match self.audio.take().map(JoinHandle::join) {
+            Some(Ok(r)) => r,
+            Some(Err(_)) => Err("thread panicked".into()),
+            None => Ok(()),
+        };
         self.grab = None;
+        audio
     }
 
     fn remove_parts(&self) {
@@ -154,7 +158,7 @@ impl Running {
     }
 
     fn fail(mut self, e: AppError) -> AppError {
-        self.halt();
+        let _ = self.halt();
         self.remove_parts();
         e
     }
@@ -163,7 +167,7 @@ impl Running {
 impl Drop for Running {
     /// The app quit or panicked mid-recording: no thread or FFmpeg is left behind.
     fn drop(&mut self) {
-        self.halt();
+        let _ = self.halt();
     }
 }
 

@@ -52,6 +52,23 @@ pub fn mux_args(video: &Path, audio: &Path, out: &Path) -> Vec<OsString> {
     a
 }
 
+/// FFmpeg args remuxing the grabbed `video` alone into `out`, at its full length: the fallback when the loopback
+/// audio failed mid-recording, where `-shortest` against the cut WAV would trim the video.
+pub fn mux_args_video_only(video: &Path, out: &Path) -> Vec<OsString> {
+    let mut a: Vec<OsString> = ["-y", "-hide_banner", "-loglevel", "error", "-nostats", "-i"].map(OsString::from).into();
+    a.push(video.into());
+    a.extend(["-map", "0:v:0", "-c:v", "copy", "-movflags", "+faststart"].map(OsString::from));
+    a.push(out.into());
+    a
+}
+
+/// A global rect `win` clipped to the global `display` rect, in display-local coordinates; `None` if off it.
+pub fn clip_to_display(win: (f64, f64, f64, f64), display: (f64, f64, f64, f64)) -> Option<(f64, f64, f64, f64)> {
+    let (x0, y0) = (win.0.max(display.0), win.1.max(display.1));
+    let (x1, y1) = ((win.0 + win.2).min(display.0 + display.2), (win.1 + win.3).min(display.1 + display.3));
+    (x1 > x0 && y1 > y0).then_some((x0 - display.0, y0 - display.1, x1 - x0, y1 - y0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,11 +94,28 @@ mod tests {
     }
 
     #[test]
+    fn mux_args_video_only_keeps_full_length_without_audio() {
+        let a = mux_args_video_only(Path::new("/t/v.mkv"), Path::new("/o/r.mp4"));
+        assert!(has(&a, &["-i", "/t/v.mkv"]) && has(&a, &["-map", "0:v:0"]) && has(&a, &["-c:v", "copy"]));
+        assert_eq!(a.iter().filter(|s| *s == "-i").count(), 1);
+        assert!(!a.iter().any(|s| s == "-shortest" || s == "1:a:0" || s == "-c:a"));
+        assert_eq!(a.last().unwrap(), "/o/r.mp4");
+    }
+
+    #[test]
     fn container_for_maps_formats() {
         assert_eq!(container_for("mov"), Container::Mov);
         for f in ["mp4", "webm", "gif"] {
             assert_eq!(container_for(f), Container::Mp4);
         }
+    }
+
+    #[test]
+    fn clip_to_display_crops_and_localizes() {
+        let d = (1512.0, 0.0, 1920.0, 1080.0);
+        assert_eq!(clip_to_display((1600.0, 100.0, 400.0, 300.0), d), Some((88.0, 100.0, 400.0, 300.0)));
+        assert_eq!(clip_to_display((1400.0, -50.0, 400.0, 300.0), d), Some((0.0, 0.0, 288.0, 250.0)));
+        assert_eq!(clip_to_display((0.0, 0.0, 400.0, 300.0), d), None);
     }
 
     #[test]
