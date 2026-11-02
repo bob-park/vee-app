@@ -13,6 +13,7 @@ void test('a drag thinner than 4 px is no selection', () => {
 
 const win = (id: number, x: number, y: number, width: number, height: number) => ({
   id,
+  pid: id,
   app: `app${id}`,
   x,
   y,

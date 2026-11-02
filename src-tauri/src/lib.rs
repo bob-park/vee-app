@@ -170,6 +170,7 @@ pub fn run() {
             editor::commands::render_edit,
             editor::commands::copy_edit,
             editor::commands::close_editor,
+            capture::commands::get_capture_session,
             capture::commands::take_capture,
             capture::commands::cancel_capture
         ])

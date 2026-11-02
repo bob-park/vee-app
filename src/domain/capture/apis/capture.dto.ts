@@ -20,6 +20,7 @@ export interface MonitorInfo extends Rect {
 /** Monitor-local logical coordinates; lists come front to back. */
 export interface WinInfo extends Rect {
   id: number;
+  pid: number;
   app: string;
 }
 
@@ -27,7 +28,7 @@ export type Selection = ({ kind: 'rect' } & Rect) | { kind: 'window'; id: number
 
 export type CaptureMode = 'capture' | 'record';
 
-/** `capture://open` payload. */
+/** The open overlay session, from `get_capture_session` (`capture://open` only signals it). */
 export interface CaptureOpen {
   mode: CaptureMode;
   monitor: MonitorInfo;

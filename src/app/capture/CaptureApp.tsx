@@ -1,6 +1,6 @@
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 
-import { cancelCapture, takeCapture } from '@/domain/capture/apis/capture';
+import { cancelCapture, getCaptureSession, takeCapture } from '@/domain/capture/apis/capture';
 import type { CaptureOpen, Point, Rect, Selection } from '@/domain/capture/apis/capture.dto';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { normalizeRect, windowAt } from '@/utils/captureSelection';
@@ -26,13 +26,19 @@ export default function CaptureApp() {
 
   // useEffect
   useEffect(() => {
-    const off = listen<CaptureOpen>('capture://open', (e) => {
-      openRef.current = e.payload;
-      setOpen(e.payload);
-      setWindowMode(false);
-      setPointer(null);
-      setDragFrom(null);
-    });
+    // Rust shows the overlay only once the page has claimed the session, so a page that isn't ready never
+    // leaves an invisible window behind. Claim on mount too, in case `capture://open` came before `listen`.
+    const claim = () =>
+      void getCaptureSession().then((session) => {
+        if (!session) return;
+        openRef.current = session;
+        setOpen(session);
+        setWindowMode(false);
+        setPointer(null);
+        setDragFrom(null);
+      });
+    claim();
+    const off = listen('capture://open', claim);
     return () => void off.then((fn) => fn());
   }, []);
 

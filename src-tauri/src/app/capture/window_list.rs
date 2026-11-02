@@ -9,6 +9,8 @@ use super::geometry::MonitorInfo;
 #[serde(rename_all = "camelCase")]
 pub struct WinInfo {
     pub id: u64,
+    /// Owning process, to credit a window capture to its app.
+    pub pid: u32,
     pub app: String,
     pub x: f64,
     pub y: f64,
@@ -37,7 +39,15 @@ pub fn keep(raw: Vec<RawWin>, own_pid: u32, m: &MonitorInfo) -> Vec<WinInfo> {
             let y0 = w.y.max(m.y);
             let x1 = (w.x + w.width).min(m.x + m.width);
             let y1 = (w.y + w.height).min(m.y + m.height);
-            (x1 > x0 && y1 > y0).then_some(WinInfo { id: w.id, app: w.app, x: x0 - m.x, y: y0 - m.y, width: x1 - x0, height: y1 - y0 })
+            (x1 > x0 && y1 > y0).then_some(WinInfo {
+                id: w.id,
+                pid: w.pid,
+                app: w.app,
+                x: x0 - m.x,
+                y: y0 - m.y,
+                width: x1 - x0,
+                height: y1 - y0,
+            })
         })
         .collect()
 }
@@ -187,7 +197,7 @@ mod tests {
         let got = keep(wins, 99, &m);
         let ids: Vec<u64> = got.iter().map(|w| w.id).collect();
         assert_eq!(ids, vec![10, 13, 15]);
-        assert_eq!(got[0], WinInfo { id: 10, app: "app10".into(), x: 60.0, y: 100.0, width: 400.0, height: 300.0 });
+        assert_eq!(got[0], WinInfo { id: 10, pid: 1, app: "app10".into(), x: 60.0, y: 100.0, width: 400.0, height: 300.0 });
         assert_eq!((got[1].x, got[1].y, got[1].width, got[1].height), (1720.0, 900.0, 200.0, 180.0));
         assert_eq!((got[2].x, got[2].y), (0.0, 0.0));
     }

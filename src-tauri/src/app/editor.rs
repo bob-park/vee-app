@@ -2,7 +2,7 @@
 
 use crate::{
     app::{
-        ai, ai_worker,
+        ai, ai_worker, front_app,
         state::{AppState, now_ms},
         watcher::{MAX_IMAGE_BYTES, THUMB_SIZE},
         window,
@@ -185,7 +185,12 @@ fn check_png_size(len: usize) -> AppResult<()> {
     Ok(())
 }
 
-pub(crate) fn copy_to_history(app: &AppHandle, img: &DynamicImage) -> AppResult<(i64, clip::ClipContent)> {
+/// `source` is the app the clip is credited to; `None` credits Vee (an edit is Vee's own clip).
+pub(crate) fn copy_to_history(
+    app: &AppHandle,
+    img: &DynamicImage,
+    source: Option<&front_app::FrontApp>,
+) -> AppResult<(i64, clip::ClipContent)> {
     let png = edit::to_png(img)?;
     check_png_size(png.len())?;
     let thumb_png = edit::to_png(&img.thumbnail(THUMB_SIZE, THUMB_SIZE))?;
@@ -193,9 +198,15 @@ pub(crate) fn copy_to_history(app: &AppHandle, img: &DynamicImage) -> AppResult<
     let (id, content) = {
         let conn = state.db.lock().unwrap();
         let clip = NewClip::Image { png, thumb_png, width: img.width(), height: img.height() };
-        // An edit is Vee's own clip, so its card shows Vee as the source app.
-        let vee = source_app::upsert_app(&conn, &app.config().identifier, &app.package_info().name, Some(window::DRAG_ICON))?;
-        let id = clip::upsert(&conn, &state.images_dir, clip, Some(vee), now_ms())?;
+        let app_id = match source {
+            // Like the watcher: load the icon only the first time the app is seen.
+            Some(front) => {
+                let icon = if source_app::app_known(&conn, &front.bundle_id)? { None } else { front_app::icon_png(front) };
+                source_app::upsert_app(&conn, &front.bundle_id, &front.name, icon.as_deref())?
+            }
+            None => source_app::upsert_app(&conn, &app.config().identifier, &app.package_info().name, Some(window::DRAG_ICON))?,
+        };
+        let id = clip::upsert(&conn, &state.images_dir, clip, Some(app_id), now_ms())?;
         (id, clip::content(&conn, id)?.ok_or_else(|| AppError::Other("clip no longer exists".into()))?)
     };
     if let Err(e) = window::write_clipboard(&state, &content, Vec::new()) {
@@ -234,7 +245,7 @@ pub mod commands {
         let img = super::render_off_main(&app, session, ops).await?;
         let handle = app.clone();
         let (clip_id, content) =
-            tauri::async_runtime::spawn_blocking(move || super::copy_to_history(&handle, &img)).await.map_err(join_err)??;
+            tauri::async_runtime::spawn_blocking(move || super::copy_to_history(&handle, &img, None)).await.map_err(join_err)??;
         let main = app.clone();
         // The copy sound is AppKit, which belongs on the main thread.
         app.run_on_main_thread(move || {

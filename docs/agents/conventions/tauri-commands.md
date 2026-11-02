@@ -65,7 +65,7 @@ export async function setSetting(key: SettingKey, value: string) {
 | `engines://status` | `{ engine, status: EngineStatus }` | `app/engines.rs` (every status change, download progress every 250 ms) | `useEngineStatus(engine)` (Settings Convert tab) |
 | `editor://opened` | — | `app/editor.rs` `open` (to `editor` only) | `EditorApp` (reload the source) |
 | `editor://closed` | — | `app/editor.rs` `close` (every close path, to `editor` only) | `EditorApp` (reset all state, freeing the images) |
-| `capture://open` | `{ mode, monitor, windows }` | `app/capture` `open` (to `capture` only) | `CaptureApp` (reset all state) |
+| `capture://open` | — | `app/capture` `open` (to `capture` only) | `CaptureApp` (claims the session with `get_capture_session`, which shows the overlay; resets all state) |
 | `update://status` | `UpdateStatus` | `updater::set_status` | `useUpdateStatus` |
 
 - Name new events `<domain>://<event>` in kebab-case. Use `emit_to(<label>, …)` when only one window cares.

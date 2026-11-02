@@ -11,8 +11,19 @@ pub struct FrontApp {
 
 #[cfg(target_os = "macos")]
 pub fn frontmost() -> Option<FrontApp> {
-    use objc2_app_kit::NSWorkspace;
-    let app = NSWorkspace::sharedWorkspace().frontmostApplication()?;
+    let app = objc2_app_kit::NSWorkspace::sharedWorkspace().frontmostApplication()?;
+    from_running(&app)
+}
+
+/// The app running as `pid` (e.g. the owner of a captured window).
+#[cfg(target_os = "macos")]
+pub fn by_pid(pid: i32) -> Option<FrontApp> {
+    let app = objc2_app_kit::NSRunningApplication::runningApplicationWithProcessIdentifier(pid)?;
+    from_running(&app)
+}
+
+#[cfg(target_os = "macos")]
+fn from_running(app: &objc2_app_kit::NSRunningApplication) -> Option<FrontApp> {
     let bundle_id = app.bundleIdentifier()?.to_string();
     let name = app.localizedName().map(|n| n.to_string()).unwrap_or_else(|| bundle_id.clone());
     let path = app.bundleURL().and_then(|u| u.path()).map(|p| p.to_string()).unwrap_or_default();
@@ -56,23 +67,28 @@ pub fn activate(pid: i32) {
 
 #[cfg(windows)]
 pub fn frontmost() -> Option<FrontApp> {
-    use ::windows::Win32::Foundation::CloseHandle;
-    use ::windows::Win32::System::Threading::{
-        OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
-    };
     use ::windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
-    use ::windows::core::PWSTR;
+    let mut pid = 0u32;
     unsafe {
         let hwnd = GetForegroundWindow();
         if hwnd.is_invalid() {
             return None;
         }
-        let mut pid = 0u32;
         GetWindowThreadProcessId(hwnd, Some(&mut pid));
-        if pid == 0 {
-            return None;
-        }
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+    }
+    if pid == 0 { None } else { by_pid(pid as i32) }
+}
+
+/// The app running as `pid`, named after its exe (e.g. the owner of a captured window).
+#[cfg(windows)]
+pub fn by_pid(pid: i32) -> Option<FrontApp> {
+    use ::windows::Win32::Foundation::CloseHandle;
+    use ::windows::Win32::System::Threading::{
+        OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+    };
+    use ::windows::core::PWSTR;
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid as u32).ok()?;
         let mut buf = [0u16; 1024];
         let mut len = buf.len() as u32;
         let queried = QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len);
@@ -80,7 +96,7 @@ pub fn frontmost() -> Option<FrontApp> {
         queried.ok()?;
         let path = String::from_utf16_lossy(&buf[..len as usize]);
         let name = std::path::Path::new(&path).file_stem()?.to_string_lossy().into_owned();
-        Some(FrontApp { bundle_id: path.clone(), name, path, pid: pid as i32 })
+        Some(FrontApp { bundle_id: path.clone(), name, path, pid })
     }
 }
 
