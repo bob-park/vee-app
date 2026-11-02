@@ -211,17 +211,20 @@ export function Toolbar({
       {updateVersion && (
         // `update` is the hook PanelApp keeps a click inside from cancelling the prompt by.
         // mr-3: the hopping pill needs more room from the pin button than the toolbar's 6px gap.
-        <div className="update relative mr-3">
+        // Hover pauses the hop on this still wrapper, not the moving button, so a cursor just above the pill
+        // can't flicker it; `before:` stretches the hover area over the hop's ~8px rise.
+        <div className="update group relative mr-3 before:absolute before:inset-x-0 before:-top-2.5 before:bottom-0">
+          {/* Landing shadow: a sibling of the button so it stays on the ground while the pill hops. */}
+          <span
+            className="bg-ok-solid/45 animate-jump-shadow pointer-events-none absolute inset-x-[15%] -bottom-1.5 h-1 rounded-full blur-[2px] group-hover:animate-none"
+            aria-hidden
+          />
           <button
-            // Hops until hovered so a ready update isn't missed; `group` pauses the shadow with it.
-            className="group bg-success text-success-content animate-jump relative flex items-center gap-1.25 rounded-md py-0.75 pr-2 pl-1.5 text-[12px] font-semibold hover:animate-none"
+            // Hops until hovered so a ready update isn't missed.
+            className="bg-ok-solid text-ok-solid-fg animate-jump relative flex items-center gap-1.25 rounded-md py-0.75 pr-2 pl-1.5 text-[12px] font-semibold group-hover:animate-none"
             onClick={onUpdate}
             tabIndex={-1}
           >
-            <span
-              className="bg-success/45 animate-jump-shadow pointer-events-none absolute inset-x-[15%] -bottom-1.5 h-1 rounded-full blur-[2px] group-hover:animate-none"
-              aria-hidden
-            />
             <span aria-hidden>↑</span>
             {t.newVersion(updateVersion)}
           </button>

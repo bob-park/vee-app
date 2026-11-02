@@ -3,6 +3,7 @@ title: Testing
 scope: "**"
 applies_to: writing tests, verifying a change before calling it done
 related:
+  - ./ui-testing.md
   - ./build-run.md
   - ./conventions/sqlite-migrations.md
   - ./conventions/module-aliases.md
@@ -18,6 +19,8 @@ related:
 | `yarn test` | pure TS logic (`src/**/*.test.ts`) and scripts (`scripts/*.test.mjs`) | next to the file under test |
 | `yarn typecheck` | types, including missing i18n keys | — |
 | `yarn lint` | ESLint (bobpark config) over `src/` | — |
+
+For UI changes, also drive the running dev app with agent-desktop: see [ui-testing](./ui-testing.md).
 
 ## What to test
 

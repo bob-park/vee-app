@@ -141,7 +141,7 @@ agent-desktop finds elements through the accessibility tree. **An element with n
 
 ## Reports
 
-Write `.ui-test-results/<YYYYMMDD-HHmm>/report.md`. Save the snapshot JSON and screenshot of each failed step in the same folder.
+Write `.ui-test-results/<YYYYMMDD-HHmm>/report.md`. Save the snapshot JSON and screenshot of each failed step in the same folder. A panel failure's `--screen 0` capture is saved **cropped to the panel only**; never save the full desktop.
 
 ```markdown
 # UI test results — <APP_NAME> <version/commit>

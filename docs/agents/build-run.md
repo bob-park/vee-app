@@ -3,6 +3,7 @@ title: Build & Run
 scope: "**"
 applies_to: running the app, building, packaging
 related:
+  - ./ui-testing.md
   - ./testing.md
   - ./configuration.md
   - ./workflow/release.md
@@ -21,6 +22,8 @@ yarn install
 ```
 
 Always use Yarn 4.18.1 (mise). A global Yarn 1 rewrites `yarn.lock`; if `yarn --version` isn't 4.x, run `corepack yarn@4.18.1 <command>`.
+
+To look at or drive the running dev app (agent-desktop), see [ui-testing](./ui-testing.md).
 
 ## Commands
 
