@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Fetches the pinned PDFium library into src-tauri/vendor/pdfium/ so the app bundle can carry it
 // (macOS: Contents/Frameworks, signed with Vee's identity; Windows: next to the exe).
+// Its license notices go to src-tauri/vendor/pdfium/notices/ (bundled as `licenses/pdfium/`).
 // Only the `--pdf-worker` child loads it. Runs before `tauri dev` / `tauri build` (tauri.conf.json);
 // does nothing when the file is already there.
 // Usage: node scripts/fetch-pdfium.mjs
@@ -8,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // The PDFium API version `pdfium-render`'s `pdfium_8125` feature binds to.
@@ -41,6 +42,18 @@ export function pickEntry(entries, entry) {
   return entries.find((e) => e.replace(/^\.\//, "") === entry) ?? null;
 }
 
+/**
+ * The license notices to ship with the library: `LICENSE` and every file under `licenses/` (PDFium's
+ * own and its third-party code's), each with its path relative to the archive root.
+ * @param {string[]} entries  `tar -tf` lines
+ * @returns {{ entry: string, name: string }[]}
+ */
+export function pickNotices(entries) {
+  return entries
+    .map((entry) => ({ entry, name: entry.replace(/^\.\//, "") }))
+    .filter(({ name }) => name === "LICENSE" || (name.startsWith("licenses/") && !name.endsWith("/")));
+}
+
 /** @param {Uint8Array} bytes */
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
@@ -56,7 +69,8 @@ if (isMain) {
   }
   const outDir = fileURLToPath(new URL("../src-tauri/vendor/pdfium/", import.meta.url));
   const out = join(outDir, pin.lib);
-  if (fileSha256(out) === pin.libSha256) process.exit(0);
+  const noticeDir = join(outDir, "notices");
+  if (fileSha256(out) === pin.libSha256 && existsSync(join(noticeDir, "LICENSE"))) process.exit(0);
 
   console.log(`pdfium: downloading ${pin.url}`);
   const res = await fetch(pin.url);
@@ -72,11 +86,18 @@ if (isMain) {
     const entries = execFileSync(tar, ["-tf", file], { encoding: "utf8", maxBuffer: 1 << 26 }).split(/\r?\n/);
     const entry = pickEntry(entries, pin.entry);
     if (!entry) throw new Error(`pdfium: ${pin.entry} not found in the archive`);
-    execFileSync(tar, ["-xf", file, "-C", work, entry]);
+    const notices = pickNotices(entries);
+    if (!notices.some((n) => n.name === "LICENSE")) throw new Error("pdfium: LICENSE not found in the archive");
+    execFileSync(tar, ["-xf", file, "-C", work, entry, ...notices.map((n) => n.entry)]);
     const extracted = join(work, entry);
     if (fileSha256(extracted) !== pin.libSha256) throw new Error(`pdfium: ${pin.lib} checksum mismatch`);
     mkdirSync(outDir, { recursive: true });
     copyFileSync(extracted, out);
+    rmSync(noticeDir, { recursive: true, force: true });
+    for (const n of notices) {
+      mkdirSync(dirname(join(noticeDir, n.name)), { recursive: true });
+      copyFileSync(join(work, n.entry), join(noticeDir, n.name));
+    }
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

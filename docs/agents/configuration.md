@@ -23,6 +23,7 @@ related:
 | `bundle.targets` | `app`, `dmg`, `nsis` |
 | `bundle.macOS.frameworks` (`tauri.macos.conf.json`) | `./vendor/onnxruntime/libonnxruntime.dylib` and `./vendor/pdfium/libpdfium.dylib`, copied into `Contents/Frameworks/` and signed with Vee's identity, so the hardened runtime (library validation) loads it. Platform files are JSON-merge-patched over `tauri.conf.json`: objects merge, arrays replace |
 | `bundle.resources` (`tauri.windows.conf.json`) | `vendor/onnxruntime/onnxruntime.dll` → `onnxruntime.dll` and `vendor/pdfium/pdfium.dll` → `pdfium.dll`, beside `Vee.exe` |
+| `bundle.resources` (`tauri.conf.json`) | `vendor/onnxruntime/notices/` → `licenses/onnxruntime/`, `vendor/pdfium/notices/` → `licenses/pdfium/`: the bundled libraries' license notices (BSD-3/MIT require them with binary redistribution). Merged with the Windows map above |
 | `build.beforeDevCommand` / `beforeBuildCommand` | run `node scripts/fetch-onnxruntime.mjs` and `node scripts/fetch-pdfium.mjs` (fetch the libraries above if missing), then `yarn dev` / `yarn build` |
 | `bundle.macOS.entitlements` | `Entitlements.plist` — `com.apple.security.automation.apple-events`, so the signed (hardened runtime) app may ask Finder for its folder |
 | `bundle.createUpdaterArtifacts` | `true` — full builds need the signing key |

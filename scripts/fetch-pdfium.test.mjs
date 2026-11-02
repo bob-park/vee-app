@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LIBS, pickEntry } from "./fetch-pdfium.mjs";
+import { LIBS, pickEntry, pickNotices } from "./fetch-pdfium.mjs";
 
 test("pins chromium/8125 for macOS and Windows only", () => {
   assert.deepEqual(Object.keys(LIBS).sort(), ["darwin", "win32"]);
@@ -17,4 +17,13 @@ test("picks the library entry, with or without a ./ prefix", () => {
   assert.equal(pickEntry(["include/fpdfview.h", "lib/libpdfium.dylib", "LICENSE"], "lib/libpdfium.dylib"), "lib/libpdfium.dylib");
   assert.equal(pickEntry(["./include/fpdfview.h", "./bin/pdfium.dll"], "bin/pdfium.dll"), "./bin/pdfium.dll");
   assert.equal(pickEntry(["lib/pdfium.dll.lib"], "bin/pdfium.dll"), null);
+});
+
+test("picks LICENSE and every file under licenses/ as notices", () => {
+  const entries = ["LICENSE", "VERSION", "include/fpdfview.h", "lib/libpdfium.dylib", "licenses/", "licenses/pdfium.txt", "./licenses/zlib.txt", ""];
+  assert.deepEqual(pickNotices(entries), [
+    { entry: "LICENSE", name: "LICENSE" },
+    { entry: "licenses/pdfium.txt", name: "licenses/pdfium.txt" },
+    { entry: "./licenses/zlib.txt", name: "licenses/zlib.txt" },
+  ]);
 });

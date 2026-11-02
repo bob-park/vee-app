@@ -72,7 +72,7 @@ C 안에서 다시 고른 결과:
 
 ### 2. 변환 실행: 일회성 자식 프로세스
 
-- 앱 프로세스는 PDFium을 직접 불러오지 않는다. 변환할 파일마다 `vee-app --pdf-worker <src> <out>`을 띄운다.
+- 앱 프로세스는 PDFium을 직접 불러오지 않는다. 변환할 파일마다 `vee-app --pdf-worker <lib> <src> <out>`을 띄운다.
   - `main.rs`에서 `--ai-worker`와 같은 방식으로 분기한다.
   - 기존 `process::command` / `exec`(타임아웃·취소)를 그대로 쓴다. rhwp를 호출하는 `hwp::convert`와 같은 모양이다.
 - 이유
@@ -80,7 +80,9 @@ C 안에서 다시 고른 결과:
   - PDFium은 스레드 안전하지 않은데, 프로세스로 분리하면 그 문제가 생기지 않는다.
   - 타임아웃과 취소를 공짜로 얻는다.
 - 타임아웃: *내 판단* 120초(`RHWP_TIMEOUT`과 같게).
-- 취소: *내 판단* 패널의 취소 버튼은 지금처럼 영상 job에만 보인다(`cancellable` 규칙은 바꾸지 않는다). 취소 플래그는 앱 종료 같은 내부 정리에만 쓴다. PDF 텍스트 추출은 보통 몇 초 안에 끝난다.
+- 취소: PDF job도 영상 job처럼 패널의 취소 버튼을 보여 준다(`can_cancel`). 처음에는 영상만으로 정했으나, 후속 작업에서 사용자 요청으로 바꿨다.
+- PDFium이 없는 빌드(번들되지 않은 release)에서는 `MD` 조각을 띄우지 않는다(`Caps::pdfium`).
+- 라이선스: PDFium(`LICENSE` + `licenses/`)과 ONNX Runtime(`LICENSE`, `ThirdPartyNotices.txt`)의 고지를 fetch 스크립트가 함께 꺼내고, 번들의 `licenses/` 폴더로 배포한다.
 - `pdfium-render` 버전과 PDFium 빌드 맞추기: *내 판단* 크레이트 최신 버전을 쓰고, `default-features = false`로 필요한 기능만 켠다. 크레이트의 `pdfium_XXXX` 기능이 지원하는 PDFium API 버전에 맞춰 고정 바이너리 릴리스를 고른다. 바이너리를 바꾸면 SHA-256을 다시 잰다. 크레이트 기능을 켜고 끄면서 하위 의존성이 바뀌는 것은 이미 승인한 `pdfium-render` 추가에 포함된다. 다른 직접 의존성이 새로 필요해지면 그때 다시 확인을 받는다.
 - 범위 밖: 파일이 아니라 PDF 데이터 자체가 들어 있는 클립(미리보기에서 복사한 `com.adobe.pdf` 등)
 - 자식의 종료 코드

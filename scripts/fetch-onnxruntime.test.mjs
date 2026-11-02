@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RUNTIMES, pickEntry } from "./fetch-onnxruntime.mjs";
+import { RUNTIMES, pickEntry, pickNotices } from "./fetch-onnxruntime.mjs";
 
 test("picks the library under lib/, not the dSYM copy", () => {
   const entries = [
@@ -27,4 +27,18 @@ test("pins ORT 1.31.0 for macOS and Windows only", () => {
   }
   assert.equal(RUNTIMES.darwin.lib, "libonnxruntime.dylib");
   assert.equal(RUNTIMES.win32.lib, "onnxruntime.dll");
+});
+
+test("picks the top-level LICENSE and ThirdPartyNotices.txt as notices", () => {
+  const entries = [
+    "./onnxruntime-osx-arm64-1.31.0/",
+    "./onnxruntime-osx-arm64-1.31.0/ThirdPartyNotices.txt",
+    "./onnxruntime-osx-arm64-1.31.0/LICENSE",
+    "./onnxruntime-osx-arm64-1.31.0/README.md",
+    "./onnxruntime-osx-arm64-1.31.0/include/LICENSE",
+  ];
+  assert.deepEqual(pickNotices(entries), [
+    { entry: "./onnxruntime-osx-arm64-1.31.0/ThirdPartyNotices.txt", name: "ThirdPartyNotices.txt" },
+    { entry: "./onnxruntime-osx-arm64-1.31.0/LICENSE", name: "LICENSE" },
+  ]);
 });

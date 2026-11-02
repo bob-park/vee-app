@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Fetches the pinned ONNX Runtime library into src-tauri/vendor/onnxruntime/ so the app bundle can
 // carry it (macOS: Contents/Frameworks, signed with Vee's identity; Windows: next to the exe).
+// Its license notices go to src-tauri/vendor/onnxruntime/notices/ (bundled as `licenses/onnxruntime/`).
 // Runs before `tauri dev` / `tauri build` (tauri.conf.json); does nothing when the file is already there.
 // Usage: node scripts/fetch-onnxruntime.mjs
 import { execFileSync } from "node:child_process";
@@ -37,6 +38,19 @@ export function pickEntry(entries, lib) {
   return entries.find((e) => e.split("/").slice(-2).join("/") === `lib/${lib}`) ?? null;
 }
 
+/**
+ * The license notices to ship with the runtime: the top-level `LICENSE` and `ThirdPartyNotices.txt`
+ * (one directory deep in both the .tgz and the .zip).
+ * @param {string[]} entries  `tar -tf` lines
+ * @returns {{ entry: string, name: string }[]}
+ */
+export function pickNotices(entries) {
+  return entries
+    .map((entry) => ({ entry, parts: entry.replace(/^\.\//, "").split("/") }))
+    .filter(({ parts }) => parts.length === 2 && ["LICENSE", "ThirdPartyNotices.txt"].includes(parts[1]))
+    .map(({ entry, parts }) => ({ entry, name: parts[1] }));
+}
+
 /** @param {Uint8Array} bytes */
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
@@ -52,7 +66,8 @@ if (isMain) {
   }
   const outDir = fileURLToPath(new URL("../src-tauri/vendor/onnxruntime/", import.meta.url));
   const out = join(outDir, runtime.lib);
-  if (fileSha256(out) === runtime.libSha256) process.exit(0);
+  const noticeDir = join(outDir, "notices");
+  if (fileSha256(out) === runtime.libSha256 && existsSync(join(noticeDir, "LICENSE"))) process.exit(0);
 
   console.log(`onnxruntime: downloading ${runtime.url}`);
   const res = await fetch(runtime.url);
@@ -69,11 +84,16 @@ if (isMain) {
     const entries = execFileSync(tar, ["-tf", file], { encoding: "utf8", maxBuffer: 1 << 26 }).split(/\r?\n/);
     const entry = pickEntry(entries, runtime.lib);
     if (!entry) throw new Error(`onnxruntime: ${runtime.lib} not found in the archive`);
-    execFileSync(tar, ["-xf", file, "-C", work, entry]);
+    const notices = pickNotices(entries);
+    if (!notices.some((n) => n.name === "LICENSE")) throw new Error("onnxruntime: LICENSE not found in the archive");
+    execFileSync(tar, ["-xf", file, "-C", work, entry, ...notices.map((n) => n.entry)]);
     const extracted = join(work, entry);
     if (fileSha256(extracted) !== runtime.libSha256) throw new Error(`onnxruntime: ${runtime.lib} checksum mismatch`);
     mkdirSync(outDir, { recursive: true });
     copyFileSync(extracted, out);
+    rmSync(noticeDir, { recursive: true, force: true });
+    mkdirSync(noticeDir, { recursive: true });
+    for (const n of notices) copyFileSync(join(work, n.entry), join(noticeDir, n.name));
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

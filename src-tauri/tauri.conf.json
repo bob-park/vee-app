@@ -120,6 +120,10 @@
       "icons/icon.ico"
     ],
     "createUpdaterArtifacts": true,
+    "resources": {
+      "vendor/onnxruntime/notices/": "licenses/onnxruntime/",
+      "vendor/pdfium/notices/": "licenses/pdfium/"
+    },
     "macOS": {
       "entitlements": "Entitlements.plist"
     }

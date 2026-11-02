@@ -10,7 +10,7 @@ related:
 
 # Testing
 
-> Rust: `cargo test --manifest-path src-tauri/Cargo.toml --lib` (domain core, DB, migrations, errors, pure app-shell helpers). Frontend and scripts: `yarn test` (Node built-in `node:test`, no extra libraries). Plus `yarn typecheck` and `yarn lint`. All four must pass before a change is done.
+> Rust: `cargo test --manifest-path src-tauri/Cargo.toml --lib` (domain core, DB, migrations, errors, pure app-shell helpers). Frontend and scripts: `yarn test` (Node built-in `node:test`, no extra libraries). Plus `yarn typecheck` and `yarn lint`. All four must pass before a change is done. After a fresh clone, run `node scripts/fetch-onnxruntime.mjs` and `node scripts/fetch-pdfium.mjs` once first: the build needs their license notices, and the PDF test needs PDFium.
 
 | Command | Covers | Lives in |
 | ------- | ------ | -------- |
