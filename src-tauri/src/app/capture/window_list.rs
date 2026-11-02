@@ -100,6 +100,12 @@ fn raw_windows(_monitor: &MonitorInfo) -> Vec<RawWin> {
         .collect()
 }
 
+/// The desktop (`Progman`, `WorkerW`) and the taskbars: visible top-level windows that aren't pickable (spec §7.2).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn excluded_class(name: &str) -> bool {
+    matches!(name, "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd")
+}
+
 // Not compiled on this machine (macOS dev box); checked only by the Windows build.
 #[cfg(windows)]
 fn raw_windows(monitor: &MonitorInfo) -> Vec<RawWin> {
@@ -109,7 +115,7 @@ fn raw_windows(monitor: &MonitorInfo) -> Vec<RawWin> {
         OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
     };
     use ::windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GWL_EXSTYLE, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible, WS_EX_TOOLWINDOW,
+        EnumWindows, GWL_EXSTYLE, GetClassNameW, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible, WS_EX_TOOLWINDOW,
     };
     use ::windows::core::{BOOL, PWSTR};
 
@@ -144,6 +150,11 @@ fn raw_windows(monitor: &MonitorInfo) -> Vec<RawWin> {
         .into_iter()
         .filter_map(|hwnd| unsafe {
             if !IsWindowVisible(hwnd).as_bool() || GetWindowLongW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TOOLWINDOW.0 != 0 {
+                return None;
+            }
+            let mut class = [0u16; 64];
+            let len = GetClassNameW(hwnd, &mut class).max(0) as usize;
+            if excluded_class(&String::from_utf16_lossy(&class[..len])) {
                 return None;
             }
             let mut cloaked = 0u32;
@@ -181,6 +192,15 @@ mod tests {
 
     fn raw(pid: u32, id: u64, x: f64, y: f64, width: f64, height: f64) -> RawWin {
         RawWin { pid, id, app: format!("app{id}"), x, y, width, height }
+    }
+
+    #[test]
+    fn desktop_and_taskbars_are_excluded() {
+        for c in ["Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"] {
+            assert!(excluded_class(c), "{c}");
+        }
+        assert!(!excluded_class("Chrome_WidgetWin_1"));
+        assert!(!excluded_class("CabinetWClass"));
     }
 
     #[test]

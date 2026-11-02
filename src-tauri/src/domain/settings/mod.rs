@@ -69,7 +69,6 @@ pub fn copy_sound(conn: &Connection) -> Option<String> {
 }
 
 /// Whether capture and record sounds play: they follow only the sound switch, not `soundName`.
-#[allow(dead_code)] // used by `app::capture` / `app::recorder` (Tasks 5 and 7)
 pub fn capture_sounds(conn: &Connection) -> bool {
     get(conn, "sound") == "on"
 }

@@ -67,6 +67,7 @@ export async function setSetting(key: SettingKey, value: string) {
 | `editor://closed` | — | `app/editor.rs` `close` (every close path, to `editor` only) | `EditorApp` (reset all state, freeing the images) |
 | `capture://open` | — | `app/capture` `open` (to `capture` only) | `CaptureApp` (claims the session with `get_capture_session`, which shows the overlay; resets all state) |
 | `recorder://started` | `{ startedMs, format, limitMs }` | `app/recorder` `begin` (to `recorder` only) | `RecorderApp` (also asks `get_recorder_state` on mount, in case it missed the event) |
+| `recorder://stopped` | — | `app/recorder` `dispatch` when it hides the pill (to `recorder` only) | `RecorderApp` (clears its timer) |
 | `update://status` | `UpdateStatus` | `updater::set_status` | `useUpdateStatus` |
 
 - Name new events `<domain>://<event>` in kebab-case. Use `emit_to(<label>, …)` when only one window cares.

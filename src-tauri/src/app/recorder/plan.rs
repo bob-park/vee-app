@@ -123,6 +123,14 @@ pub fn clip_to_display(win: (f64, f64, f64, f64), display: (f64, f64, f64, f64))
     (x1 > x0 && y1 > y0).then_some((x0 - display.0, y0 - display.1, x1 - x0, y1 - y0))
 }
 
+/// `clip_to_display` in global physical px: the window rect `win` cut to the monitor rect `display`, still global.
+#[cfg_attr(not(windows), allow(dead_code))] // the Windows engine
+pub fn clip_physical(win: (i32, i32, u32, u32), display: (i32, i32, u32, u32)) -> Option<(i32, i32, u32, u32)> {
+    let f = |(x, y, w, h): (i32, i32, u32, u32)| (f64::from(x), f64::from(y), f64::from(w), f64::from(h));
+    let (x, y, w, h) = clip_to_display(f(win), f(display))?;
+    Some((display.0 + x as i32, display.1 + y as i32, w as u32, h as u32))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,6 +170,14 @@ mod tests {
         for f in ["mp4", "webm", "gif"] {
             assert_eq!(container_for(f), Container::Mp4);
         }
+    }
+
+    #[test]
+    fn clip_physical_stays_global() {
+        let d = (1920, 0, 2560, 1440);
+        assert_eq!(clip_physical((1800, -40, 400, 300), d), Some((1920, 0, 280, 260)));
+        assert_eq!(clip_physical((2000, 100, 400, 300), d), Some((2000, 100, 400, 300)));
+        assert_eq!(clip_physical((0, 0, 400, 300), d), None);
     }
 
     #[test]

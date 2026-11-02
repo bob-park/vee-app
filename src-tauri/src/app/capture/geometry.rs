@@ -30,7 +30,7 @@ pub fn to_global(r: RectF, m: &MonitorInfo) -> RectF {
 }
 
 /// Monitor-local logical rect → global physical pixels (the global rect times the monitor scale), at least 1×1.
-#[allow(dead_code)] // used by `app::capture` (Task 5) and the recorders (Task 6)
+#[cfg_attr(not(windows), allow(dead_code))] // the Windows recorder
 pub fn to_physical(r: RectF, m: &MonitorInfo) -> (i32, i32, u32, u32) {
     let (x, y, w, h) = to_global(r, m);
     let px = |v: f64| (v * m.scale).round();

@@ -98,7 +98,8 @@ export default function CaptureApp() {
   useEffect(() => {
     if (!pending) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.repeat) {
+      // A focused button (Record, ✕) acts on Enter itself.
+      if (e.key === 'Enter' && !e.repeat && !(e.target instanceof HTMLButtonElement)) {
         e.preventDefault();
         handleRecord();
       }

@@ -27,7 +27,12 @@ export default function RecorderApp() {
       setNow(Date.now());
       setStarted(e.payload);
     });
-    return () => void off.then((fn) => fn());
+    // Rust hid the pill (stop, cancel, GIF limit): drop the timer so it never shows this recording again.
+    const offStopped = listen('recorder://stopped', () => setStarted(null));
+    return () => {
+      void off.then((fn) => fn());
+      void offStopped.then((fn) => fn());
+    };
   }, []);
 
   useEffect(() => {

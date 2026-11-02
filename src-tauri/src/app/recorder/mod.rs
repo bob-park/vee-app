@@ -136,6 +136,12 @@ fn after_start(action: Action, closing: bool) -> AfterStart {
     }
 }
 
+/// The phase after `begin` refused `session`: an overlay-closed `Selecting { session }` goes back to Idle so the
+/// shortcut works again, unless `session`'s own start is in flight (it settles the phase itself).
+fn refused(phase: Phase, session: u64, starting: Option<u64>) -> Phase {
+    if phase == (Phase::Selecting { session }) && starting != Some(session) { Phase::Idle } else { phase }
+}
+
 /// Whether app exit must still wait: an engine is starting and hasn't handed itself over yet.
 fn exit_waits(starting: Option<u64>) -> bool {
     starting.is_some()
@@ -199,6 +205,8 @@ fn dispatch(app: &AppHandle, ev: Event) {
             if let Some(pill) = app.get_webview_window(RECORDER) {
                 let _ = pill.hide();
             }
+            // The hidden pill drops its timer, so it never shows this recording's time when shown again.
+            let _ = app.emit_to(RECORDER, "recorder://stopped", ());
             let (app, keep) = (app.clone(), action == Action::StopEngine);
             std::thread::spawn(move || {
                 if keep {
@@ -333,6 +341,7 @@ fn begin(app: &AppHandle, session: u64, monitor: &MonitorInfo, selection: &Selec
     {
         let mut g = r.inner.lock().unwrap();
         if g.closing || g.phase != (Phase::Selecting { session }) || g.starting.is_some() {
+            g.phase = refused(g.phase, session, g.starting);
             return Err(AppError::InvalidInput("record session is gone".into()));
         }
         g.starting = Some(session);
@@ -396,9 +405,10 @@ fn begin(app: &AppHandle, session: u64, monitor: &MonitorInfo, selection: &Selec
         unmute(app, session);
         return Err(AppError::Other("recording stopped while starting".into()));
     }
-    show_pill(app, monitor);
     let limit_ms = plan::limit_ms(format);
+    // Before `show_pill`, so the pill never shows with a previous recording's time.
     let _ = app.emit_to(RECORDER, "recorder://started", Started { started_ms, format, limit_ms });
+    show_pill(app, monitor);
     if let Some(limit) = limit_ms {
         let app = app.clone();
         std::thread::spawn(move || {
@@ -623,6 +633,17 @@ mod tests {
 
     fn start(session: u64, format: Format) -> Event {
         Event::Start { session, format, started_ms: 5 }
+    }
+
+    #[test]
+    fn refused_start_frees_the_shortcut() {
+        // An older session's start is in flight: this session's overlay is closed, so back to Idle.
+        assert_eq!(refused(SEL, 3, Some(2)), Phase::Idle);
+        assert_eq!(refused(SEL, 3, None), Phase::Idle);
+        // Its own start is in flight, or the phase belongs to another session or has moved on: untouched.
+        assert_eq!(refused(SEL, 3, Some(3)), SEL);
+        assert_eq!(refused(SEL, 4, None), SEL);
+        assert_eq!(refused(Phase::Finishing, 3, None), Phase::Finishing);
     }
 
     #[test]

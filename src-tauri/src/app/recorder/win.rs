@@ -35,6 +35,8 @@ use tauri::AppHandle;
 /// How long FFmpeg gets to finish the file after `q`, and the audio client to start.
 const TIMEOUT: Duration = Duration::from_secs(10);
 const POLL: Duration = Duration::from_millis(10);
+/// How long after the spawn an FFmpeg that exited counts as a failed start.
+const EARLY_EXIT: Duration = Duration::from_millis(300);
 
 /// A recording in progress.
 pub struct Running {
@@ -44,6 +46,8 @@ pub struct Running {
     stop_audio: Arc<AtomicBool>,
     video_file: PathBuf,
     audio_file: PathBuf,
+    /// FFmpeg's stderr (`-loglevel error`, so only its errors).
+    log_file: PathBuf,
     out: PathBuf,
 }
 
@@ -56,11 +60,15 @@ impl Running {
         let (ffmpeg, _) = engines::ffmpeg(app).ok_or_else(|| other("ffmpeg", "not installed"))?;
         let rect = match *sel {
             Selection::Rect { x, y, width, height } => to_physical((x, y, width, height), monitor),
-            Selection::Window { id } => window_rect(id)?,
+            // Cut to the overlay's monitor, as on macOS: gdigrab fails on a rect past the desktop's edge.
+            Selection::Window { id } => {
+                let display = to_physical((0.0, 0.0, monitor.width, monitor.height), monitor);
+                plan::clip_physical(window_rect(id)?, display).ok_or_else(|| other("window", format!("{id} is off the display")))?
+            }
         };
-        let dir = std::env::temp_dir().join(format!("vee-record-{}", app.config().identifier));
-        std::fs::create_dir_all(&dir)?;
-        let (video_file, audio_file) = (dir.join("video.mkv"), dir.join("audio.wav"));
+        // The session's own dir (made by the caller), next to `out`.
+        let dir = out.parent().ok_or_else(|| other("output", "no folder"))?;
+        let (video_file, audio_file, log_file) = (dir.join("video.mkv"), dir.join("audio.wav"), dir.join("ffmpeg.log"));
 
         let stop_audio = Arc::new(AtomicBool::new(false));
         let (ready_tx, ready) = mpsc::channel();
@@ -69,21 +77,36 @@ impl Running {
             std::thread::spawn(move || loopback(&path, &stop, ready_tx))
         };
         // From here on, dropping `running` stops and joins the audio thread and kills FFmpeg.
-        let mut running = Running { ffmpeg, grab: None, audio: Some(audio), stop_audio, video_file, audio_file, out: out.to_path_buf() };
+        let mut running =
+            Running { ffmpeg, grab: None, audio: Some(audio), stop_audio, video_file, audio_file, log_file, out: out.to_path_buf() };
         match ready.recv_timeout(TIMEOUT) {
             Ok(Ok(())) => {}
             Ok(Err(e)) => return Err(running.fail(other("audio", e))),
             Err(_) => return Err(running.fail(other("audio", "timed out"))),
         }
-        let child = command(&running.ffmpeg)
-            .args(plan::grab_args(rect, &running.video_file))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
+        // stderr goes to a file, not a pipe nobody drains, so FFmpeg's message is there if it fails.
+        let child = File::create(&running.log_file).and_then(|log| {
+            command(&running.ffmpeg)
+                .args(plan::grab_args(rect, &running.video_file))
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(log)
+                .spawn()
+        });
         match child {
             Ok(c) => running.grab = Some(Killed(c)),
             Err(e) => return Err(running.fail(other("ffmpeg", e))),
+        }
+        // A bad rect or device makes FFmpeg exit at once: fail now, not at Stop.
+        std::thread::sleep(EARLY_EXIT);
+        let exited = match running.grab.as_mut().map(|g| g.0.try_wait()) {
+            Some(Ok(Some(status))) => Some(status.to_string()),
+            Some(Err(e)) => Some(e.to_string()),
+            _ => None,
+        };
+        if let Some(why) = exited {
+            let e = running.ffmpeg_error(&why);
+            return Err(running.fail(e));
         }
         Ok(running)
     }
@@ -115,7 +138,7 @@ impl Running {
         loop {
             match grab.0.try_wait()? {
                 Some(status) if status.success() => break,
-                Some(status) => return Err(other("ffmpeg", status)),
+                Some(status) => return Err(self.ffmpeg_error(&status)),
                 None if Instant::now() < deadline => std::thread::sleep(POLL),
                 // Dropping `grab` kills it.
                 None => return Err(other("ffmpeg", "did not stop")),
@@ -152,9 +175,19 @@ impl Running {
         audio
     }
 
+    /// FFmpeg ended with `why`: the error, with the message it left in its log.
+    fn ffmpeg_error(&self, why: &dyn std::fmt::Display) -> AppError {
+        let log = std::fs::read_to_string(&self.log_file).unwrap_or_default();
+        match log.trim() {
+            "" => other("ffmpeg", why),
+            msg => other("ffmpeg", format!("{why}: {msg}")),
+        }
+    }
+
     fn remove_parts(&self) {
         let _ = std::fs::remove_file(&self.video_file);
         let _ = std::fs::remove_file(&self.audio_file);
+        let _ = std::fs::remove_file(&self.log_file);
     }
 
     fn fail(mut self, e: AppError) -> AppError {

@@ -10,7 +10,7 @@ const SYSTEM_SHUTTER: &str = "/System/Library/Components/CoreAudio.component/Con
 
 static RECORDING: AtomicBool = AtomicBool::new(false);
 
-/// While on, copy sounds are muted so they don't end up in the recording.
+/// While on, copy sounds (and the Windows shutter) are muted so they don't end up in the recording.
 pub fn set_recording(on: bool) {
     RECORDING.store(on, Ordering::Relaxed);
 }
@@ -68,9 +68,12 @@ pub fn play_shutter() {
     });
 }
 
+/// Windows: skipped while recording, as WASAPI loopback would record it (macOS leaves Vee's audio out).
 #[cfg(windows)]
 pub fn play_shutter() {
-    play_wav("shutter");
+    if !copy_muted() {
+        play_wav("shutter");
+    }
 }
 
 #[cfg(target_os = "macos")]
