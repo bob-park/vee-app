@@ -27,6 +27,13 @@ pub fn convert(src: &Path, out: &Path, exe: &Path, lib: &Path, cancel: &AtomicBo
 /// The worker's body: `args` is `[lib, src, out]`. Writes `out` only on success; the reason for a
 /// failure goes to stderr.
 pub fn worker_main(args: &[OsString]) -> ExitCode {
+    // Windows: a PDFium crash must end the child at once. The default "Vee has stopped working"
+    // dialog would keep it alive (and on screen) until `PDF_TIMEOUT`.
+    #[cfg(windows)]
+    unsafe {
+        use windows::Win32::System::Diagnostics::Debug::{SEM_FAILCRITICALERRORS, SEM_NOGPFAULTERRORBOX, SetErrorMode};
+        SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+    }
     let [lib, src, out] = args else {
         eprintln!("usage: {FLAG} <lib> <src> <out>");
         return ExitCode::FAILURE;
@@ -125,10 +132,31 @@ mod tests {
     }
 
     #[test]
-    fn an_existing_md_is_never_overwritten() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("hangul.md"), "keep").unwrap();
-        assert!(super::super::unique_path(dir.path(), "hangul", "md").ends_with("hangul (1).md"));
+    fn run_without_pdfium_fails_and_leaves_no_file() {
+        let (src_dir, out_dir, tmp) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let src = src_dir.path().join("a.pdf");
+        std::fs::copy(testdata("hangul.pdf"), &src).unwrap();
+        let cancel = AtomicBool::new(false);
+        let mut progress = |_: Option<f64>| {};
+        let mut ctx = super::super::Run {
+            pdf: None,
+            ffmpeg: None,
+            quality: super::super::Quality::Normal,
+            hw: None,
+            fell_back: false,
+            cancel: &cancel,
+            progress: &mut progress,
+            rhwp: None,
+            soffice: None,
+            lo_profile: tmp.path().join("lo"),
+        };
+        let run = |ctx: &mut super::super::Run, to| super::super::run(&src, "a", to, out_dir.path(), tmp.path(), ctx);
+        assert_eq!(run(&mut ctx, super::super::Format::Md), Err(JobError::Engine));
+        // A PDF only becomes Markdown, even with PDFium at hand.
+        ctx.pdf = Some((PathBuf::from("/nonexistent/vee-app"), PathBuf::from("/nonexistent/lib")));
+        assert_eq!(run(&mut ctx, super::super::Format::Txt), Err(JobError::Engine));
+        assert_eq!(std::fs::read_dir(out_dir.path()).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
     }
 
     #[test]

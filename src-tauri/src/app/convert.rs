@@ -208,6 +208,7 @@ pub fn begin(app: &AppHandle, clip_id: i64, files: Vec<PathBuf>) {
         ffmpeg: engines::ffmpeg(app).is_some(),
         rhwp: engines::rhwp(app).is_some(),
         libreoffice: office::soffice().is_some(),
+        pdfium: pdfium().is_some(),
     };
     let slices = convert::formats_for(&files, caps);
     *c.session.lock().unwrap() = Some(Session { generation, clip_id, files, slices, dir: None, noted: false, dropped: false });
@@ -475,8 +476,8 @@ fn work(app: &AppHandle, id: u64) {
 
 /// Stops a running video job; the worker then drops it. Image jobs can't stop mid-file.
 fn cancel(jobs: &Jobs, id: u64) -> AppResult<()> {
-    let job = jobs.list.iter().find(|j| j.id == id && j.state == JobState::Running && j.files.iter().all(|f| convert::is_video(f)));
-    let job = job.ok_or_else(|| AppError::InvalidInput(format!("no running video convert job {id}")))?;
+    let job = jobs.list.iter().find(|j| j.id == id && j.state == JobState::Running && convert::can_cancel(&j.files));
+    let job = job.ok_or_else(|| AppError::InvalidInput(format!("no cancellable running convert job {id}")))?;
     job.cancel.store(true, Ordering::SeqCst);
     Ok(())
 }

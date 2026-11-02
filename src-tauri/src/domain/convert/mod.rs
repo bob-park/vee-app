@@ -30,7 +30,8 @@ pub fn formats_for(paths: &[PathBuf], caps: Caps) -> Vec<Slice> {
         return VIDEO_TARGETS.into_iter().filter(|f| !own.contains(f)).map(|format| Slice { format, needs }).collect();
     }
     if !paths.is_empty() && paths.iter().all(|p| is_pdf(p)) {
-        return vec![Slice { format: Format::Md, needs: None }];
+        // Without PDFium there is nothing to install, so no slice rather than a dimmed one.
+        return if caps.pdfium { vec![Slice { format: Format::Md, needs: None }] } else { Vec::new() };
     }
     if let Some((first, _)) = paths.first().and_then(|p| doc_source(p)) {
         let sources: Option<Vec<Option<Format>>> =
@@ -65,6 +66,12 @@ pub fn is_video(path: &Path) -> bool {
     // No `ts`: TypeScript files share it. MPEG-TS camcorder files come as `mts`/`m2ts`.
     const EXTS: [&str; 13] = ["mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "flv", "mpg", "mpeg", "mts", "m2ts", "3gp"];
     ext_of(path).is_some_and(|e| EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
+/// Whether a job over `files` can stop mid-file: every file runs in a child process (FFmpeg, the PDF
+/// worker). Image jobs can't, and documents are left to finish.
+pub fn can_cancel(files: &[PathBuf]) -> bool {
+    !files.is_empty() && files.iter().all(|f| is_video(f) || is_pdf(f))
 }
 
 /// Whether `path` has a `pdf` extension (any case). PDFs only become Markdown.
@@ -230,7 +237,7 @@ pub fn visible_jobs(jobs: &mut [Job], now: i64) -> Vec<JobView> {
             error,
             percent: share.map(|p| (p * 100.0) as u8),
             eta: share.zip(job.started).and_then(|(p, started)| eta(now - started, p)),
-            cancellable: running && !job.files.is_empty() && job.files.iter().all(|f| is_video(f)),
+            cancellable: running && can_cancel(&job.files),
         });
     }
     views
@@ -248,7 +255,7 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     /// macOS with every engine installed.
-    const ALL: Caps = Caps { heic: true, ffmpeg: true, rhwp: true, libreoffice: true };
+    const ALL: Caps = Caps { heic: true, ffmpeg: true, rhwp: true, libreoffice: true, pdfium: true };
 
     /// Formats and needs for `paths` under `caps`.
     fn doc_slices(paths: &[&str], caps: Caps) -> Vec<(Format, Option<Engine>)> {
@@ -264,8 +271,10 @@ mod tests {
     fn pdfs_become_markdown() {
         use Format::*;
         assert_eq!(doc_slices(&["a.pdf"], ALL), [(Md, None)]);
-        let none = Caps { heic: false, ffmpeg: false, rhwp: false, libreoffice: false };
-        assert_eq!(doc_slices(&["a.PDF", "b.pdf"], none), [(Md, None)]);
+        let others = Caps { heic: false, ffmpeg: false, rhwp: false, libreoffice: false, pdfium: true };
+        assert_eq!(doc_slices(&["a.PDF", "b.pdf"], others), [(Md, None)]);
+        // Not bundled (a bare release build): no slice that could only fail.
+        assert!(doc_formats(&["a.pdf"], Caps { pdfium: false, ..ALL }).is_empty());
         assert!(doc_formats(&["a.pdf", "b.docx"], ALL).is_empty());
         assert!(doc_formats(&["a.pdf", "b.png"], ALL).is_empty());
     }
@@ -621,7 +630,7 @@ mod tests {
         let docx = run(&sources[0], "from-txt", Format::Docx, dir.path(), tmp.path(), &mut ctx).unwrap();
         sources.extend([rtf, docx]);
         for src in &sources {
-            for slice in formats_for(std::slice::from_ref(src), Caps { heic: true, ffmpeg: false, rhwp: false, libreoffice: true }) {
+            for slice in formats_for(std::slice::from_ref(src), Caps { heic: true, ffmpeg: false, rhwp: false, libreoffice: true, pdfium: false }) {
                 let stem = format!("{}-to", src.file_name().unwrap().to_string_lossy());
                 let out = run(src, &stem, slice.format, dir.path(), tmp.path(), &mut ctx)
                     .unwrap_or_else(|e| panic!("{} → {}: {e:?}", src.display(), slice.format.id()));
@@ -793,6 +802,19 @@ mod tests {
 
     fn job(id: u64, state: JobState, since: i64) -> Job {
         Job { state, ..Job::new(id, 1, Format::Png, vec![PathBuf::from("/tmp/out/a.jpg")], PathBuf::from("/tmp/out"), since) }
+    }
+
+    #[test]
+    fn running_pdf_jobs_can_cancel_and_mixed_ones_cannot() {
+        let mut pdf = job(1, JobState::Running, 0);
+        pdf.files = vec![PathBuf::from("/a/1.pdf"), PathBuf::from("/a/2.PDF")];
+        let mut mixed = job(2, JobState::Running, 0);
+        mixed.files = vec![PathBuf::from("/a/1.pdf"), PathBuf::from("/a/2.jpg")];
+        let mut jobs = vec![pdf, mixed];
+        let views = visible_jobs(&mut jobs, 10_000);
+        assert_eq!((views[0].cancellable, views[1].cancellable), (true, false));
+        assert!(can_cancel(&[PathBuf::from("/a/1.pdf"), PathBuf::from("/a/2.mov")]));
+        assert!(!can_cancel(&[]));
     }
 
     #[test]

@@ -86,6 +86,8 @@ pub struct Caps {
     pub rhwp: bool,
     /// LibreOffice is installed.
     pub libreoffice: bool,
+    /// PDFium ships with the app (missing only from a bare, unbundled build).
+    pub pdfium: bool,
 }
 
 impl Caps {

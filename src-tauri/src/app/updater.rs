@@ -139,6 +139,9 @@ pub async fn install_and_restart(app: &AppHandle) -> AppResult<()> {
     // Borrow, don't take: a failed install keeps the download so the user can retry.
     let pending = state.pending.lock().unwrap();
     let Some((update, bytes)) = pending.as_ref() else { return Err(AppError::Other("no update has been downloaded".into())) };
+    // Windows: the installer replaces `Vee.exe` and its DLLs, so no converter child (FFmpeg, the PDF
+    // worker) may still hold them open. A failed install loses only the jobs, which can be retried.
+    crate::app::convert::shutdown(app);
     update.install(bytes).map_err(|e| AppError::Other(e.to_string()))?;
     drop(pending);
     app.restart();
