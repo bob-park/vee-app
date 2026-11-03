@@ -97,8 +97,8 @@ WASAPI 루프백 스레드 ──▶ audio.wav (그대로)
 - **일정 간격 송출**: 송출 스레드가 33.3ms마다 "마지막으로 받은 프레임"을 FFmpeg에 쓴다. 새 프레임이 없으면 직전 것을 다시 쓴다. 정적인 창, 최소화, 닫힌 창 모두 이것으로 해결되고 영상 길이가 벽시계 시간과 같아진다. 첫 프레임이 오기 전에는 검은 화면을 쓴다.
 - **크기 맞추기**: 프레임 크기가 고정 W×H와 같으면 그대로 쓴다. 다르면 비율을 유지해 W×H 안에 맞추고(`image` 크레이트 resize, 이미 의존성) 가운데 두며 나머지는 검게 채운다. 이 "맞추기 사각형" 계산은 순수 함수로 `plan.rs`에 두고 단위 테스트한다.
 - **FFmpeg 인자**: `plan.rs`에 `pipe_args(w, h, out) -> Vec<OsString>`를 새로 만든다. 출력 쪽 인자는 `grab_args`와 같게 맞춘다. 단위 테스트한다.
-- **WGC를 쓸 수 없을 때**: `GraphicsCaptureSession::IsSupported()`가 false이거나 D3D11 장치(하드웨어, WARP 모두)를 못 만들면, 창 녹화는 **지금의 `gdigrab` 화면 사각형 방식으로 대체**한다. RDP, VM, GPU 드라이버가 없는 환경에서 오늘 되던 창 녹화가 깨지지 않게 하기 위해서다. 대체할 때는 로그를 남긴다. 창 아이템 생성 실패(창이 사라짐)는 대체하지 않고 `Err`를 낸다. *(설계자 판단)*
-- **시작 실패 판정**: 지금처럼 `EARLY_EXIT` 뒤에 FFmpeg가 살아 있는지 본다. 그 전에 WGC 아이템 생성이 실패하면(창이 사라짐, 캡처 불가 창) `start`가 `Err`를 낸다.
+- **WGC를 쓸 수 없을 때**: `GraphicsCaptureSession::IsSupported()`가 false이거나 D3D11 장치(하드웨어, WARP 모두)를 못 만들면, 창 녹화는 **지금의 `gdigrab` 화면 사각형 방식으로 대체**한다. RDP, VM, GPU 드라이버가 없는 환경에서 오늘 되던 창 녹화가 깨지지 않게 하기 위해서다. 대체할 때는 로그를 남긴다. 창이 이미 사라졌으면(`IsWindow`가 false) 대체하지 않고 `Err`를 낸다. 창은 있는데 아이템 생성이 실패하면(관리자 권한·보호된 창 등) `gdigrab`으로 대체한다. 아이템은 만들어졌지만 시작 후 약 500 ms 안에 첫 프레임이 오지 않는 창도 검은 화면을 녹화하지 않도록 `gdigrab`으로 대체한다. *(설계자 판단)*
+- **시작 실패 판정**: 지금처럼 `EARLY_EXIT` 뒤에 FFmpeg가 살아 있는지 본다. 그 전에 창이 사라졌으면(`IsWindow`가 false) `start`가 `Err`를 낸다. 캡처할 수 없는 창은 `Err`가 아니라 위의 `gdigrab` 대체로 간다.
 - **정리**: `halt` / `Drop`에서 송출과 캡처를 멈추고 스레드를 join한다. 세션과 프레임 풀은 `Close`한다. FFmpeg는 지금처럼 `Killed`로 처리한다. 정지 후 프레임 버퍼가 남지 않아야 한다.
 - **테두리**: Windows 11이면 `GraphicsCaptureSession::IsBorderRequired(false)`를 시도하고, 실패하면 무시한다(로그만 남김). 필요하면 `GraphicsCaptureAccess::RequestAccessAsync(Borderless)`도 시도한다. Windows 10에서는 시도하지 않거나, 실패를 무시한다.
 - **최소 지원 버전**: 녹화 하한은 이미 Windows 10 2004(19041)다. WGC 창 캡처(1903+)와 `IsCursorCaptureEnabled`(2004+)가 모두 이 안에 들어서 하한이 바뀌지 않는다.
