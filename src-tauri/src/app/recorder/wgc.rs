@@ -100,8 +100,8 @@ impl Capture {
             .and_then(|interop| unsafe { interop.CreateForWindow::<GraphicsCaptureItem>(hwnd) })
             .map_err(|e| unavailable("item", e))?;
         let size = item.Size().map_err(|e| unavailable("size", e))?;
-        let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(&winrt, FORMAT, BUFFERS, size)
-            .map_err(|e| unavailable("frame pool", e))?;
+        let pool =
+            Direct3D11CaptureFramePool::CreateFreeThreaded(&winrt, FORMAT, BUFFERS, size).map_err(|e| unavailable("frame pool", e))?;
         let session = pool.CreateCaptureSession(&item).map_err(|e| unavailable("session", e))?;
 
         let latest: Latest = Arc::default();
@@ -121,13 +121,7 @@ impl Capture {
             Ok(())
         });
         let token = pool.FrameArrived(&handler).map_err(|e| unavailable("frame handler", e))?;
-        let capture = Capture {
-            session,
-            pool,
-            token,
-            size: (size.Width.max(0) as u32, size.Height.max(0) as u32),
-            latest,
-        };
+        let capture = Capture { session, pool, token, size: (size.Width.max(0) as u32, size.Height.max(0) as u32), latest };
         let _ = capture.session.SetIsCursorCaptureEnabled(true);
         if let Err(e) = capture.session.SetIsBorderRequired(false) {
             log::debug!("wgc: border stays: {e}");

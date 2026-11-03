@@ -173,7 +173,20 @@ impl Running {
     fn finish(&mut self) -> AppResult<()> {
         let mut grab = self.grab.take().ok_or_else(|| other("ffmpeg", "not running"))?;
         // A piped FFmpeg reads rawvideo from stdin, so it gets no `q`: the pump closing stdin ends it.
-        if !self.stop_pump() {
+        if let Some((stop, pump)) = self.pump.take() {
+            stop.store(true, Ordering::SeqCst);
+            let deadline = Instant::now() + TIMEOUT;
+            while !pump.is_finished() {
+                if Instant::now() >= deadline {
+                    // Killing FFmpeg breaks the pipe, which unblocks a pump stuck in a write.
+                    drop(grab);
+                    let _ = pump.join();
+                    return Err(other("ffmpeg", "did not stop"));
+                }
+                std::thread::sleep(POLL);
+            }
+            let _ = pump.join();
+        } else {
             // `q` makes FFmpeg flush and close the file; dropping stdin then also ends it if `q` was missed.
             if let Some(mut stdin) = grab.0.stdin.take() {
                 let _ = stdin.write_all(b"q");
@@ -208,8 +221,8 @@ impl Running {
         }
     }
 
-    /// Stops the audio thread and the pump (both joined) and kills FFmpeg if it still runs. `Err` when the audio
-    /// thread failed.
+    /// Stops the audio thread (joined), kills FFmpeg if it still runs, then stops and joins the pump. `Err` when the
+    /// audio thread failed.
     fn halt(&mut self) -> Result<(), String> {
         self.stop_audio.store(true, Ordering::SeqCst);
         let audio = match self.audio.take().map(JoinHandle::join) {
@@ -217,17 +230,13 @@ impl Running {
             Some(Err(_)) => Err("thread panicked".into()),
             None => Ok(()),
         };
-        self.stop_pump();
+        // FFmpeg first: killing it breaks the pipe, so a pump blocked in a write returns.
         self.grab = None;
+        if let Some((stop, pump)) = self.pump.take() {
+            stop.store(true, Ordering::SeqCst);
+            let _ = pump.join();
+        }
         audio
-    }
-
-    /// Stops and joins the pump, which closes FFmpeg's stdin and ends the WGC capture. `false` if there is none.
-    fn stop_pump(&mut self) -> bool {
-        let Some((stop, pump)) = self.pump.take() else { return false };
-        stop.store(true, Ordering::SeqCst);
-        let _ = pump.join();
-        true
     }
 
     /// FFmpeg ended with `why`: the error, with the message it left in its log.
@@ -261,6 +270,7 @@ impl Drop for Running {
 
 /// Writes `cap`'s newest frame, composed onto a black `size` canvas, to FFmpeg's `stdin` once per frame due at
 /// `plan::FPS` (repeating it, and catching up when behind) until `stop` is set or FFmpeg stops reading.
+/// A catch-up burst is capped at one second of frames per pass, so `stop` and new frames are seen in between.
 fn pump(cap: wgc::Capture, size: (u32, u32), mut stdin: ChildStdin, stop: &AtomicBool) {
     let t0 = Instant::now();
     // Black until the first WGC frame arrives.
@@ -274,12 +284,14 @@ fn pump(cap: wgc::Capture, size: (u32, u32), mut stdin: ChildStdin, stop: &Atomi
             canvas = plan::compose(&f.bgra, (f.width, f.height), size);
             shown = Some(f);
         }
-        while written < plan::frames_due(t0.elapsed()) {
-            // FFmpeg died: `finish` or the early-exit check reports it.
+        let mut burst = 0;
+        while burst < plan::FPS && written < plan::frames_due(t0.elapsed()) && !stop.load(Ordering::SeqCst) {
+            // FFmpeg died or was killed: `finish` or the early-exit check reports it.
             if stdin.write_all(&canvas).is_err() {
                 break 'run;
             }
             written += 1;
+            burst += 1;
         }
         // Frame `written` is due at `written / FPS` s.
         let next = t0 + Duration::from_secs_f64(written as f64 / f64::from(plan::FPS));
