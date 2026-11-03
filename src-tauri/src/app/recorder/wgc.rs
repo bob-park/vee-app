@@ -25,9 +25,14 @@ use ::windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInte
 use ::windows::Win32::UI::WindowsAndMessaging::IsWindow;
 use ::windows::core::{IInspectable, Interface, Ref};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 const FORMAT: DirectXPixelFormat = DirectXPixelFormat::B8G8R8A8UIntNormalized;
 const BUFFERS: i32 = 2;
+/// WGC sends a first frame right after `StartCapture`; a window that sends none in this long (protected or
+/// elevated content that never paints) is recorded with `gdigrab` instead of as black.
+const FIRST_FRAME: Duration = Duration::from_millis(500);
+const POLL: Duration = Duration::from_millis(10);
 
 /// One captured frame: `height` rows of `width * 4` bytes, no padding.
 pub(super) struct Frame {
@@ -63,6 +68,8 @@ struct Gpu {
     size: SizeInt32,
     /// Reused while the frame size stays the same.
     staging: Option<ID3D11Texture2D>,
+    /// The last frame failed: further failures in a row aren't logged (a lost device fails every frame).
+    failing: bool,
 }
 
 // SAFETY: the D3D11 device is free-threaded and its WinRT wrapper is agile; the immediate context (not
@@ -105,18 +112,24 @@ impl Capture {
         let session = pool.CreateCaptureSession(&item).map_err(|e| unavailable("session", e))?;
 
         let latest: Latest = Arc::default();
-        let gpu = Mutex::new(Gpu { device, context, winrt, size, staging: None });
+        let gpu = Mutex::new(Gpu { device, context, winrt, size, staging: None, failing: false });
         let sink = latest.clone();
         let handler = TypedEventHandler::new(move |pool: Ref<Direct3D11CaptureFramePool>, _: Ref<IInspectable>| {
             let Ok(mut gpu) = gpu.lock() else { return Ok(()) };
             match pool.ok().and_then(|p| on_frame(p, &mut gpu)) {
-                Ok(Some(frame)) => {
-                    if let Ok(mut l) = sink.lock() {
+                Ok(frame) => {
+                    gpu.failing = false;
+                    if let Some(frame) = frame
+                        && let Ok(mut l) = sink.lock()
+                    {
                         *l = Some(Arc::new(frame));
                     }
                 }
-                Ok(None) => {}
-                Err(e) => log::warn!("wgc: frame skipped: {e}"),
+                Err(e) if !gpu.failing => {
+                    gpu.failing = true;
+                    log::warn!("wgc: frame skipped (further failures in a row not logged): {e}");
+                }
+                Err(_) => {}
             }
             Ok(())
         });
@@ -128,6 +141,13 @@ impl Capture {
         }
         // On an error `capture` drops here, which unregisters the handler and closes everything.
         capture.session.StartCapture().map_err(|e| unavailable("start", e))?;
+        let deadline = Instant::now() + FIRST_FRAME;
+        while capture.latest().is_none() {
+            if Instant::now() >= deadline {
+                return Err(unavailable("start", "no first frame"));
+            }
+            std::thread::sleep(POLL);
+        }
         Ok(capture)
     }
 
@@ -181,17 +201,15 @@ fn d3d_device() -> Result<ID3D11Device, StartError> {
     Err(unavailable("d3d11 device", last.unwrap_or_default()))
 }
 
-/// Takes the next frame from `pool` and copies it out as tight BGRA. `None`: no frame, or the window was
-/// resized and the pool is recreated at the new size (that frame is skipped).
+/// Takes the next frame from `pool` and copies its content out as tight BGRA. `None`: no frame, or an empty one
+/// (minimized). When the window was resized, the frame's content (top-left of the old-sized buffer) is still
+/// returned, and the pool is recreated at the new size for the next frames: DWM sends frames only on change, so
+/// a skipped frame could leave the recording stale.
 fn on_frame(pool: &Direct3D11CaptureFramePool, gpu: &mut Gpu) -> ::windows::core::Result<Option<Frame>> {
     let frame = pool.TryGetNextFrame()?;
     let content = frame.ContentSize()?;
-    if content != gpu.size {
+    if content.Width <= 0 || content.Height <= 0 {
         let _ = frame.Close();
-        if content.Width > 0 && content.Height > 0 {
-            pool.Recreate(&gpu.winrt, FORMAT, BUFFERS, content)?;
-            gpu.size = content;
-        }
         return Ok(None);
     }
     // SAFETY: the surface of a D3D11 frame pool is a DXGI surface backed by an `ID3D11Texture2D`.
@@ -204,14 +222,22 @@ fn on_frame(pool: &Direct3D11CaptureFramePool, gpu: &mut Gpu) -> ::windows::core
     unsafe { gpu.context.CopyResource(&staging, &texture) };
     let _ = frame.Close();
 
-    let (width, height) = (desc.Width, desc.Height);
+    if content != gpu.size {
+        // The copy above holds this frame's pixels, so the buffers can be swapped now.
+        match pool.Recreate(&gpu.winrt, FORMAT, BUFFERS, content) {
+            Ok(()) => gpu.size = content,
+            Err(e) => log::warn!("wgc: frame pool not resized: {e}"),
+        }
+    }
+
+    let (width, height) = ((content.Width as u32).min(desc.Width), (content.Height as u32).min(desc.Height));
     let row = width as usize * 4;
     let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
     // SAFETY: `staging` is a CPU-readable staging texture; `mapped` is a valid out pointer.
     unsafe { gpu.context.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))? };
     let mut bgra = Vec::with_capacity(row * height as usize);
     for y in 0..height as usize {
-        // SAFETY: while mapped, `pData` holds `height` rows `RowPitch` (>= `row`) bytes apart.
+        // SAFETY: while mapped, `pData` holds `desc.Height` (>= `height`) rows `RowPitch` (>= `row`) bytes apart.
         let src = unsafe { std::slice::from_raw_parts((mapped.pData as *const u8).add(y * mapped.RowPitch as usize), row) };
         bgra.extend_from_slice(src);
     }

@@ -9,9 +9,11 @@
 //!
 //! A/V sync: the loopback client starts first, then FFmpeg is spawned at once, so both start at about the same
 //! instant. Loopback delivers no packets while nothing plays, so the audio thread pads with silence to keep its
-//! length on the wall clock; the mux cuts both to the shorter (`-shortest`).
-//! ponytail: FFmpeg's input-open latency (~0.1–0.3 s) shows as audio slightly ahead of video; trim the WAV by
-//! the time FFmpeg reports its first frame (`-progress`) if that is noticeable.
+//! length on the wall clock; the mux cuts both to the shorter (`-shortest`). A WGC window recording's pump
+//! clocks its frames from the moment the audio client started, so the two share one start.
+//! ponytail: with `gdigrab` (a region, or a window where WGC is unavailable), FFmpeg's input-open latency
+//! (~0.1–0.3 s) shows as audio slightly ahead of video; trim the WAV by the time FFmpeg reports its first frame
+//! (`-progress`) if that is noticeable.
 //!
 //! Vee's own sounds are not excluded here (process-excluding loopback is Windows 11 only): the caller plays the
 //! start sound before `start` and the stop sound after `stop`.
@@ -118,6 +120,8 @@ impl Running {
             Ok(Err(e)) => return Err(running.fail(other("audio", e))),
             Err(_) => return Err(running.fail(other("audio", "timed out"))),
         }
+        // The WAV's clock started about now: the pump's frame 0 is due at this instant too.
+        let t0 = Instant::now();
         let (args, piped) = match source {
             Source::Rect(rect) => (plan::grab_args(rect, &running.video_file), None),
             Source::Window(cap, (w, h)) => (plan::pipe_args(w, h, &running.video_file), Some((cap, (w, h)))),
@@ -135,7 +139,7 @@ impl Running {
             let stop = Arc::new(AtomicBool::new(false));
             let pump = {
                 let stop = stop.clone();
-                std::thread::spawn(move || pump(cap, size, stdin, &stop))
+                std::thread::spawn(move || pump(cap, size, stdin, t0, &stop))
             };
             running.pump = Some((stop, pump));
         }
@@ -269,11 +273,10 @@ impl Drop for Running {
 }
 
 /// Writes `cap`'s newest frame, composed onto a black `size` canvas, to FFmpeg's `stdin` once per frame due at
-/// `plan::FPS` (repeating it, and catching up when behind) until `stop` is set or FFmpeg stops reading.
+/// `plan::FPS` from `t0` (repeating it, and catching up when behind) until `stop` is set or FFmpeg stops reading.
 /// A catch-up burst is capped at one second of frames per pass, so `stop` and new frames are seen in between.
-fn pump(cap: wgc::Capture, size: (u32, u32), mut stdin: ChildStdin, stop: &AtomicBool) {
-    let t0 = Instant::now();
-    // Black until the first WGC frame arrives.
+fn pump(cap: wgc::Capture, size: (u32, u32), mut stdin: ChildStdin, t0: Instant, stop: &AtomicBool) {
+    // Black until the first WGC frame arrives; then each new frame is composed into this same buffer.
     let mut canvas = [0u8, 0, 0, 255].repeat((size.0 * size.1) as usize);
     let mut shown: Option<Arc<wgc::Frame>> = None;
     let mut written = 0u64;
@@ -281,7 +284,7 @@ fn pump(cap: wgc::Capture, size: (u32, u32), mut stdin: ChildStdin, stop: &Atomi
         if let Some(f) = cap.latest()
             && !shown.as_ref().is_some_and(|s| Arc::ptr_eq(s, &f))
         {
-            canvas = plan::compose(&f.bgra, (f.width, f.height), size);
+            plan::compose_into(&f.bgra, (f.width, f.height), &mut canvas, size);
             shown = Some(f);
         }
         let mut burst = 0;

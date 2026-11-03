@@ -148,29 +148,43 @@ pub fn fit_rect(src: (u32, u32), dst: (u32, u32)) -> (u32, u32, u32, u32) {
     ((dst.0 - w) / 2, (dst.1 - h) / 2, w, h)
 }
 
-/// A tight BGRA `src` frame laid onto a black tight BGRA `dst_size` canvas at its `fit_rect`, so a resized window
-/// keeps the output size fixed.
+/// Lays a tight BGRA `src` frame onto the tight BGRA `dst` canvas of `dst_size` at its `fit_rect`, black around
+/// it, so a resized window keeps the output size fixed. `dst` is reused by the caller: nothing is allocated but
+/// one column table when shrinking.
+/// Shrinking averages the 2×2 source pixels around each output pixel's centre: an exact box filter at 2:1, and
+/// smooth enough down to it from 1:1 (the window is at most ~2× `MAX_SIDE` on today's monitors).
+// ponytail: beyond 2:1 it skips source pixels (aliasing on fine text); widen the box by the ratio if that shows.
 #[cfg_attr(not(windows), allow(dead_code))] // the Windows engine
-pub fn compose(src: &[u8], src_size: (u32, u32), dst_size: (u32, u32)) -> Vec<u8> {
-    use image::{RgbaImage, imageops};
-    if src_size == dst_size {
-        return src.to_vec();
-    }
+pub fn compose_into(src: &[u8], src_size: (u32, u32), dst: &mut [u8], dst_size: (u32, u32)) {
     let (x, y, w, h) = fit_rect(src_size, dst_size);
-    // BGRA treated as RGBA: resizing doesn't care about channel order.
-    let fitted: std::borrow::Cow<[u8]> = if (w, h) == src_size {
-        src.into()
-    } else {
-        let img = RgbaImage::from_raw(src_size.0, src_size.1, src.to_vec()).expect("src is tight BGRA of src_size");
-        imageops::resize(&img, w, h, imageops::FilterType::Triangle).into_raw().into()
-    };
-    let mut out = [0u8, 0, 0, 255].repeat((dst_size.0 * dst_size.1) as usize);
-    let (row, stride) = (w as usize * 4, dst_size.0 as usize * 4);
-    for (r, line) in fitted.chunks_exact(row).enumerate() {
-        let at = (y as usize + r) * stride + x as usize * 4;
-        out[at..at + row].copy_from_slice(line);
+    let (sw, sh, w, h) = (src_size.0 as usize, src_size.1 as usize, w as usize, h as usize);
+    let (stride, srow, at) = (dst_size.0 as usize * 4, sw * 4, x as usize * 4);
+    if (x, y, w, h) != (0, 0, dst_size.0 as usize, dst_size.1 as usize) {
+        dst.as_chunks_mut::<4>().0.fill([0, 0, 0, 255]);
     }
-    out
+    let dst = &mut dst[y as usize * stride..];
+    if (w, h) == (sw, sh) {
+        for (line, out) in src.chunks_exact(srow).zip(dst.chunks_mut(stride)) {
+            out[at..at + srow].copy_from_slice(line);
+        }
+        return;
+    }
+    // The two source indices around output index `c`'s centre (`n` outputs over `s` inputs); one when not shrunk.
+    let near = |c: usize, n: usize, s: usize| {
+        let i = (((2 * c + 1) * s).saturating_sub(n) / (2 * n)).min(s - 1);
+        (i, if s > n { (i + 1).min(s - 1) } else { i })
+    };
+    let cols: Vec<(usize, usize)> = (0..w).map(|c| near(c, w, sw)).map(|(i, j)| (i * 4, j * 4)).collect();
+    for (r, out) in dst.chunks_mut(stride).take(h).enumerate() {
+        let (i, j) = near(r, h, sh);
+        let (a, b) = (&src[i * srow..][..srow], &src[j * srow..][..srow]);
+        for (o, &(c0, c1)) in out[at..at + w * 4].as_chunks_mut::<4>().0.iter_mut().zip(&cols) {
+            for k in 0..4 {
+                let sum = u16::from(a[c0 + k]) + u16::from(a[c1 + k]) + u16::from(b[c0 + k]) + u16::from(b[c1 + k]);
+                o[k] = ((sum + 2) / 4) as u8;
+            }
+        }
+    }
 }
 
 /// How many frames should have been written `elapsed` after the start, at `FPS`; frame 0 is due at once.
@@ -329,6 +343,13 @@ mod tests {
         assert!(w >= 1 && h >= 1);
     }
 
+    /// `compose_into` on a canvas dirtied first, so every test also checks that nothing old is left.
+    fn compose(src: &[u8], src_size: (u32, u32), dst_size: (u32, u32)) -> Vec<u8> {
+        let mut out = vec![7u8; (dst_size.0 * dst_size.1 * 4) as usize];
+        compose_into(src, src_size, &mut out, dst_size);
+        out
+    }
+
     #[test]
     fn compose_same_size_is_identity() {
         let src: Vec<u8> = (0..2 * 2 * 4).map(|i| i as u8).collect();
@@ -354,7 +375,31 @@ mod tests {
         let out = compose(&src, (4, 2), (2, 2)); // fits as 2×1 at y = 0
         assert_eq!(out.len(), 2 * 2 * 4);
         assert_eq!(&out[2 * 4..], [0, 0, 0, 255, 0, 0, 0, 255]); // row 1 black
-        assert!(out[..2 * 4].iter().all(|&b| b > 200)); // row 0 white-ish
+        assert_eq!(&out[..2 * 4], [255; 8]); // row 0 white
+    }
+
+    #[test]
+    fn compose_shrinks_taller_with_pillarbox_averaging_2x2() {
+        // 2×4: left column [0,0,200,255], right column [100,0,0,255]; fits 4×2 as 1×2 at x = 1.
+        let src: Vec<u8> = [0u8, 0, 200, 255, 100, 0, 0, 255].repeat(4);
+        let out = compose(&src, (2, 4), (4, 2));
+        let px = |x: usize, y: usize| &out[(y * 4 + x) * 4..(y * 4 + x) * 4 + 4];
+        for y in 0..2 {
+            assert_eq!(px(0, y), [0, 0, 0, 255]);
+            assert_eq!(px(1, y), [50, 0, 100, 255]);
+            assert_eq!(px(2, y), [0, 0, 0, 255]);
+            assert_eq!(px(3, y), [0, 0, 0, 255]);
+        }
+    }
+
+    #[test]
+    fn compose_halves_by_averaging_each_2x2_block() {
+        // 4×2 → 2×1: each output pixel is the mean of one 2×2 block.
+        let row0 = [10u8, 20, 30, 255, 30, 40, 50, 255, 0, 0, 0, 255, 200, 200, 200, 255];
+        let row1 = [10u8, 20, 30, 255, 30, 40, 50, 255, 0, 0, 0, 255, 200, 200, 200, 255];
+        let src = [row0, row1].concat();
+        let out = compose(&src, (4, 2), (2, 2));
+        assert_eq!(&out[..8], [20, 30, 40, 255, 100, 100, 100, 255]);
     }
 
     #[test]
