@@ -230,10 +230,10 @@
     pointer;
 }
 
-/* Window pick while recording: a video camera. */
+/* Window pick while recording: a video camera with a red record dot. */
 @utility cursor-record {
   cursor:
-    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><rect x='3' y='8' width='16' height='12' rx='2.5' fill='%23222' stroke='white' stroke-width='1.5'/><path d='M19 12.5l6-3.5v10l-6-3.5z' fill='%23222' stroke='white' stroke-width='1.5' stroke-linejoin='round'/></svg>")
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><rect x='3' y='8' width='16' height='12' rx='2.5' fill='%23222' stroke='white' stroke-width='1.5'/><path d='M19 12.5l6-3.5v10l-6-3.5z' fill='%23222' stroke='white' stroke-width='1.5' stroke-linejoin='round'/><circle cx='11' cy='14' r='3' fill='%23ff3b30'/></svg>")
       14 14,
     pointer;
 }
