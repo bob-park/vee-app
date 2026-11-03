@@ -47,6 +47,7 @@ export const ko: Dict = {
   },
   record: {
     failed: '화면을 녹화하지 못했어요',
+    title: '스크린 녹화',
     converting: (f: string) => `${f} 변환 중…`,
     unsupported: '화면 녹화는 macOS 15 / Windows 10 2004 이상에서 쓸 수 있어요',
     needsFfmpeg: '화면 녹화에는 FFmpeg가 필요해요',

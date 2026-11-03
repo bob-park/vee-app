@@ -32,7 +32,7 @@ function convertLines(note: ConvertNote, t: Dict): [string, string | null] {
     case 'recordNeedsFfmpeg':
       return [t.record.needsFfmpeg, t.record.needsFfmpegHint];
     case 'recordConverting':
-      return [t.record.converting(formatLabel(note.format)), null];
+      return [t.record.title, t.record.converting(formatLabel(note.format))];
   }
 }
 
