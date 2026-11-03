@@ -41,6 +41,9 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const RECORDER: &str = "recorder";
+/// How often the pill is told where the cursor is (macOS, for its tooltips).
+#[cfg(target_os = "macos")]
+const POINTER_MS: u64 = 50;
 /// The dashed border around the area being recorded, over a dimmed rest of its monitor.
 pub const FRAME: &str = "recframe";
 /// Windows: the start sound is over by then (0.34 s), so it isn't recorded; the overlay is gone too.
@@ -501,8 +504,31 @@ fn show_pill(app: &AppHandle, monitor: &MonitorInfo) {
         let (w, h) = (size.width as f64 / k, size.height as f64 / k);
         let r = window::Rect { x: work.x + (work.w - w) / 2.0, y: work.y + work.h - h - PILL_BOTTOM * unit, w, h };
         let _ = window::place(&pill, r);
+        #[cfg(target_os = "macos")]
+        follow_pointer(app.clone(), r);
     }
     let _ = pill.show();
+}
+
+/// macOS gives a window that isn't key no mouse moves, so the pill never sees a hover. While it is up, this
+/// sends it the cursor (pill-local px, null when outside) for its tooltips.
+#[cfg(target_os = "macos")]
+fn follow_pointer(app: AppHandle, r: window::Rect) {
+    std::thread::spawn(move || {
+        let mut last = None;
+        loop {
+            std::thread::sleep(Duration::from_millis(POINTER_MS));
+            let Some(pill) = app.get_webview_window(RECORDER).filter(|p| p.is_visible().unwrap_or(false)) else { return };
+            let at = window::cursor_at(&app)
+                .map(|(x, y)| (x - r.x, y - r.y))
+                .filter(|&(x, y)| (0.0..r.w).contains(&x) && (0.0..r.h).contains(&y))
+                .map(|(x, y)| geometry::Point { x, y });
+            if at != last {
+                let _ = pill.emit("recorder://pointer", at);
+                last = at;
+            }
+        }
+    });
 }
 
 /// Covers the monitor: dims all but the recorded `area` (monitor-local logical px) and dashes its edge.

@@ -7,6 +7,8 @@ import { formatElapsed, gifRemaining } from '@/utils/recording';
 
 import { listen } from '@tauri-apps/api/event';
 
+type Tip = 'stop' | 'cancel';
+
 /** How often the timer redraws; under a second so it never skips one. */
 const TICK_MS = 250;
 
@@ -15,6 +17,8 @@ export default function RecorderApp() {
   // state
   const [started, setStarted] = useState<RecorderStarted | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  /** The button under the mouse, for its tooltip. */
+  const [tip, setTip] = useState<Tip | null>(null);
 
   // hooks
   const r = useI18n().t.record;
@@ -29,9 +33,15 @@ export default function RecorderApp() {
     });
     // Rust hid the pill (stop, cancel, GIF limit): drop the timer so it never shows this recording again.
     const offStopped = listen('recorder://stopped', () => setStarted(null));
+    // macOS: the pill isn't the key window, so it gets no hover; Rust sends the cursor instead.
+    const offPointer = listen<{ x: number; y: number } | null>('recorder://pointer', (e) => {
+      const el = e.payload && document.elementFromPoint(e.payload.x, e.payload.y)?.closest<HTMLElement>('[data-tip]');
+      setTip((el?.dataset.tip as Tip | undefined) ?? null);
+    });
     return () => {
       void off.then((fn) => fn());
       void offStopped.then((fn) => fn());
+      void offPointer.then((fn) => fn());
     };
   }, []);
 
@@ -51,6 +61,13 @@ export default function RecorderApp() {
     setStarted(null);
     void cancelRecording();
   };
+
+  const tipFor = (key: Tip, label: string) => ({
+    'data-tip': key,
+    'aria-label': label,
+    onPointerEnter: () => setTip(key),
+    onPointerLeave: () => setTip(null),
+  });
 
   if (!started) return null;
   const elapsed = now - started.startedMs;
@@ -76,26 +93,38 @@ export default function RecorderApp() {
         )}
         <span className="bg-base-300 mx-0.5 h-4.5 w-px" aria-hidden />
         <button
-          className="bg-rec grid size-7.5 place-items-center rounded-full text-white hover:brightness-108"
-          aria-label={r.stop}
-          title={r.stop}
+          className="bg-rec relative grid size-7.5 place-items-center rounded-full text-white hover:brightness-108"
+          {...tipFor('stop', r.stop)}
           onClick={handleStop}
         >
+          {tip === 'stop' && <Tooltip label={r.stop} />}
           <svg className="size-4" viewBox="0 0 24 24" aria-hidden>
             <rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" />
           </svg>
         </button>
         <button
-          className="hover:bg-subtle grid size-7.5 place-items-center rounded-full"
-          aria-label={r.cancel}
-          title={r.cancel}
+          className="hover:bg-subtle relative grid size-7.5 place-items-center rounded-full"
+          {...tipFor('cancel', r.cancel)}
           onClick={handleCancel}
         >
+          {tip === 'cancel' && <Tooltip label={r.cancel} />}
           <svg className="size-4" viewBox="0 0 24 24" aria-hidden>
             <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth={2} strokeLinecap="round" fill="none" />
           </svg>
         </button>
       </div>
     </div>
+  );
+}
+
+/** Above the button, in the panel toolbar's tip style; the window leaves room for it above the pill. */
+function Tooltip({ label }: { label: string }) {
+  return (
+    <span
+      className="bg-tip pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 rounded-lg px-2 py-1 text-[11px] whitespace-nowrap text-white"
+      aria-hidden
+    >
+      {label}
+    </span>
   );
 }
