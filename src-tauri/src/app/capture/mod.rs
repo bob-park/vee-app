@@ -10,7 +10,7 @@ use crate::{
     domain::settings,
     shared::error::{AppError, AppResult},
 };
-use geometry::{MonitorInfo, RectF, Selection};
+use geometry::{MonitorInfo, Point, RectF, Selection};
 use serde::Serialize;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -40,6 +40,8 @@ pub struct OpenPayload {
     mode: Mode,
     monitor: MonitorInfo,
     windows: Vec<WinInfo>,
+    /// Where the mouse is, if on this monitor: the window under it is tinted before it moves.
+    cursor: Option<Point>,
 }
 
 /// One monitor's overlay in a session.
@@ -171,6 +173,7 @@ pub fn open(app: &AppHandle, mode: Mode) -> bool {
     }
     let Ok(monitors) = app.available_monitors() else { return false };
     let cursor = window::cursor_monitor(app).map(|m| *m.position());
+    let pointer = window::cursor_at(app);
     let mut overlays = Vec::new();
     let mut focus = None;
     for (index, m) in monitors.iter().enumerate() {
@@ -190,7 +193,8 @@ pub fn open(app: &AppHandle, mode: Mode) -> bool {
         if focus.is_none() || cursor == Some(*pos) {
             focus = Some(label.clone());
         }
-        let payload = OpenPayload { mode, monitor, windows: window_list::list(&monitor) };
+        let at = pointer.and_then(|p| geometry::local_cursor(p, &monitor, window::USES_POINTS));
+        let payload = OpenPayload { mode, monitor, windows: window_list::list(&monitor), cursor: at };
         overlays.push(Overlay { label, origin: (pos.x, pos.y), payload, claimed: false });
     }
     // A monitor that went away leaves its overlay behind: drop it.
@@ -335,7 +339,7 @@ mod tests {
         let overlay = |label: &str| Overlay {
             label: label.into(),
             origin: if label == "capture" { (0, 0) } else { (1920, 0) },
-            payload: OpenPayload { mode: Mode::Capture, monitor, windows: Vec::new() },
+            payload: OpenPayload { mode: Mode::Capture, monitor, windows: Vec::new(), cursor: None },
             claimed: false,
         };
         Some(Session { generation, overlays: vec![overlay("capture"), overlay("capture-1")], focus: "capture-1".into(), prev_app: None })

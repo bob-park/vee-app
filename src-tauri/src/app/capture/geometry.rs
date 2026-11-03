@@ -13,6 +13,21 @@ pub struct MonitorInfo {
     pub scale: f64,
 }
 
+/// A point in monitor-local logical px.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// The cursor (positioning space: points when `points`, else physical px) on monitor `m`, monitor-local;
+/// `None` when it is on another monitor.
+pub fn local_cursor((cx, cy): (f64, f64), m: &MonitorInfo, points: bool) -> Option<Point> {
+    let k = if points { 1.0 } else { m.scale };
+    let (x, y) = (cx / k - m.x, cy / k - m.y);
+    (x >= 0.0 && y >= 0.0 && x < m.width && y < m.height).then_some(Point { x, y })
+}
+
 /// What the user picked in the overlay. A rect is in monitor-local logical px.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -39,6 +54,14 @@ pub fn to_physical(r: RectF, m: &MonitorInfo) -> (i32, i32, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cursor_is_local_to_its_monitor_only() {
+        let m = MonitorInfo { x: 1440.0, y: 0.0, width: 1920.0, height: 1080.0, scale: 2.0 };
+        assert_eq!(local_cursor((1500.0, 30.0), &m, true), Some(Point { x: 60.0, y: 30.0 }));
+        assert_eq!(local_cursor((3000.0, 60.0), &m, false), Some(Point { x: 60.0, y: 30.0 }), "physical px on Windows");
+        assert_eq!(local_cursor((100.0, 30.0), &m, true), None);
+    }
 
     #[test]
     fn to_physical_scales_and_offsets() {

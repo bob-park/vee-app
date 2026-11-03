@@ -74,7 +74,8 @@ export default function CaptureApp() {
         windowModeRef.current = false;
         setOpen(session);
         setWindowMode(false);
-        setPointer(null);
+        // Known before the mouse moves, so Space tints the window under it at once.
+        setPointer(session.cursor);
         setDragFrom(null);
         setPending(null);
         setPicked(null);
@@ -111,8 +112,12 @@ export default function CaptureApp() {
         void cancelCapture();
       } else if (e.code === 'Space' && !e.repeat && openRef.current) {
         e.preventDefault();
-        // To every monitor's overlay, this one included.
-        void emit('capture://mode', !windowModeRef.current);
+        // Here at once, then to every other monitor's overlay (this one gets it too, unchanged).
+        const next = !windowModeRef.current;
+        windowModeRef.current = next;
+        setDragFrom(null);
+        setWindowMode(next);
+        void emit('capture://mode', next);
       }
     };
     window.addEventListener('keydown', onKey);

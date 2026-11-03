@@ -35,6 +35,8 @@ export interface CaptureOpen {
   mode: CaptureMode;
   monitor: MonitorInfo;
   windows: WinInfo[];
+  /** Where the mouse is, if on this monitor. */
+  cursor: Point | null;
 }
 
 /** The `recorder://started` payload and `get_recorder_state`; mirrors Rust `recorder::Started`. */
