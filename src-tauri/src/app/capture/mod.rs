@@ -10,7 +10,7 @@ use crate::{
     domain::settings,
     shared::error::{AppError, AppResult},
 };
-use geometry::{MonitorInfo, Selection};
+use geometry::{MonitorInfo, RectF, Selection};
 use serde::Serialize;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -74,6 +74,14 @@ fn source_pid(selection: &Selection, windows: &[WinInfo]) -> Option<u32> {
     match selection {
         Selection::Rect { .. } => None,
         Selection::Window { id } => windows.iter().find(|w| w.id == *id).map(|w| w.pid),
+    }
+}
+
+/// The recorded area in monitor-local logical px: the drawn rect, or the picked window's frame.
+fn selection_rect(selection: &Selection, windows: &[WinInfo]) -> Option<RectF> {
+    match *selection {
+        Selection::Rect { x, y, width, height } => Some((x, y, width, height)),
+        Selection::Window { id } => windows.iter().find(|w| w.id == id).map(|w| (w.x, w.y, w.width, w.height)),
     }
 }
 
@@ -147,9 +155,11 @@ fn close(app: &AppHandle) -> Option<Session> {
     session
 }
 
-/// Closes a claimed record session for the recording to start; its monitor.
-pub(crate) fn take_record(app: &AppHandle) -> Option<MonitorInfo> {
-    close(app).filter(|s| s.ready && s.payload.mode == Mode::Record).map(|s| s.payload.monitor)
+/// Closes a claimed record session for the recording to start; its monitor and the area `selection` covers.
+pub(crate) fn take_record(app: &AppHandle, selection: &Selection) -> Option<(MonitorInfo, Option<RectF>)> {
+    close(app)
+        .filter(|s| s.ready && s.payload.mode == Mode::Record)
+        .map(|s| (s.payload.monitor, selection_rect(selection, &s.payload.windows)))
 }
 
 fn capture(app: &AppHandle, selection: Selection) -> AppResult<()> {
@@ -239,6 +249,13 @@ mod tests {
         let windows = [win];
         assert_eq!(source_pid(&Selection::Window { id: 7 }, &windows), Some(42));
         assert_eq!(source_pid(&Selection::Window { id: 8 }, &windows), None);
+        assert_eq!(
+            selection_rect(&Selection::Window { id: 7 }, &windows),
+            Some((windows[0].x, windows[0].y, windows[0].width, windows[0].height))
+        );
+        assert_eq!(selection_rect(&Selection::Window { id: 8 }, &windows), None);
+        let drawn = Selection::Rect { x: 1.0, y: 2.0, width: 3.0, height: 4.0 };
+        assert_eq!(selection_rect(&drawn, &windows), Some((1.0, 2.0, 3.0, 4.0)));
         assert_eq!(source_pid(&Selection::Rect { x: 0.0, y: 0.0, width: 5.0, height: 5.0 }, &windows), None);
     }
 }

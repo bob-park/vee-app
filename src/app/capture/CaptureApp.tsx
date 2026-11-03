@@ -11,6 +11,7 @@ import { normalizeRect, windowAt } from '@/utils/captureSelection';
 import { initialFormat, needsFfmpeg } from '@/utils/recording';
 
 import { listen } from '@tauri-apps/api/event';
+import cx from 'classnames';
 
 /** Room between the selection and its size label. */
 const LABEL_GAP = 6;
@@ -169,22 +170,29 @@ export default function CaptureApp() {
   const labelBelow = hole && hole.y + hole.height + LABEL_GAP + 24 < height;
   return (
     <div
-      className="fixed inset-0 cursor-crosshair select-none"
+      className={cx('fixed inset-0 select-none', windowMode ? 'cursor-camera' : 'cursor-crosshair')}
       onPointerDown={handlePointerDown}
       onPointerMove={(e) => setPointer(point(e))}
       onPointerUp={handlePointerUp}
     >
       <svg className="absolute inset-0 size-full" aria-hidden>
-        <path className="fill-black/35" fillRule="evenodd" d={`M0 0H${width}V${height}H0Z${holePath}`} />
-        {hole && (
-          <rect
-            className="stroke-primary fill-none"
-            strokeWidth={windowMode ? 3 : 1}
-            x={hole.x}
-            y={hole.y}
-            width={hole.width}
-            height={hole.height}
-          />
+        {windowMode ? (
+          // Like macOS: the screen stays as it is and only the window to be taken is tinted.
+          hole && <rect className="fill-pick" x={hole.x} y={hole.y} width={hole.width} height={hole.height} />
+        ) : (
+          <>
+            <path className="fill-black/35" fillRule="evenodd" d={`M0 0H${width}V${height}H0Z${holePath}`} />
+            {hole && (
+              <rect
+                className="stroke-primary fill-none"
+                strokeWidth={1}
+                x={hole.x}
+                y={hole.y}
+                width={hole.width}
+                height={hole.height}
+              />
+            )}
+          </>
         )}
       </svg>
       {hole && !windowMode && (

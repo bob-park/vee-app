@@ -77,6 +77,23 @@
         "height": 88
       },
       {
+        "label": "recframe",
+        "create": false,
+        "title": "Vee",
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "focus": false,
+        "focusable": false,
+        "visibleOnAllWorkspaces": true,
+        "width": 100,
+        "height": 100
+      },
+      {
         "label": "convert",
         "create": false,
         "title": "Vee",

@@ -6,6 +6,7 @@ import CaptureApp from '@/app/capture/CaptureApp';
 import ConvertApp from '@/app/convert/ConvertApp';
 import { EditorApp } from '@/app/editor/EditorApp';
 import { PanelApp } from '@/app/panel/PanelApp';
+import RecFrameApp from '@/app/recorder/RecFrameApp';
 import RecorderApp from '@/app/recorder/RecorderApp';
 import { SettingsApp } from '@/app/settings/SettingsApp';
 import { ToastApp } from '@/app/toast/ToastApp';
@@ -39,7 +40,9 @@ const View =
               ? CaptureApp
               : label === 'recorder'
                 ? RecorderApp
-                : SettingsApp;
+                : label === 'recframe'
+                  ? RecFrameApp
+                  : SettingsApp;
 
 // Seed settings before the first paint so there is no flash of the wrong theme or language.
 // On failure the query fetches (and retries) on mount instead.

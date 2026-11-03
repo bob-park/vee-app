@@ -197,6 +197,8 @@
   --color-rec: var(--vee-rec);
   /* Second stop of the CTA/link gradient (primary → sky); one value reads on both themes. */
   --color-sky: #5fc3ff;
+  /* The window under the cursor in the capture overlay's window mode, tinted like macOS ⌘⇧4 → Space. */
+  --color-pick: rgb(64 140 255 / 0.38);
   /* Theme picker thumbnails: fixed per depicted theme, so they read the same in either app theme. */
   --color-preview-light: #f6f5fb;
   --color-preview-dark: #121318;
@@ -218,6 +220,14 @@
   --color-placeholder: darkgray;
   --shadow-suggest: rgba(0, 0, 0, 0.12) 0 8px 24px;
   --shadow-toast: var(--vee-toast-shadow);
+}
+
+/* The capture overlay's window mode: a camera, like macOS ⌘⇧4 → Space. */
+@utility cursor-camera {
+  cursor:
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><path d='M4 9.5A2.5 2.5 0 0 1 6.5 7h3l1.6-2.2h5.8L18.5 7h3A2.5 2.5 0 0 1 24 9.5v10a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 4 19.5z' fill='%23222' stroke='white' stroke-width='1.5'/><circle cx='14' cy='14.3' r='4.2' fill='none' stroke='white' stroke-width='1.6'/></svg>")
+      14 14,
+    pointer;
 }
 
 /*
@@ -517,7 +527,8 @@
   html[data-window='toast'] body,
   html[data-window='convert'] body,
   html[data-window='capture'] body,
-  html[data-window='recorder'] body {
+  html[data-window='recorder'] body,
+  html[data-window='recframe'] body {
     background: transparent;
   }
 

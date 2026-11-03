@@ -19,7 +19,7 @@ use crate::{
     app::{
         capture::{
             self, Mode,
-            geometry::{MonitorInfo, Selection},
+            geometry::{self, MonitorInfo, RectF, Selection},
         },
         convert::ConvertNote,
         engines, screen_access, sound,
@@ -41,6 +41,10 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const RECORDER: &str = "recorder";
+/// The dashed border around the area being recorded.
+pub const FRAME: &str = "recframe";
+/// How far the border sits outside the recorded area, in logical px, so it never falls inside it.
+const FRAME_OUTSET: f64 = 3.0;
 /// The start sound is over by then (0.34 s), so it isn't recorded; the overlay is gone too.
 const START_DELAY_MS: u64 = 400;
 /// The pill window's gap above the bottom of the work area, in design points. The window is taller than
@@ -202,8 +206,10 @@ fn dispatch(app: &AppHandle, ev: Event) {
             }
         }
         (Action::StopEngine | Action::CancelEngine, Some(running), Phase::Recording { session, format, .. }) => {
-            if let Some(pill) = app.get_webview_window(RECORDER) {
-                let _ = pill.hide();
+            for label in [RECORDER, FRAME] {
+                if let Some(w) = app.get_webview_window(label) {
+                    let _ = w.hide();
+                }
             }
             // The hidden pill drops its timer, so it never shows this recording's time when shown again.
             let _ = app.emit_to(RECORDER, "recorder://stopped", ());
@@ -323,8 +329,9 @@ fn start(app: &AppHandle, selection: Selection, format: &str) -> AppResult<()> {
     let Phase::Selecting { session } = phase(app) else {
         return Err(AppError::InvalidInput("not selecting a recording".into()));
     };
-    let monitor = capture::take_record(app).ok_or_else(|| AppError::InvalidInput("record overlay is not open".into()))?;
-    begin(app, session, &monitor, &selection, format)
+    let (monitor, area) =
+        capture::take_record(app, &selection).ok_or_else(|| AppError::InvalidInput("record overlay is not open".into()))?;
+    begin(app, session, &monitor, &selection, area, format)
 }
 
 /// Ends the start of `session`: `shutdown` may stop waiting.
@@ -336,7 +343,14 @@ fn end_start(r: &Recorder, g: &mut Inner, session: u64) {
 }
 
 /// The start once the overlay is closed: the start sound, the engine, the pill and the GIF timer.
-fn begin(app: &AppHandle, session: u64, monitor: &MonitorInfo, selection: &Selection, format: Format) -> AppResult<()> {
+fn begin(
+    app: &AppHandle,
+    session: u64,
+    monitor: &MonitorInfo,
+    selection: &Selection,
+    area: Option<RectF>,
+    format: Format,
+) -> AppResult<()> {
     let r = app.state::<Recorder>();
     {
         let mut g = r.inner.lock().unwrap();
@@ -409,6 +423,9 @@ fn begin(app: &AppHandle, session: u64, monitor: &MonitorInfo, selection: &Selec
     // Before `show_pill`, so the pill never shows with a previous recording's time.
     let _ = app.emit_to(RECORDER, "recorder://started", Started { started_ms, format, limit_ms });
     show_pill(app, monitor);
+    if let Some(area) = area {
+        show_frame(app, monitor, area);
+    }
     if let Some(limit) = limit_ms {
         let app = app.clone();
         std::thread::spawn(move || {
@@ -427,11 +444,11 @@ fn started(app: &AppHandle) -> Option<Started> {
     }
 }
 
-/// Windows: keeps the overlay and the pill out of every capture and recording.
+/// Windows: keeps the overlay, the pill and the border out of every capture and recording.
 /// macOS needs nothing: ScreenCaptureKit leaves out Vee's own windows.
 pub fn exclude_from_capture(app: &AppHandle) {
     #[cfg(windows)]
-    for label in [capture::CAPTURE, RECORDER] {
+    for label in [capture::CAPTURE, RECORDER, FRAME] {
         use ::windows::Win32::{
             Foundation::HWND,
             UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE},
@@ -464,6 +481,16 @@ fn show_pill(app: &AppHandle, monitor: &MonitorInfo) {
         let _ = window::place(&pill, r);
     }
     let _ = pill.show();
+}
+
+/// The dashed border just outside the recorded `area`; clicks pass through it.
+fn show_frame(app: &AppHandle, monitor: &MonitorInfo, (x, y, w, h): RectF) {
+    let Some(frame) = app.get_webview_window(FRAME) else { return };
+    let o = FRAME_OUTSET;
+    let (px, py, pw, ph) = geometry::to_physical((x - o, y - o, w + 2.0 * o, h + 2.0 * o), monitor);
+    let _ = window::place(&frame, window::rect_from((px, py), (pw, ph), monitor.scale, window::USES_POINTS));
+    let _ = frame.set_ignore_cursor_events(true);
+    let _ = frame.show();
 }
 
 /// The local time as `(year, month, day, hour, minute, second)`, Gregorian, 24-hour.
