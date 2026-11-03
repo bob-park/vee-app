@@ -526,7 +526,7 @@
   html[data-window='panel'] body,
   html[data-window='toast'] body,
   html[data-window='convert'] body,
-  html[data-window='capture'] body,
+  html[data-window^='capture'] body,
   html[data-window='recorder'] body,
   html[data-window='recframe'] body {
     background: transparent;
