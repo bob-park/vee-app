@@ -103,9 +103,9 @@ impl ToastPayload {
         Self { ok: false, kind: Kind::Text, text: None, files: 0, plain: false, convert: None, pins_fit: None, drag_missing: false }
     }
 
-    /// A convert note; `ok` only for a saved file.
+    /// A convert note; `ok` for a saved file or one still converting.
     pub(crate) fn convert(note: ConvertNote, kind: Kind) -> Self {
-        let ok = matches!(note, ConvertNote::Saved { .. } | ConvertNote::RecordFolderMissing { .. });
+        let ok = matches!(note, ConvertNote::Saved { .. } | ConvertNote::RecordFolderMissing { .. } | ConvertNote::RecordConverting { .. });
         Self { ok, kind, text: None, files: 0, plain: false, convert: Some(note), pins_fit: None, drag_missing: false }
     }
 
@@ -559,11 +559,16 @@ pub(crate) fn show_toast(app: &AppHandle, payload: ToastPayload) {
         });
         let _ = place(&toast, toast_rect(work, unit, pinned));
     }
+    // A conversion in progress has no end to time: the result's toast replaces it.
+    let hold = matches!(payload.convert, Some(ConvertNote::RecordConverting { .. }));
     let _ = app.emit_to(TOAST, "toast://show", payload);
     let _ = toast.set_ignore_cursor_events(true);
     let _ = toast.show();
 
     let generation = TOAST_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    if hold {
+        return;
+    }
     let app = app.clone();
     std::thread::spawn(move || {
         // A newer toast restarted the timer; let it run the exit and hide the window.

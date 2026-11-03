@@ -46,6 +46,7 @@ export const en = {
   },
   record: {
     failed: "Couldn't record the screen",
+    converting: (f: string) => `Converting to ${f}…`,
     unsupported: 'Screen recording needs macOS 15 or Windows 10 2004 or later',
     needsFfmpeg: 'Screen recording needs FFmpeg',
     needsFfmpegHint: 'Download it in Settings › Convert',

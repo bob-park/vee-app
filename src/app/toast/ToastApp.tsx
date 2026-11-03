@@ -31,6 +31,8 @@ function convertLines(note: ConvertNote, t: Dict): [string, string | null] {
       return [t.record.unsupported, null];
     case 'recordNeedsFfmpeg':
       return [t.record.needsFfmpeg, t.record.needsFfmpegHint];
+    case 'recordConverting':
+      return [t.record.converting(formatLabel(note.format)), null];
   }
 }
 
@@ -55,6 +57,8 @@ export function ToastApp() {
 
   if (!toast) return null;
   const p = toast.payload;
+  // Still working: no check badge until the result's toast.
+  const done = p.ok && p.convert?.type !== 'recordConverting';
   // The tile follows `ok` and `kind` for a conversion too (Rust sets them to match).
   const [title, summary] = p.convert
     ? convertLines(p.convert, t)
@@ -93,7 +97,7 @@ export function ToastApp() {
           {p.ok ? <KindIcon kind={p.kind} className="size-[22px]" /> : '!'}
           {/* Check badge on the icon's corner, ringed in the card colour. Two elements, because pop
               (transform) and ring (box-shadow) each need their own `animation`. */}
-          {p.ok && (
+          {done && (
             <span className="animate-ring absolute -right-[5px] -bottom-[5px] rounded-full [--ring-color:var(--color-success)]">
               <span className="animate-pop border-base-100 bg-success text-success-content flex size-[18px] items-center justify-center rounded-full border-2 text-[10px] font-extrabold [animation-delay:250ms]">
                 ✓

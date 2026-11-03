@@ -570,6 +570,7 @@ fn save(app: &AppHandle, recorded: AppResult<PathBuf>, format: Format) -> Conver
     let (dir, fell_back) = plan::resolve_folder(&setting, &downloads, Path::is_dir);
     let now = local_now();
     let file = if matches!(format, Format::Webm | Format::Gif) {
+        window::show_toast(app, ToastPayload::convert(ConvertNote::RecordConverting { format }, Kind::Files));
         match convert(app, &recorded, format) {
             Ok(p) => p,
             Err(error) => {

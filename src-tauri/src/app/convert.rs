@@ -2,8 +2,9 @@
 
 use crate::{
     app::{
+        ai,
         drop_target::{self, DropFolder},
-        ai, editor, engines, office,
+        editor, engines, office,
         state::{AppState, now_ms},
         window::{self, PANEL, Rect, ToastPayload, USES_POINTS},
     },
@@ -52,6 +53,10 @@ pub enum ConvertNote {
     RecordFolderMissing {
         format: Format,
         folder: String,
+    },
+    /// Shown while a stopped recording is converted to WEBM / GIF; it stays up until the result's toast.
+    RecordConverting {
+        format: Format,
     },
     RecordFailed,
     RecordUnsupported,

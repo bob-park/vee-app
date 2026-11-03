@@ -46,7 +46,8 @@ export type ConvertNote =
   | { type: 'recordFolderMissing'; format: Format; folder: string }
   | { type: 'recordFailed' }
   | { type: 'recordUnsupported' }
-  | { type: 'recordNeedsFfmpeg' };
+  | { type: 'recordNeedsFfmpeg' }
+  | { type: 'recordConverting'; format: Format };
 
 /** One conversion in the panel's job list; mirrors Rust `JobView`. */
 export interface ConvertJob {
