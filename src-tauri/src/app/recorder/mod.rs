@@ -6,9 +6,7 @@
 #[cfg(target_os = "macos")]
 mod mac;
 pub mod plan;
-// Used by win.rs (Task 3); remove the allow then.
 #[cfg(windows)]
-#[allow(dead_code)]
 mod wgc;
 #[cfg(windows)]
 mod win;
