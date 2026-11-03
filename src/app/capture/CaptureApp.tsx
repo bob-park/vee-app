@@ -20,6 +20,12 @@ const isMac = navigator.userAgent.includes('Mac');
 /** This overlay's window; there is one per monitor. */
 const me = getCurrentWindow();
 
+/** `capture://picked`: which overlay picked, and whether it picked a window. */
+interface PickedEvent {
+  label: string;
+  window: boolean;
+}
+
 /** A record-mode selection waiting for Record, with the rect it covers. */
 interface Pending {
   selection: Selection;
@@ -39,6 +45,8 @@ export default function CaptureApp() {
   const [pointer, setPointer] = useState<Point | null>(null);
   const [dragFrom, setDragFrom] = useState<Point | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
+  /** A window was picked for recording on some monitor: window mode stops picking until the overlay closes. */
+  const [windowPicked, setWindowPicked] = useState(false);
   /** The format picked in the pill; null until the user picks one. */
   const [picked, setPicked] = useState<RecordFormat | null>(null);
 
@@ -78,6 +86,7 @@ export default function CaptureApp() {
         setPointer(session.cursor);
         setDragFrom(null);
         setPending(null);
+        setWindowPicked(false);
         setPicked(null);
       });
     claim();
@@ -88,6 +97,7 @@ export default function CaptureApp() {
         openRef.current = null;
         setOpen(null);
         setPending(null);
+        setWindowPicked(false);
       }),
       listen<boolean>('capture://mode', (e) => {
         windowModeRef.current = e.payload;
@@ -95,8 +105,9 @@ export default function CaptureApp() {
         setWindowMode(e.payload);
       }),
       // One waiting record selection across the monitors.
-      listen<string>('capture://picked', (e) => {
-        if (e.payload !== me.label) setPending(null);
+      listen<PickedEvent>('capture://picked', (e) => {
+        if (e.payload.label !== me.label) setPending(null);
+        if (e.payload.window) setWindowPicked(true);
       }),
     ];
     return () => offs.forEach((off) => void off.then((fn) => fn()));
@@ -144,6 +155,7 @@ export default function CaptureApp() {
     setDragFrom(null);
     setPointer(null);
     setPending(null);
+    setWindowPicked(false);
   };
 
   const handleCancel = () => {
@@ -155,7 +167,8 @@ export default function CaptureApp() {
   const select = (selection: Selection, rect: Rect) => {
     if (openRef.current?.mode === 'record') {
       setPending({ selection, rect });
-      void emit('capture://picked', me.label);
+      // Reaches this overlay too, which locks window picking here as well.
+      void emit<PickedEvent>('capture://picked', { label: me.label, window: selection.kind === 'window' });
       return;
     }
     reset();
@@ -167,6 +180,7 @@ export default function CaptureApp() {
   const handlePointerDown = (e: PointerEvent) => {
     if (e.button !== 0 || !open) return;
     if (windowMode) {
+      if (windowPicked) return;
       const win = windowAt(open.windows, point(e));
       if (win) select({ kind: 'window', id: win.id }, win);
       return;
@@ -185,12 +199,12 @@ export default function CaptureApp() {
 
   // memorize
   const shapes = useMemo(() => {
-    const hover = open && pointer && windowMode ? windowAt(open.windows, pointer) : null;
+    const hover = open && pointer && windowMode && !windowPicked ? windowAt(open.windows, pointer) : null;
     const drag = dragFrom && pointer ? normalizeRect(dragFrom, pointer) : null;
     // Only what shows of the window is tinted: the parts in front of it aren't taken.
     const covered = open && hover ? coveredParts(open.windows, hover) : [];
     return { ...overlayShapes(windowMode, hover, drag, pending?.rect ?? null), covered };
-  }, [open, pointer, windowMode, dragFrom, pending]);
+  }, [open, pointer, windowMode, windowPicked, dragFrom, pending]);
 
   if (!open) return null;
   const r = t.record;
@@ -203,7 +217,13 @@ export default function CaptureApp() {
     <div
       className={cx(
         'fixed inset-0 select-none',
-        !windowMode ? 'cursor-crosshair' : open?.mode === 'record' ? 'cursor-record' : 'cursor-camera',
+        !windowMode
+          ? 'cursor-crosshair'
+          : windowPicked
+            ? 'cursor-default'
+            : open.mode === 'record'
+              ? 'cursor-record'
+              : 'cursor-camera',
       )}
       onPointerDown={handlePointerDown}
       onPointerMove={(e) => setPointer(point(e))}
