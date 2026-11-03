@@ -258,11 +258,16 @@ fn close(app: &AppHandle) -> Option<Session> {
     session
 }
 
-/// Closes a claimed record session for the recording to start; the monitor of overlay `label` and the area
-/// `selection` covers on it.
-pub(crate) fn take_record(app: &AppHandle, label: &str, selection: &Selection) -> Option<(MonitorInfo, Option<RectF>)> {
-    let session = close(app)?;
-    let overlay = session.overlay(label).filter(|o| o.claimed && o.payload.mode == Mode::Record)?;
+/// Hides the overlays: the recorder, once its frame is up.
+pub(crate) fn close_overlays(app: &AppHandle) {
+    close(app);
+}
+
+/// The monitor of record overlay `label` and the area `selection` covers on it. The overlay stays up: the
+/// recorder closes it (`close_overlays`) once its own frame is on screen, so nothing blinks in between.
+pub(crate) fn record_target(label: &str, selection: &Selection) -> Option<(MonitorInfo, Option<RectF>)> {
+    let slot = SESSION.lock().unwrap();
+    let overlay = slot.as_ref()?.overlay(label).filter(|o| o.claimed && o.payload.mode == Mode::Record)?;
     Some((overlay.payload.monitor, selection_rect(selection, &overlay.payload.windows)))
 }
 

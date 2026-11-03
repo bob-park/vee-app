@@ -340,6 +340,8 @@
   --animate-bob: bob 1.6s ease-in-out infinite;
   /* The recording dot's pulse: a --color-rec ring that fades out (box-shadow, like `ring`). */
   --animate-rec-pulse: rec-pulse 1.4s ease-out infinite;
+  /* The recording frame fades in as the capture overlay fades out (recorder `CROSSFADE_MS`). */
+  --animate-fade-in: fade-in 150ms ease-out backwards;
   /* The update pill hops until hovered; ~7px so the panel's 10px top padding never clips it. Same timing for its shadow. */
   --animate-jump: jump 1.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
   --animate-jump-shadow: jump-shadow 1.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
@@ -428,6 +430,12 @@
     }
     66% {
       transform: translate(-15px, 10px) scale(0.95);
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
     }
   }
 

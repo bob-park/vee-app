@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { listen } from '@tauri-apps/api/event';
+import cx from 'classnames';
 
 /** How far the border sits outside the recorded area, so it never falls inside it. */
 const OUTSET = 3;
@@ -12,10 +13,16 @@ const OUTSET = 3;
 export default function RecFrameApp() {
   // state
   const [area, setArea] = useState<[number, number, number, number] | null>(null);
+  /** False once the recording ends: the frame fades out, then Rust hides the window. */
+  const [shown, setShown] = useState(false);
 
   // useEffect
   useEffect(() => {
-    const off = listen<[number, number, number, number]>('recframe://area', (e) => setArea(e.payload));
+    // Null once the recording ends. The old area stays drawn but transparent, so the next show never flashes it.
+    const off = listen<[number, number, number, number] | null>('recframe://area', (e) => {
+      setShown(e.payload !== null);
+      if (e.payload) setArea(e.payload);
+    });
     return () => void off.then((fn) => fn());
   }, []);
 
@@ -23,7 +30,15 @@ export default function RecFrameApp() {
   const [x, y, w, h] = area;
   const o = OUTSET;
   return (
-    <svg className="fixed inset-0 size-full" aria-hidden>
+    // A new area remounts, which runs the fade in again.
+    <svg
+      key={area.join()}
+      className={cx(
+        'animate-fade-in fixed inset-0 size-full transition-opacity duration-150 motion-reduce:animate-none motion-reduce:transition-none',
+        !shown && 'opacity-0',
+      )}
+      aria-hidden
+    >
       <path
         className="fill-black/35"
         fillRule="evenodd"

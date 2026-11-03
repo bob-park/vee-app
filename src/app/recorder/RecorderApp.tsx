@@ -6,6 +6,7 @@ import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { formatElapsed, gifRemaining } from '@/utils/recording';
 
 import { listen } from '@tauri-apps/api/event';
+import cx from 'classnames';
 
 type Tip = 'stop' | 'cancel';
 
@@ -75,7 +76,7 @@ export default function RecorderApp() {
   return (
     <div className="flex h-screen items-center justify-center">
       {/* Solid, not glass: it floats over any desktop and must be read (aurora-glass §3). */}
-      <div className="bg-card border-toast-border text-base-content shadow-toast flex items-center gap-1.5 rounded-full border p-1.5">
+      <div className="bg-card border-toast-border text-base-content shadow-toast animate-fade-in flex items-center gap-1.5 rounded-full border p-1.5 motion-reduce:animate-none">
         <span className="bg-rec animate-rec-pulse ml-2 size-2.25 rounded-full" aria-hidden />
         <span className="min-w-11 text-[13px] font-semibold tabular-nums" role="timer">
           {formatElapsed(elapsed)}
@@ -93,21 +94,21 @@ export default function RecorderApp() {
         )}
         <span className="bg-base-300 mx-0.5 h-4.5 w-px" aria-hidden />
         <button
-          className="bg-rec relative grid size-7.5 place-items-center rounded-full text-white hover:brightness-108"
+          className="bg-rec relative grid size-7.5 cursor-pointer place-items-center rounded-full text-white hover:brightness-108"
           {...tipFor('stop', r.stop)}
           onClick={handleStop}
         >
-          {tip === 'stop' && <Tooltip label={r.stop} />}
+          <Tooltip label={r.stop} shown={tip === 'stop'} />
           <svg className="size-4" viewBox="0 0 24 24" aria-hidden>
             <rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" />
           </svg>
         </button>
         <button
-          className="hover:bg-subtle relative grid size-7.5 place-items-center rounded-full"
+          className="hover:bg-subtle relative grid size-7.5 cursor-pointer place-items-center rounded-full"
           {...tipFor('cancel', r.cancel)}
           onClick={handleCancel}
         >
-          {tip === 'cancel' && <Tooltip label={r.cancel} />}
+          <Tooltip label={r.cancel} shown={tip === 'cancel'} />
           <svg className="size-4" viewBox="0 0 24 24" aria-hidden>
             <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth={2} strokeLinecap="round" fill="none" />
           </svg>
@@ -118,10 +119,13 @@ export default function RecorderApp() {
 }
 
 /** Above the button, in the panel toolbar's tip style; the window leaves room for it above the pill. */
-function Tooltip({ label }: { label: string }) {
+function Tooltip({ label, shown }: { label: string; shown: boolean }) {
   return (
     <span
-      className="bg-tip pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 rounded-lg px-2 py-1 text-[11px] whitespace-nowrap text-white"
+      className={cx(
+        'bg-tip pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 rounded-lg px-2 py-1 text-[11px] whitespace-nowrap text-white transition-opacity duration-150 motion-reduce:transition-none',
+        shown ? 'opacity-100' : 'opacity-0',
+      )}
       aria-hidden
     >
       {label}

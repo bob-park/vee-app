@@ -55,7 +55,7 @@ export const en = {
     format: 'Recording format',
     start: 'Record',
     stop: 'Stop recording',
-    cancel: 'Cancel recording',
+    cancel: 'Cancel',
     ffmpegNeeded: 'FFmpeg needed',
     gifLeft: (s: number) => `GIF · ${s}s left`,
   },

@@ -72,7 +72,11 @@ export default function Segmented<T extends string>({
           )}
           onClick={() => !o.disabled && onChange(o.value)}
         >
-          {o.label}
+          {/* A hidden bold copy holds the width, so picking an option doesn't widen the cells. */}
+          <span className="grid">
+            <span className="invisible col-start-1 row-start-1 font-semibold">{o.label}</span>
+            <span className="col-start-1 row-start-1">{o.label}</span>
+          </span>
         </button>
       ))}
     </div>

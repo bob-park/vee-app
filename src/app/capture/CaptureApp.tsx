@@ -16,6 +16,8 @@ import cx from 'classnames';
 
 /** Room between the selection and its size label. */
 const LABEL_GAP = 6;
+/** The overlay's fade out (its `duration-150`) before Rust hides it. */
+const FADE_MS = 150;
 const isMac = navigator.userAgent.includes('Mac');
 /** This overlay's window; there is one per monitor. */
 const me = getCurrentWindow();
@@ -38,6 +40,8 @@ export default function CaptureApp() {
   // ref
   const openRef = useRef<CaptureOpen | null>(null);
   const windowModeRef = useRef(false);
+  /** Record was pressed: the overlay fades out while the recording frame fades in, then Rust hides it. */
+  const leavingRef = useRef(false);
 
   // state
   const [open, setOpen] = useState<CaptureOpen | null>(null);
@@ -47,6 +51,7 @@ export default function CaptureApp() {
   const [pending, setPending] = useState<Pending | null>(null);
   /** A window was picked for recording on some monitor: window mode stops picking until the overlay closes. */
   const [windowPicked, setWindowPicked] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   /** The format picked in the pill; null until the user picks one. */
   const [picked, setPicked] = useState<RecordFormat | null>(null);
 
@@ -64,9 +69,10 @@ export default function CaptureApp() {
   // Before the effects: the Enter key starts it.
   const handleRecord = useCallback(() => {
     if (!pending) return;
+    // Drawing stays up (fading) until Rust closes the overlay behind the recording frame.
     openRef.current = null;
-    setOpen(null);
-    setPending(null);
+    leavingRef.current = true;
+    setLeaving(true);
     // A refused start (FFmpeg gone, session expired) must not leave the overlay up with nothing drawn.
     void startRecording(pending.selection, format).catch(() => cancelCapture());
   }, [pending, format]);
@@ -80,6 +86,8 @@ export default function CaptureApp() {
         if (!session) return;
         openRef.current = session;
         windowModeRef.current = false;
+        leavingRef.current = false;
+        setLeaving(false);
         setOpen(session);
         setWindowMode(false);
         // Known before the mouse moves, so Space tints the window under it at once.
@@ -98,6 +106,8 @@ export default function CaptureApp() {
         setOpen(null);
         setPending(null);
         setWindowPicked(false);
+        leavingRef.current = false;
+        setLeaving(false);
       }),
       listen<boolean>('capture://mode', (e) => {
         windowModeRef.current = e.payload;
@@ -116,11 +126,14 @@ export default function CaptureApp() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Esc always closes, even if the open event never arrived and nothing is drawn.
+      if (leavingRef.current) return;
       if (e.key === 'Escape') {
         e.preventDefault();
+        // Fades out first; with nothing drawn (the open event never came) it just closes.
         openRef.current = null;
-        setOpen(null);
-        void cancelCapture();
+        leavingRef.current = true;
+        setLeaving(true);
+        setTimeout(() => void cancelCapture(), FADE_MS);
       } else if (e.code === 'Space' && !e.repeat && openRef.current) {
         e.preventDefault();
         // Here at once, then to every other monitor's overlay (this one gets it too, unchanged).
@@ -159,8 +172,10 @@ export default function CaptureApp() {
   };
 
   const handleCancel = () => {
-    reset();
-    void cancelCapture();
+    openRef.current = null;
+    leavingRef.current = true;
+    setLeaving(true);
+    setTimeout(() => void cancelCapture(), FADE_MS);
   };
 
   /** Capture grabs it now; record waits in the pill, and a new drag or click replaces it. */
@@ -216,7 +231,9 @@ export default function CaptureApp() {
   return (
     <div
       className={cx(
-        'fixed inset-0 select-none',
+        // Fades in each time it opens (it renders nothing while closed, so this remounts).
+        'animate-fade-in fixed inset-0 transition-opacity duration-150 select-none motion-reduce:animate-none motion-reduce:transition-none',
+        leaving && 'pointer-events-none opacity-0',
         !windowMode
           ? 'cursor-crosshair'
           : windowPicked
@@ -233,9 +250,15 @@ export default function CaptureApp() {
     >
       <svg className="absolute inset-0 size-full" aria-hidden>
         {/* Like macOS: window mode leaves the screen as it is and only tints the window to be taken. */}
-        {shapes.dim && (
-          <path className="fill-black/35" fillRule="evenodd" d={`M0 0H${width}V${height}H0Z${holePath}`} />
-        )}
+        {/* Always drawn so Space fades the dim in and out instead of cutting it. */}
+        <path
+          className={cx(
+            'fill-black/35 transition-opacity duration-150 motion-reduce:transition-none',
+            !shapes.dim && 'opacity-0',
+          )}
+          fillRule="evenodd"
+          d={`M0 0H${width}V${height}H0Z${holePath}`}
+        />
         {tint && (
           <>
             <mask id="tint-visible">
@@ -251,7 +274,8 @@ export default function CaptureApp() {
         {/* The area the recording will cover, in the recording border's dashes. */}
         {planned && <rect className="stroke-rec fill-none" strokeWidth={2} strokeDasharray="6 4" {...box(planned)} />}
       </svg>
-      {hole && (
+      {/* A picked window's size isn't the user's to set: no label. */}
+      {hole && !windowMode && (
         <span
           className="glass text-base-content absolute rounded-md px-1.5 py-0.5 font-mono text-[11px] tabular-nums"
           style={{
@@ -262,7 +286,7 @@ export default function CaptureApp() {
           {Math.round(hole.width * scale)} × {Math.round(hole.height * scale)}
         </span>
       )}
-      {pending && !dragFrom ? (
+      {leaving ? null : pending && !dragFrom ? (
         // Solid, not glass: it floats over any desktop and must be read (aurora-glass §3). Its own clicks
         // must not start a new drag on the overlay.
         <div

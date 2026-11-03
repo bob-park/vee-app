@@ -41,6 +41,10 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const RECORDER: &str = "recorder";
+/// Bumped by each show and hide of the frame, so a late hide never takes down a newer recording's frame.
+static FRAME_GENERATION: AtomicU64 = AtomicU64::new(0);
+/// The overlay → frame crossfade (`animate-fade-in`, the overlay's `duration-150`).
+const CROSSFADE_MS: u64 = 150;
 /// How often the pill is told where the cursor is (macOS, for its tooltips).
 #[cfg(target_os = "macos")]
 const POINTER_MS: u64 = 50;
@@ -334,7 +338,7 @@ fn start(app: &AppHandle, label: &str, selection: Selection, format: &str) -> Ap
         return Err(AppError::InvalidInput("not selecting a recording".into()));
     };
     let (monitor, area) =
-        capture::take_record(app, label, &selection).ok_or_else(|| AppError::InvalidInput("record overlay is not open".into()))?;
+        capture::record_target(label, &selection).ok_or_else(|| AppError::InvalidInput("record overlay is not open".into()))?;
     begin(app, session, &monitor, &selection, area, format)
 }
 
@@ -346,7 +350,7 @@ fn end_start(r: &Recorder, g: &mut Inner, session: u64) {
     r.started.notify_all();
 }
 
-/// The start once the overlay is closed: the start sound, the engine, the pill and the GIF timer.
+/// The start: closes the overlay behind the frame, then the start sound, the engine, the pill and the GIF timer.
 fn begin(
     app: &AppHandle,
     session: u64,
@@ -360,6 +364,8 @@ fn begin(
         let mut g = r.inner.lock().unwrap();
         if g.closing || g.phase != (Phase::Selecting { session }) || g.starting.is_some() {
             g.phase = refused(g.phase, session, g.starting);
+            drop(g);
+            capture::close_overlays(app);
             return Err(AppError::InvalidInput("record session is gone".into()));
         }
         g.starting = Some(session);
@@ -368,10 +374,13 @@ fn begin(
         sound::set_recording(true);
     }
     r.cancel.store(false, Ordering::SeqCst);
-    // At once, so the click shows where the recording is before the engine is up.
+    // At once, so the click shows where the recording is before the engine is up. The overlay fades out as
+    // the frame fades in, and goes only then: no bare screen between the two.
     if let Some(area) = area {
         show_frame(app, monitor, area);
+        std::thread::sleep(Duration::from_millis(CROSSFADE_MS));
     }
+    capture::close_overlays(app);
     cue(app, true, session);
     std::thread::sleep(Duration::from_millis(START_DELAY_MS));
 
@@ -481,11 +490,21 @@ pub fn exclude_window(window: &tauri::WebviewWindow) {
 
 /// Hides the pill and the border.
 fn hide_controls(app: &AppHandle) {
-    for label in [RECORDER, FRAME] {
-        if let Some(w) = app.get_webview_window(label) {
+    if let Some(w) = app.get_webview_window(RECORDER) {
+        let _ = w.hide();
+    }
+    // The frame fades out, then goes, unless a newer recording has shown it again meanwhile.
+    let generation = FRAME_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let _ = app.emit_to(FRAME, "recframe://area", None::<RectF>);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(CROSSFADE_MS));
+        if FRAME_GENERATION.load(Ordering::SeqCst) == generation
+            && let Some(w) = app.get_webview_window(FRAME)
+        {
             let _ = w.hide();
         }
-    }
+    });
 }
 
 /// The pill at the bottom centre of the recorded monitor's work area.
@@ -535,6 +554,7 @@ fn follow_pointer(app: AppHandle, r: window::Rect) {
 /// Clicks pass through, and it stays out of the recording (Vee is excluded from it).
 fn show_frame(app: &AppHandle, monitor: &MonitorInfo, (x, y, w, h): RectF) {
     let Some(frame) = app.get_webview_window(FRAME) else { return };
+    FRAME_GENERATION.fetch_add(1, Ordering::SeqCst);
     let (px, py, pw, ph) = geometry::to_physical((0.0, 0.0, monitor.width, monitor.height), monitor);
     let _ = window::place(&frame, window::rect_from((px, py), (pw, ph), monitor.scale, window::USES_POINTS));
     let _ = frame.emit("recframe://area", (x, y, w, h));

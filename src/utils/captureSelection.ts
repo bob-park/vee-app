@@ -50,6 +50,7 @@ export function overlayShapes(
   drag: Rect | null,
   pending: Rect | null,
 ): OverlayShapes {
-  if (windowMode) return { dim: false, hole: null, tint: hover, outline: null, planned: pending };
+  // A window picked for recording stands out like a dragged area: the rest dims.
+  if (windowMode) return { dim: pending !== null, hole: pending, tint: hover, outline: null, planned: pending };
   return { dim: true, hole: drag ?? pending, tint: null, outline: drag, planned: drag ? null : pending };
 }
