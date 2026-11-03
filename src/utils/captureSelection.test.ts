@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { normalizeRect, overlayShapes, windowAt } from './captureSelection.ts';
+import { coveredParts, normalizeRect, overlayShapes, windowAt } from './captureSelection.ts';
 
 void test('a drag in any direction becomes a top-left rect', () => {
   assert.deepEqual(normalizeRect({ x: 50, y: 50 }, { x: 10, y: 20 }), { x: 10, y: 20, width: 40, height: 30 });
@@ -58,4 +58,13 @@ void test('a drag replaces the planned box in region mode', () => {
     outline: null,
     planned: r(2),
   });
+});
+
+void test('only the windows in front cover a window, clipped to it', () => {
+  const front = win(1, 150, 150, 100, 100);
+  const back = win(2, 0, 0, 200, 200);
+  const behind = win(3, 0, 0, 500, 500);
+  const apart = win(4, 300, 300, 10, 10);
+  assert.deepEqual(coveredParts([apart, front, back, behind], back), [{ x: 150, y: 150, width: 50, height: 50 }]);
+  assert.deepEqual(coveredParts([front, back], front), []);
 });

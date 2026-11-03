@@ -24,6 +24,8 @@ pub const CAPTURE: &str = "capture";
 const HIDE_SETTLE_MS: u64 = 120;
 /// How long the page gets to claim a new session before it is dropped and the overlay stays hidden.
 const CLAIM_TIMEOUT_MS: u64 = 1000;
+/// How often the open overlays check which monitor the mouse is on.
+const FOLLOW_MS: u64 = 30;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +45,8 @@ pub struct OpenPayload {
 /// One monitor's overlay in a session.
 struct Overlay {
     label: String,
+    /// Its monitor's physical origin, to find it under the mouse.
+    origin: (i32, i32),
     payload: OpenPayload,
     /// Its page took the payload, so it is shown.
     claimed: bool,
@@ -80,6 +84,32 @@ fn claim(slot: &mut Option<Session>, label: &str) -> Option<(OpenPayload, bool)>
     let overlay = session.overlays.iter_mut().find(|o| o.label == label)?;
     overlay.claimed = true;
     Some((overlay.payload.clone(), focus))
+}
+
+/// The mouse is on the monitor at `origin`: its overlay takes the keyboard. The label to focus, if that changed
+/// and its page is up (an unclaimed one is focused when it claims).
+fn refocus(session: &mut Session, origin: (i32, i32)) -> Option<String> {
+    let overlay = session.overlays.iter().find(|o| o.origin == origin && o.label != session.focus)?;
+    let (label, claimed) = (overlay.label.clone(), overlay.claimed);
+    session.focus = label.clone();
+    claimed.then_some(label)
+}
+
+/// Keeps the keyboard on the overlay under the mouse while session `generation` is open. macOS sends no mouse
+/// moves to a window that isn't key, so another monitor's overlay would show no tint or cursor until clicked.
+fn follow_cursor(app: AppHandle, generation: u64) {
+    loop {
+        std::thread::sleep(Duration::from_millis(FOLLOW_MS));
+        let origin = window::cursor_monitor(&app).map(|m| (m.position().x, m.position().y));
+        let label = {
+            let mut slot = SESSION.lock().unwrap();
+            let Some(session) = slot.as_mut().filter(|s| s.generation == generation) else { return };
+            origin.and_then(|origin| refocus(session, origin))
+        };
+        if let Some(w) = label.and_then(|label| app.get_webview_window(&label)) {
+            let _ = w.set_focus();
+        }
+    }
 }
 
 /// Drops session `generation` if no page claimed it; true when dropped.
@@ -161,7 +191,7 @@ pub fn open(app: &AppHandle, mode: Mode) -> bool {
             focus = Some(label.clone());
         }
         let payload = OpenPayload { mode, monitor, windows: window_list::list(&monitor) };
-        overlays.push(Overlay { label, payload, claimed: false });
+        overlays.push(Overlay { label, origin: (pos.x, pos.y), payload, claimed: false });
     }
     // A monitor that went away leaves its overlay behind: drop it.
     for index in monitors.len().max(1).. {
@@ -175,6 +205,10 @@ pub fn open(app: &AppHandle, mode: Mode) -> bool {
     *SESSION.lock().unwrap() = Some(Session { generation, overlays, focus, prev_app });
     for label in &labels {
         let _ = app.emit_to(label.as_str(), "capture://open", ());
+    }
+    if labels.len() > 1 {
+        let app = app.clone();
+        std::thread::spawn(move || follow_cursor(app, generation));
     }
     // Safety net: pages that never answer (not loaded, JS error) must not leave the next shortcut ignored.
     let app = app.clone();
@@ -300,6 +334,7 @@ mod tests {
         let monitor = MonitorInfo { x: 0.0, y: 0.0, width: 100.0, height: 100.0, scale: 1.0 };
         let overlay = |label: &str| Overlay {
             label: label.into(),
+            origin: if label == "capture" { (0, 0) } else { (1920, 0) },
             payload: OpenPayload { mode: Mode::Capture, monitor, windows: Vec::new() },
             claimed: false,
         };
@@ -320,6 +355,18 @@ mod tests {
         assert!(!expire(&mut slot, 2), "one claimed overlay keeps the session");
         assert_eq!(claim(&mut slot, "capture-1").map(|(_, focus)| focus), Some(true), "the cursor's overlay takes focus");
         assert!(slot.is_some_and(|s| s.overlays.iter().all(|o| o.claimed)));
+    }
+
+    #[test]
+    fn the_overlay_under_the_mouse_takes_the_keyboard() {
+        let mut session = session(1).unwrap();
+        assert_eq!(refocus(&mut session, (1920, 0)), None, "already focused");
+        assert_eq!(refocus(&mut session, (0, 0)), None, "not claimed yet: focused when it claims");
+        assert_eq!(session.focus, "capture");
+        session.overlays[1].claimed = true;
+        assert_eq!(refocus(&mut session, (1920, 0)).as_deref(), Some("capture-1"));
+        assert_eq!(refocus(&mut session, (5000, 0)), None, "no overlay there");
+        assert_eq!(session.focus, "capture-1");
     }
 
     #[test]

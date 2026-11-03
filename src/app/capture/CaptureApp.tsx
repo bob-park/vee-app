@@ -7,7 +7,7 @@ import { RECORD_FORMATS, type RecordFormat } from '@/domain/settings/apis/settin
 import { useSettings } from '@/domain/settings/queries/settings';
 import Segmented from '@/shared/components/Segmented';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
-import { normalizeRect, overlayShapes, windowAt } from '@/utils/captureSelection';
+import { coveredParts, normalizeRect, overlayShapes, windowAt } from '@/utils/captureSelection';
 import { initialFormat, needsFfmpeg } from '@/utils/recording';
 
 import { emit, listen } from '@tauri-apps/api/event';
@@ -182,13 +182,15 @@ export default function CaptureApp() {
   const shapes = useMemo(() => {
     const hover = open && pointer && windowMode ? windowAt(open.windows, pointer) : null;
     const drag = dragFrom && pointer ? normalizeRect(dragFrom, pointer) : null;
-    return overlayShapes(windowMode, hover, drag, pending?.rect ?? null);
+    // Only what shows of the window is tinted: the parts in front of it aren't taken.
+    const covered = open && hover ? coveredParts(open.windows, hover) : [];
+    return { ...overlayShapes(windowMode, hover, drag, pending?.rect ?? null), covered };
   }, [open, pointer, windowMode, dragFrom, pending]);
 
   if (!open) return null;
   const r = t.record;
   const { width, height, scale } = open.monitor;
-  const { hole, tint, outline, planned } = shapes;
+  const { hole, tint, outline, planned, covered } = shapes;
   const holePath = hole ? ` M${hole.x} ${hole.y}h${hole.width}v${hole.height}h${-hole.width}Z` : '';
   const labelBelow = hole && hole.y + hole.height + LABEL_GAP + 24 < height;
   const box = (rect: Rect) => ({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
@@ -198,15 +200,25 @@ export default function CaptureApp() {
       onPointerDown={handlePointerDown}
       onPointerMove={(e) => setPointer(point(e))}
       onPointerUp={handlePointerUp}
-      // The overlay under the mouse takes the keyboard, so Space, Esc and Enter work on any monitor.
-      onPointerEnter={() => void me.setFocus()}
+      // Off to another monitor: its overlay takes over (Rust moves the keyboard there), so drop the tint here.
+      onPointerLeave={() => setPointer(null)}
     >
       <svg className="absolute inset-0 size-full" aria-hidden>
         {/* Like macOS: window mode leaves the screen as it is and only tints the window to be taken. */}
         {shapes.dim && (
           <path className="fill-black/35" fillRule="evenodd" d={`M0 0H${width}V${height}H0Z${holePath}`} />
         )}
-        {tint && <rect className="fill-pick" {...box(tint)} />}
+        {tint && (
+          <>
+            <mask id="tint-visible">
+              <rect className="fill-white" {...box(tint)} />
+              {covered.map((part) => (
+                <rect key={`${part.x},${part.y}`} className="fill-black" {...box(part)} />
+              ))}
+            </mask>
+            <rect className="fill-pick" mask="url(#tint-visible)" {...box(tint)} />
+          </>
+        )}
         {outline && <rect className="stroke-primary fill-none" strokeWidth={1} {...box(outline)} />}
         {/* The area the recording will cover, in the recording border's dashes. */}
         {planned && <rect className="stroke-rec fill-none" strokeWidth={2} strokeDasharray="6 4" {...box(planned)} />}
