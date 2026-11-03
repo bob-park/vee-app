@@ -36,7 +36,7 @@ const View =
           ? WhatsNewApp
           : label === 'editor'
             ? EditorApp
-            : label === 'capture'
+            : label.startsWith('capture')
               ? CaptureApp
               : label === 'recorder'
                 ? RecorderApp

@@ -45,8 +45,11 @@ pub const RECORDER: &str = "recorder";
 pub const FRAME: &str = "recframe";
 /// How far the border sits outside the recorded area, in logical px, so it never falls inside it.
 const FRAME_OUTSET: f64 = 3.0;
-/// The start sound is over by then (0.34 s), so it isn't recorded; the overlay is gone too.
-const START_DELAY_MS: u64 = 400;
+/// Windows: the start sound is over by then (0.34 s), so it isn't recorded; the overlay is gone too.
+/// macOS leaves Vee's own sound and windows out of the recording, so it starts at once.
+const START_DELAY_MS: u64 = if cfg!(windows) { 400 } else { 0 };
+/// macOS: the stop sound plays on the click, not after the engine has stopped (see `START_DELAY_MS`).
+const STOP_CUE_FIRST: bool = cfg!(target_os = "macos");
 /// The pill window's gap above the bottom of the work area, in design points. The window is taller than
 /// the pill (room for its shadow), so the pill itself sits ~35 pt up.
 const PILL_BOTTOM: f64 = 12.0;
@@ -206,14 +209,14 @@ fn dispatch(app: &AppHandle, ev: Event) {
             }
         }
         (Action::StopEngine | Action::CancelEngine, Some(running), Phase::Recording { session, format, .. }) => {
-            for label in [RECORDER, FRAME] {
-                if let Some(w) = app.get_webview_window(label) {
-                    let _ = w.hide();
-                }
-            }
+            hide_controls(app);
             // The hidden pill drops its timer, so it never shows this recording's time when shown again.
             let _ = app.emit_to(RECORDER, "recorder://stopped", ());
             let (app, keep) = (app.clone(), action == Action::StopEngine);
+            // macOS leaves Vee's sound out of the recording, so the stop sound needn't wait for the engine.
+            if keep && STOP_CUE_FIRST {
+                cue(&app, false, session);
+            }
             std::thread::spawn(move || {
                 if keep {
                     finalize(&app, running, format, session);
@@ -320,8 +323,8 @@ fn cue(app: &AppHandle, start: bool, session: u64) {
     });
 }
 
-/// Hides the overlay, plays the start sound and starts the engine on the selection.
-fn start(app: &AppHandle, selection: Selection, format: &str) -> AppResult<()> {
+/// Hides the overlay, plays the start sound and starts the engine on the selection made in overlay `label`.
+fn start(app: &AppHandle, label: &str, selection: Selection, format: &str) -> AppResult<()> {
     let format = plan::record_format(format).ok_or_else(|| AppError::InvalidInput(format!("unknown record format {format}")))?;
     if plan::needs_ffmpeg(format, cfg!(target_os = "macos")) && engines::ffmpeg(app).is_none() {
         return Err(AppError::InvalidInput(format!("{format:?} needs FFmpeg")));
@@ -330,7 +333,7 @@ fn start(app: &AppHandle, selection: Selection, format: &str) -> AppResult<()> {
         return Err(AppError::InvalidInput("not selecting a recording".into()));
     };
     let (monitor, area) =
-        capture::take_record(app, &selection).ok_or_else(|| AppError::InvalidInput("record overlay is not open".into()))?;
+        capture::take_record(app, label, &selection).ok_or_else(|| AppError::InvalidInput("record overlay is not open".into()))?;
     begin(app, session, &monitor, &selection, area, format)
 }
 
@@ -364,6 +367,10 @@ fn begin(
         sound::set_recording(true);
     }
     r.cancel.store(false, Ordering::SeqCst);
+    // At once, so the click shows where the recording is before the engine is up.
+    if let Some(area) = area {
+        show_frame(app, monitor, area);
+    }
     cue(app, true, session);
     std::thread::sleep(Duration::from_millis(START_DELAY_MS));
 
@@ -381,6 +388,7 @@ fn begin(
         Ok(running) => running,
         Err(e) => {
             log::warn!("recording didn't start: {e}");
+            hide_controls(app);
             let _ = std::fs::remove_dir_all(&dir);
             {
                 let mut g = r.inner.lock().unwrap();
@@ -412,6 +420,7 @@ fn begin(
         (action, lost)
     };
     if action != Action::StartEngine {
+        hide_controls(app);
         if let Some(running) = lost {
             running.cancel();
             let _ = std::fs::remove_dir_all(&dir);
@@ -423,9 +432,6 @@ fn begin(
     // Before `show_pill`, so the pill never shows with a previous recording's time.
     let _ = app.emit_to(RECORDER, "recorder://started", Started { started_ms, format, limit_ms });
     show_pill(app, monitor);
-    if let Some(area) = area {
-        show_frame(app, monitor, area);
-    }
     if let Some(limit) = limit_ms {
         let app = app.clone();
         std::thread::spawn(move || {
@@ -447,20 +453,38 @@ fn started(app: &AppHandle) -> Option<Started> {
 /// Windows: keeps the overlay, the pill and the border out of every capture and recording.
 /// macOS needs nothing: ScreenCaptureKit leaves out Vee's own windows.
 pub fn exclude_from_capture(app: &AppHandle) {
-    #[cfg(windows)]
     for label in [capture::CAPTURE, RECORDER, FRAME] {
+        if let Some(w) = app.get_webview_window(label) {
+            exclude_window(&w);
+        }
+    }
+}
+
+/// Windows: keeps `window` out of every capture and recording. A no-op on macOS (see `exclude_from_capture`).
+pub fn exclude_window(window: &tauri::WebviewWindow) {
+    #[cfg(windows)]
+    {
         use ::windows::Win32::{
             Foundation::HWND,
             UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE},
         };
-        let Some(Ok(hwnd)) = app.get_webview_window(label).map(|w| w.hwnd()) else { continue };
+        let Ok(hwnd) = window.hwnd() else { return };
         // SAFETY: a live top-level window of this process.
         if let Err(e) = unsafe { SetWindowDisplayAffinity(HWND(hwnd.0 as _), WDA_EXCLUDEFROMCAPTURE) } {
-            log::warn!("couldn't exclude {label} from capture: {e}");
+            log::warn!("couldn't exclude {} from capture: {e}", window.label());
         }
     }
     #[cfg(not(windows))]
-    let _ = app;
+    let _ = window;
+}
+
+/// Hides the pill and the border.
+fn hide_controls(app: &AppHandle) {
+    for label in [RECORDER, FRAME] {
+        if let Some(w) = app.get_webview_window(label) {
+            let _ = w.hide();
+        }
+    }
 }
 
 /// The pill at the bottom centre of the recorded monitor's work area.
@@ -526,7 +550,9 @@ fn local_now() -> (i32, u32, u32, u32, u32, u32) {
 /// Stops the engine, plays the stop sound, then converts and saves the file and tells the user.
 fn finalize(app: &AppHandle, running: Running, format: Format, session: u64) {
     let recorded = running.stop();
-    cue(app, false, session);
+    if !STOP_CUE_FIRST {
+        cue(app, false, session);
+    }
     let note = save(app, recorded, format);
     window::show_toast(app, ToastPayload::convert(note, Kind::Files));
 }
@@ -619,12 +645,13 @@ fn add_clip(app: &AppHandle, path: &Path) -> AppResult<()> {
 pub mod commands {
     use super::{Event, Selection};
     use crate::shared::error::{AppError, AppResult};
-    use tauri::AppHandle;
+    use tauri::{AppHandle, WebviewWindow};
 
     /// Hides the overlay and records `selection` as `format` (`mp4` · `mov` · `webm` · `gif`).
     #[tauri::command]
-    pub async fn start_recording(app: AppHandle, selection: Selection, format: String) -> AppResult<()> {
-        tauri::async_runtime::spawn_blocking(move || super::start(&app, selection, &format))
+    pub async fn start_recording(app: AppHandle, window: WebviewWindow, selection: Selection, format: String) -> AppResult<()> {
+        let label = window.label().to_string();
+        tauri::async_runtime::spawn_blocking(move || super::start(&app, &label, selection, &format))
             .await
             .map_err(|e| AppError::Other(e.to_string()))?
     }

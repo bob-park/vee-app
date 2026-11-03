@@ -1,8 +1,8 @@
-//! macOS 15+ recording: an `SCStream` with an `SCRecordingOutput` writes screen + system audio straight to
-//! the file. SCK runs its completion handlers and delegate calls on its own queues, so nothing here needs the
+//! macOS 15+ recording: an `SCStream` with an `SCRecordingOutput` writes screen + audio straight to the file:
+//! all system audio for a region, the window's app audio for a window (see `filter`). SCK runs its completion handlers and delegate calls on its own queues, so nothing here needs the
 //! main thread; each handler is bridged to the calling thread with a channel.
 
-use super::plan::{self, Container, even};
+use super::plan::{Container, even};
 use crate::{
     app::capture::geometry::{MonitorInfo, Selection},
     shared::error::{AppError, AppResult},
@@ -132,18 +132,16 @@ fn shareable_content() -> AppResult<Retained<SCShareableContent>> {
     rx.recv_timeout(TIMEOUT).map_err(|_| other("shareable content", "timed out"))?.map_err(|e| other("shareable content", e))
 }
 
-type Filter = (Retained<SCContentFilter>, (u32, u32), CGRect);
+/// The filter, its output size in physical px (even), and the display-local source rect in points (a region).
+type Filter = (Retained<SCContentFilter>, (u32, u32), Option<CGRect>);
 
-/// The filter for `sel`, its output size in physical px (even) and the display-local source rect in points.
-/// Both modes capture the overlay's display without Vee's windows (the overlay, the pill) and crop it: a window
-/// is cropped to its frame at the start, as a fixed rect, because a single-window filter
-/// (`initWithDesktopIndependentWindow`) records only that window's app audio, not the system audio.
+/// The filter for `sel`.
+/// - A region: the overlay's display without Vee's windows (the overlay, the pill), cropped to the region; all
+///   system audio but Vee's.
+/// - A window: that window alone (`initWithDesktopIndependentWindow`), so windows in front of it stay out; SCK
+///   then records only that window's app audio.
 fn filter(content: &SCShareableContent, monitor: &MonitorInfo, sel: &Selection) -> AppResult<Filter> {
-    // Tauri's logical monitor origin is the display's CG origin in points: take the nearest display.
-    let displays = unsafe { content.displays() };
-    let dist = |f: CGRect| (f.origin.x - monitor.x).abs() + (f.origin.y - monitor.y).abs();
-    let display =
-        displays.iter().min_by(|a, b| unsafe { dist(a.frame()).total_cmp(&dist(b.frame())) }).ok_or_else(|| other("display", "none"))?;
+    let px = |points: f64| even((points * monitor.scale).round().max(2.0) as u32);
     let (x, y, width, height) = match *sel {
         Selection::Rect { x, y, width, height } => (x, y, width, height),
         Selection::Window { id } => {
@@ -151,11 +149,16 @@ fn filter(content: &SCShareableContent, monitor: &MonitorInfo, sel: &Selection) 
                 .iter()
                 .find(|w| u64::from(unsafe { w.windowID() }) == id)
                 .ok_or_else(|| other("window", format!("{id} is gone")))?;
-            let (w, d) = unsafe { (window.frame(), display.frame()) };
-            let r = |f: CGRect| (f.origin.x, f.origin.y, f.size.width, f.size.height);
-            plan::clip_to_display(r(w), r(d)).ok_or_else(|| other("window", format!("{id} is off the display")))?
+            let size = unsafe { window.frame() }.size;
+            let f = unsafe { SCContentFilter::initWithDesktopIndependentWindow(SCContentFilter::alloc(), &window) };
+            return Ok((f, (px(size.width), px(size.height)), None));
         }
     };
+    // Tauri's logical monitor origin is the display's CG origin in points: take the nearest display.
+    let displays = unsafe { content.displays() };
+    let dist = |f: CGRect| (f.origin.x - monitor.x).abs() + (f.origin.y - monitor.y).abs();
+    let display =
+        displays.iter().min_by(|a, b| unsafe { dist(a.frame()).total_cmp(&dist(b.frame())) }).ok_or_else(|| other("display", "none"))?;
     let own = std::process::id() as i32;
     let apps: Vec<_> = unsafe { content.applications() }.iter().filter(|a| unsafe { a.processID() } == own).collect();
     let f = unsafe {
@@ -166,8 +169,7 @@ fn filter(content: &SCShareableContent, monitor: &MonitorInfo, sel: &Selection) 
             &NSArray::new(),
         )
     };
-    let px = |points: f64| even((points * monitor.scale).round().max(2.0) as u32);
-    Ok((f, (px(width), px(height)), CGRect::new(CGPoint::new(x, y), CGSize::new(width, height))))
+    Ok((f, (px(width), px(height)), Some(CGRect::new(CGPoint::new(x, y), CGSize::new(width, height)))))
 }
 
 impl Running {
@@ -225,7 +227,9 @@ fn begin(monitor: &MonitorInfo, sel: &Selection, container: Container, out: &Pat
     unsafe {
         config.setWidth(w as usize);
         config.setHeight(h as usize);
-        config.setSourceRect(source);
+        if let Some(source) = source {
+            config.setSourceRect(source);
+        }
         config.setShowsCursor(true);
         config.setCapturesAudio(true);
         config.setExcludesCurrentProcessAudio(true);

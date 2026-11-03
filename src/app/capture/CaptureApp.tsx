@@ -7,15 +7,18 @@ import { RECORD_FORMATS, type RecordFormat } from '@/domain/settings/apis/settin
 import { useSettings } from '@/domain/settings/queries/settings';
 import Segmented from '@/shared/components/Segmented';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
-import { normalizeRect, windowAt } from '@/utils/captureSelection';
+import { normalizeRect, overlayShapes, windowAt } from '@/utils/captureSelection';
 import { initialFormat, needsFfmpeg } from '@/utils/recording';
 
-import { listen } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import cx from 'classnames';
 
 /** Room between the selection and its size label. */
 const LABEL_GAP = 6;
 const isMac = navigator.userAgent.includes('Mac');
+/** This overlay's window; there is one per monitor. */
+const me = getCurrentWindow();
 
 /** A record-mode selection waiting for Record, with the rect it covers. */
 interface Pending {
@@ -23,10 +26,12 @@ interface Pending {
   rect: Rect;
 }
 
-/** The selection overlay: drag a region, or Space to pick a window. Shared by capture and record. */
+/** The selection overlay on one monitor: drag a region, or Space to pick a window. Shared by capture and record.
+ * The overlays of the other monitors follow its Space mode and drop their pick when this one picks. */
 export default function CaptureApp() {
   // ref
   const openRef = useRef<CaptureOpen | null>(null);
+  const windowModeRef = useRef(false);
 
   // state
   const [open, setOpen] = useState<CaptureOpen | null>(null);
@@ -66,6 +71,7 @@ export default function CaptureApp() {
       void getCaptureSession().then((session) => {
         if (!session) return;
         openRef.current = session;
+        windowModeRef.current = false;
         setOpen(session);
         setWindowMode(false);
         setPointer(null);
@@ -74,8 +80,25 @@ export default function CaptureApp() {
         setPicked(null);
       });
     claim();
-    const off = listen('capture://open', claim);
-    return () => void off.then((fn) => fn());
+    const offs = [
+      listen('capture://open', claim),
+      // Another monitor's overlay took the shot or Esc closed them all: draw nothing when shown again.
+      listen('capture://closed', () => {
+        openRef.current = null;
+        setOpen(null);
+        setPending(null);
+      }),
+      listen<boolean>('capture://mode', (e) => {
+        windowModeRef.current = e.payload;
+        setDragFrom(null);
+        setWindowMode(e.payload);
+      }),
+      // One waiting record selection across the monitors.
+      listen<string>('capture://picked', (e) => {
+        if (e.payload !== me.label) setPending(null);
+      }),
+    ];
+    return () => offs.forEach((off) => void off.then((fn) => fn()));
   }, []);
 
   useEffect(() => {
@@ -88,8 +111,8 @@ export default function CaptureApp() {
         void cancelCapture();
       } else if (e.code === 'Space' && !e.repeat && openRef.current) {
         e.preventDefault();
-        setDragFrom(null);
-        setWindowMode((on) => !on);
+        // To every monitor's overlay, this one included.
+        void emit('capture://mode', !windowModeRef.current);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -127,6 +150,7 @@ export default function CaptureApp() {
   const select = (selection: Selection, rect: Rect) => {
     if (openRef.current?.mode === 'record') {
       setPending({ selection, rect });
+      void emit('capture://picked', me.label);
       return;
     }
     reset();
@@ -155,47 +179,39 @@ export default function CaptureApp() {
   };
 
   // memorize
-  const hole = useMemo<Rect | null>(() => {
-    if (!open) return null;
-    const drawn = pending?.rect ?? null;
-    if (!pointer) return drawn;
-    if (windowMode) return windowAt(open.windows, pointer) ?? drawn;
-    return dragFrom ? normalizeRect(dragFrom, pointer) : drawn;
+  const shapes = useMemo(() => {
+    const hover = open && pointer && windowMode ? windowAt(open.windows, pointer) : null;
+    const drag = dragFrom && pointer ? normalizeRect(dragFrom, pointer) : null;
+    return overlayShapes(windowMode, hover, drag, pending?.rect ?? null);
   }, [open, pointer, windowMode, dragFrom, pending]);
 
   if (!open) return null;
   const r = t.record;
   const { width, height, scale } = open.monitor;
+  const { hole, tint, outline, planned } = shapes;
   const holePath = hole ? ` M${hole.x} ${hole.y}h${hole.width}v${hole.height}h${-hole.width}Z` : '';
   const labelBelow = hole && hole.y + hole.height + LABEL_GAP + 24 < height;
+  const box = (rect: Rect) => ({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
   return (
     <div
       className={cx('fixed inset-0 select-none', windowMode ? 'cursor-camera' : 'cursor-crosshair')}
       onPointerDown={handlePointerDown}
       onPointerMove={(e) => setPointer(point(e))}
       onPointerUp={handlePointerUp}
+      // The overlay under the mouse takes the keyboard, so Space, Esc and Enter work on any monitor.
+      onPointerEnter={() => void me.setFocus()}
     >
       <svg className="absolute inset-0 size-full" aria-hidden>
-        {windowMode ? (
-          // Like macOS: the screen stays as it is and only the window to be taken is tinted.
-          hole && <rect className="fill-pick" x={hole.x} y={hole.y} width={hole.width} height={hole.height} />
-        ) : (
-          <>
-            <path className="fill-black/35" fillRule="evenodd" d={`M0 0H${width}V${height}H0Z${holePath}`} />
-            {hole && (
-              <rect
-                className="stroke-primary fill-none"
-                strokeWidth={1}
-                x={hole.x}
-                y={hole.y}
-                width={hole.width}
-                height={hole.height}
-              />
-            )}
-          </>
+        {/* Like macOS: window mode leaves the screen as it is and only tints the window to be taken. */}
+        {shapes.dim && (
+          <path className="fill-black/35" fillRule="evenodd" d={`M0 0H${width}V${height}H0Z${holePath}`} />
         )}
+        {tint && <rect className="fill-pick" {...box(tint)} />}
+        {outline && <rect className="stroke-primary fill-none" strokeWidth={1} {...box(outline)} />}
+        {/* The area the recording will cover, in the recording border's dashes. */}
+        {planned && <rect className="stroke-rec fill-none" strokeWidth={2} strokeDasharray="6 4" {...box(planned)} />}
       </svg>
-      {hole && !windowMode && (
+      {hole && (
         <span
           className="glass text-base-content absolute rounded-md px-1.5 py-0.5 font-mono text-[11px] tabular-nums"
           style={{
