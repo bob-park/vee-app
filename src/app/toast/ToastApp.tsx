@@ -11,6 +11,15 @@ import { formatLabel } from '@/utils/formatLabel';
 import { listen } from '@tauri-apps/api/event';
 import cx from 'classnames';
 
+/** A video camera, in `KindIcon`'s line style: the tile for a screen recording or a video conversion. */
+const VIDEO_PATH = 'M3 7h12v10H3zM15 10.5l6-3.5v10l-6-3.5z';
+const VIDEO_FORMATS = new Set<string>(['mp4', 'mov', 'webm', 'gif']);
+
+/** Whether the note is about a video: a recording, or a file saved as a video format. */
+function isVideo(note: ConvertNote): boolean {
+  return note.type.startsWith('record') || ('format' in note && VIDEO_FORMATS.has(note.format));
+}
+
 function convertLines(note: ConvertNote, t: Dict): [string, string | null] {
   switch (note.type) {
     case 'saved': {
@@ -23,6 +32,16 @@ function convertLines(note: ConvertNote, t: Dict): [string, string | null] {
       return [t.convert.notFolder, note.finderBlocked ? t.convert.finderBlockedHint : null];
     case 'unsupported':
       return [t.convert.unsupported, null];
+    case 'recordFolderMissing':
+      return [t.convert.savedOne(formatLabel(note.format)), t.record.folderMissing];
+    case 'recordFailed':
+      return [t.record.failed, null];
+    case 'recordUnsupported':
+      return [t.record.unsupported, null];
+    case 'recordNeedsFfmpeg':
+      return [t.record.needsFfmpeg, t.record.needsFfmpegHint];
+    case 'recordConverting':
+      return [t.record.title, t.record.converting(formatLabel(note.format))];
   }
 }
 
@@ -47,6 +66,10 @@ export function ToastApp() {
 
   if (!toast) return null;
   const p = toast.payload;
+  // Still working: no check badge until the result's toast.
+  const converting = p.convert?.type === 'recordConverting';
+  const done = p.ok && !converting;
+  const video = p.convert ? isVideo(p.convert) : false;
   // The tile follows `ok` and `kind` for a conversion too (Rust sets them to match).
   const [title, summary] = p.convert
     ? convertLines(p.convert, t)
@@ -79,13 +102,36 @@ export function ToastApp() {
         <span
           className={cx(
             'glass relative flex size-[44px] flex-none items-center justify-center rounded-xl text-[22px] font-extrabold',
-            p.ok ? 'text-success' : 'text-error',
+            converting ? 'text-primary' : p.ok ? 'text-success' : 'text-error',
           )}
         >
-          {p.ok ? <KindIcon kind={p.kind} className="size-[22px]" /> : '!'}
+          {!p.ok ? (
+            '!'
+          ) : video ? (
+            <svg
+              className="size-[22px]"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d={VIDEO_PATH} />
+            </svg>
+          ) : (
+            <KindIcon kind={p.kind} className="size-[22px]" />
+          )}
+          {/* Converting: a spinning ring on the corner where the check will go. */}
+          {converting && (
+            <span className="border-base-100 bg-base-100 absolute -right-[5px] -bottom-[5px] flex size-[18px] items-center justify-center rounded-full border-2">
+              <span className="border-primary size-full animate-spin rounded-full border-2 border-t-transparent motion-reduce:animate-none" />
+            </span>
+          )}
           {/* Check badge on the icon's corner, ringed in the card colour. Two elements, because pop
               (transform) and ring (box-shadow) each need their own `animation`. */}
-          {p.ok && (
+          {done && (
             <span className="animate-ring absolute -right-[5px] -bottom-[5px] rounded-full [--ring-color:var(--color-success)]">
               <span className="animate-pop border-base-100 bg-success text-success-content flex size-[18px] items-center justify-center rounded-full border-2 text-[10px] font-extrabold [animation-delay:250ms]">
                 ✓

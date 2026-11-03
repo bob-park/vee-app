@@ -3,8 +3,8 @@ mod domain;
 mod shared;
 
 use app::{
-    autostart, convert, disk_access, drop_target, editor, engines, ocr, office, retention, shortcut, state::AppState, tray, updater,
-    watcher, window,
+    autostart, capture, convert, disk_access, drop_target, editor, engines, ocr, office, recorder, retention, screen_access, shortcut,
+    state::AppState, tray, updater, watcher, window,
 };
 use domain::{clip, settings, source_app, whats_new};
 use std::sync::atomic::Ordering;
@@ -35,6 +35,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updater::UpdateState::default())
         .manage(editor::EditorState::default())
+        .manage(recorder::Recorder::default())
         .setup(|app| {
             // No "DLL not found" system dialog: a child missing the VC++ runtime exits with a code instead (inherited).
             #[cfg(windows)]
@@ -71,6 +72,7 @@ pub fn run() {
             for config in app.config().app.windows.clone() {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
             }
+            recorder::exclude_from_capture(app.handle());
             // `convert` is built visible (off-screen): wry takes over drops only on the WebView2
             // child windows that exist when the webview is built, and a hidden one creates them later.
             if let Some(overlay) = app.get_webview_window(convert::CONVERT) {
@@ -83,7 +85,7 @@ pub fn run() {
             retention::spawn_pruner(app.handle().clone());
             watcher::spawn(app.handle().clone());
             ocr::spawn(app.handle().clone());
-            shortcut::register_stored_shortcut(app.handle());
+            shortcut::register_stored(app.handle());
             updater::spawn_periodic(app.handle().clone());
             Ok(())
         })
@@ -150,9 +152,14 @@ pub fn run() {
             settings::commands::set_setting,
             autostart::set_autostart,
             settings::commands::set_shortcut,
+            settings::commands::get_shortcut_failures,
+            settings::commands::open_keyboard_settings,
             settings::commands::count_prunable,
             disk_access::get_disk_access,
             disk_access::open_disk_access_settings,
+            screen_access::get_screen_access,
+            screen_access::request_screen_access,
+            screen_access::open_screen_access_settings,
             drop_target::get_finder_access,
             drop_target::request_finder_access,
             drop_target::open_automation_settings,
@@ -164,12 +171,20 @@ pub fn run() {
             editor::commands::get_edit_source,
             editor::commands::render_edit,
             editor::commands::copy_edit,
-            editor::commands::close_editor
+            editor::commands::close_editor,
+            capture::commands::get_capture_session,
+            capture::commands::take_capture,
+            capture::commands::cancel_capture,
+            recorder::commands::start_recording,
+            recorder::commands::get_recorder_state,
+            recorder::commands::stop_recording,
+            recorder::commands::cancel_recording
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
             if let RunEvent::Exit = event {
+                recorder::shutdown(app);
                 convert::shutdown(app);
                 engines::shutdown(app);
                 app::ai_worker::disable();

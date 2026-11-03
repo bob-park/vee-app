@@ -11,11 +11,11 @@
    */
   exclude:
     rootcolor, rootscrollgutter, rootscrolllock, scrollbar, alert, aura, avatar, badge, breadcrumbs, button, calendar,
-    card, carousel, chat, checkbox, collapse, countdown, divider, dock, drawer, dropdown, fab, fieldset,
-    fileinput, filter, footer, hero, hover3d, hovergallery, indicator, input, kbd, label, link, list, loading, mask,
-    megamenu, menu, mockup, modal, navbar, otp, progress, radialprogress, radio, range, rating, select, skeleton, stack,
-    stat, status, steps, swap, tab, table, textarea, textrotate, timeline, toast, toggle, tooltip, validator, glass,
-    join, typography;
+    card, carousel, chat, checkbox, collapse, countdown, divider, dock, drawer, dropdown, fab, fieldset, fileinput,
+    filter, footer, hero, hover3d, hovergallery, indicator, input, kbd, label, link, list, loading, mask, megamenu,
+    menu, mockup, modal, navbar, otp, progress, radialprogress, radio, range, rating, select, skeleton, stack, stat,
+    status, steps, swap, tab, table, textarea, textrotate, timeline, toast, toggle, tooltip, validator, glass, join,
+    typography;
 }
 
 /*
@@ -133,6 +133,8 @@
   /* The two squares behind a transparent image. */
   --vee-checker-a: #ffffff;
   --vee-checker-b: #e6e6ec;
+  /* Recording red (stop button, live dot); the mockup's #ff3b4e, a shade deeper on light. */
+  --vee-rec: #e5283c;
 }
 
 [data-theme='dark'] {
@@ -164,6 +166,7 @@
   --vee-aurora-3: #7a2d63;
   --vee-checker-a: #2a2b33;
   --vee-checker-b: #1f2027;
+  --vee-rec: #ff3b4e;
 }
 
 @theme inline {
@@ -191,8 +194,11 @@
   --color-aurora-1: var(--vee-aurora-1);
   --color-aurora-2: var(--vee-aurora-2);
   --color-aurora-3: var(--vee-aurora-3);
+  --color-rec: var(--vee-rec);
   /* Second stop of the CTA/link gradient (primary → sky); one value reads on both themes. */
   --color-sky: #5fc3ff;
+  /* The window under the cursor in the capture overlay's window mode, tinted like macOS ⌘⇧4 → Space. */
+  --color-pick: rgb(64 140 255 / 0.38);
   /* Theme picker thumbnails: fixed per depicted theme, so they read the same in either app theme. */
   --color-preview-light: #f6f5fb;
   --color-preview-dark: #121318;
@@ -214,6 +220,22 @@
   --color-placeholder: darkgray;
   --shadow-suggest: rgba(0, 0, 0, 0.12) 0 8px 24px;
   --shadow-toast: var(--vee-toast-shadow);
+}
+
+/* The capture overlay's window mode: a camera, like macOS ⌘⇧4 → Space. */
+@utility cursor-camera {
+  cursor:
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><path d='M4 9.5A2.5 2.5 0 0 1 6.5 7h3l1.6-2.2h5.8L18.5 7h3A2.5 2.5 0 0 1 24 9.5v10a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 4 19.5z' fill='%23222' stroke='white' stroke-width='1.5'/><circle cx='14' cy='14.3' r='4.2' fill='none' stroke='white' stroke-width='1.6'/></svg>")
+      14 14,
+    pointer;
+}
+
+/* Window pick while recording: a video camera with a red record dot. */
+@utility cursor-record {
+  cursor:
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><rect x='3' y='8' width='16' height='12' rx='2.5' fill='%23222' stroke='white' stroke-width='1.5'/><path d='M19 12.5l6-3.5v10l-6-3.5z' fill='%23222' stroke='white' stroke-width='1.5' stroke-linejoin='round'/><circle cx='11' cy='14' r='3' fill='%23ff3b30'/></svg>")
+      14 14,
+    pointer;
 }
 
 /*
@@ -316,6 +338,10 @@
   --animate-ring: ring 900ms ease-out 200ms;
   --animate-drift: drift 12s ease-in-out infinite alternate;
   --animate-bob: bob 1.6s ease-in-out infinite;
+  /* The recording dot's pulse: a --color-rec ring that fades out (box-shadow, like `ring`). */
+  --animate-rec-pulse: rec-pulse 1.4s ease-out infinite;
+  /* The recording frame fades in as the capture overlay fades out (recorder `CROSSFADE_MS`). */
+  --animate-fade-in: fade-in 150ms ease-out backwards;
   /* The update pill hops until hovered; ~7px so the panel's 10px top padding never clips it. Same timing for its shadow. */
   --animate-jump: jump 1.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
   --animate-jump-shadow: jump-shadow 1.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
@@ -404,6 +430,21 @@
     }
     66% {
       transform: translate(-15px, 10px) scale(0.95);
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes rec-pulse {
+    from {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-rec) 60%, transparent);
+    }
+    to {
+      box-shadow: 0 0 0 8px transparent;
     }
   }
 
@@ -500,7 +541,10 @@
 
   html[data-window='panel'] body,
   html[data-window='toast'] body,
-  html[data-window='convert'] body {
+  html[data-window='convert'] body,
+  html[data-window^='capture'] body,
+  html[data-window='recorder'] body,
+  html[data-window='recframe'] body {
     background: transparent;
   }
 
@@ -605,6 +649,7 @@
   .animate-pop,
   .animate-ring,
   .animate-bob,
+  .animate-rec-pulse,
   .animate-jump,
   .animate-jump-shadow,
   .animate-slice-in,

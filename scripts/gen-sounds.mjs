@@ -1,4 +1,4 @@
-// Generates the built-in copy sounds into src-tauri/sounds/*.wav.
+// Generates the built-in copy and record sounds into src-tauri/sounds/*.wav.
 // Run: node scripts/gen-sounds.mjs
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -48,7 +48,15 @@ const SOUNDS = {
   },
   bubble: { len: 0.14, draw: (b) => tone(b, { f0: 400, f1: 1200, dur: 0.12, vol: 0.3 }) },
   tap: { len: 0.1, draw: (b) => tone(b, { f0: 220, f1: 160, dur: 0.08, vol: 0.45, wave: "triangle" }) },
+  "record-start": { len: 0.36, draw: (b) => twoTone(b, 660, 990) },
+  "record-stop": { len: 0.36, draw: (b) => twoTone(b, 990, 660) },
 };
+
+/** Two-Tone record cue: a then b, the second starting just before the first ends. */
+function twoTone(buf, a, b) {
+  tone(buf, { f0: a, f1: a, dur: 0.14, vol: 0.22 });
+  tone(buf, { f0: b, f1: b, start: 0.13, dur: 0.2, vol: 0.22 });
+}
 
 /** 16-bit mono PCM WAV. */
 function wav(samples) {

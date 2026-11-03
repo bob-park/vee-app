@@ -71,7 +71,7 @@ pub struct ToastPayload {
 }
 
 impl ToastPayload {
-    fn copied(content: &ClipContent, plain: bool) -> Self {
+    pub(crate) fn copied(content: &ClipContent, plain: bool) -> Self {
         match content {
             ClipContent::Text(t) => Self {
                 ok: true,
@@ -103,9 +103,9 @@ impl ToastPayload {
         Self { ok: false, kind: Kind::Text, text: None, files: 0, plain: false, convert: None, pins_fit: None, drag_missing: false }
     }
 
-    /// A convert note; `ok` only for a saved file.
+    /// A convert note; `ok` for a saved file or one still converting.
     pub(crate) fn convert(note: ConvertNote, kind: Kind) -> Self {
-        let ok = matches!(note, ConvertNote::Saved { .. });
+        let ok = matches!(note, ConvertNote::Saved { .. } | ConvertNote::RecordFolderMissing { .. } | ConvertNote::RecordConverting { .. });
         Self { ok, kind, text: None, files: 0, plain: false, convert: Some(note), pins_fit: None, drag_missing: false }
     }
 
@@ -313,12 +313,13 @@ pub(crate) fn work_area(monitor: &Monitor) -> (Rect, f64) {
 }
 
 pub(crate) fn place(window: &WebviewWindow, r: Rect) -> tauri::Result<()> {
+    // Size first: macOS resizes around the bottom-left corner, so a resize after the move shifts the top edge.
     if USES_POINTS {
-        window.set_position(LogicalPosition::new(r.x, r.y))?;
         window.set_size(LogicalSize::new(r.w, r.h))?;
+        window.set_position(LogicalPosition::new(r.x, r.y))?;
     } else {
-        window.set_position(PhysicalPosition::new(r.x.round() as i32, r.y.round() as i32))?;
         window.set_size(PhysicalSize::new(r.w.round() as u32, r.h.round() as u32))?;
+        window.set_position(PhysicalPosition::new(r.x.round() as i32, r.y.round() as i32))?;
     }
     Ok(())
 }
@@ -558,11 +559,16 @@ pub(crate) fn show_toast(app: &AppHandle, payload: ToastPayload) {
         });
         let _ = place(&toast, toast_rect(work, unit, pinned));
     }
+    // A conversion in progress has no end to time: the result's toast replaces it.
+    let hold = matches!(payload.convert, Some(ConvertNote::RecordConverting { .. }));
     let _ = app.emit_to(TOAST, "toast://show", payload);
     let _ = toast.set_ignore_cursor_events(true);
     let _ = toast.show();
 
     let generation = TOAST_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    if hold {
+        return;
+    }
     let app = app.clone();
     std::thread::spawn(move || {
         // A newer toast restarted the timer; let it run the exit and hide the window.

@@ -14,7 +14,8 @@ use model::eta;
 pub use model::{Caps, DONE_MS, Engine, Format, Job, JobError, JobState, JobView, Quality, SHOW_AFTER_MS, Slice};
 use model::{DocTargets, HWP_TARGETS, IMAGE_TARGETS, SHEET_TARGETS, SLIDE_TARGETS, TEXT_TARGETS, VIDEO_TARGETS};
 pub use pdf::{FLAG as PDF_WORKER_FLAG, LIB as PDFIUM_LIB, worker_main as pdf_worker_main};
-pub use process::{command, output};
+#[cfg_attr(not(windows), allow(unused_imports))] // `Killed`: the Windows recorder
+pub use process::{Killed, command, output};
 pub use video::{HwEncoder, Run, hw_encoder};
 
 use std::path::{Path, PathBuf};
@@ -180,7 +181,7 @@ fn convert_doc(src: &Path, to: Format, out: &Path, tmp: &Path, targets: DocTarge
 }
 
 /// Rename, or copy + remove when `from` and `to` are on different volumes.
-fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
+pub fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::rename(from, to).or_else(|_| {
         std::fs::copy(from, to).inspect_err(|_| {
             let _ = std::fs::remove_file(to);

@@ -5,8 +5,8 @@ mod model;
 pub mod repository;
 
 pub use model::{
-    DEFAULT_PANEL_PIN_SHORTCUT, DEFAULT_PINNED_COPY_SHORTCUTS, DEFAULT_RESET_SEARCH_SHORTCUT, DEFAULT_SHORTCUT, SILENT, SOUND_NAMES,
-    SettingsDto,
+    DEFAULT_CAPTURE_SHORTCUT, DEFAULT_PANEL_PIN_SHORTCUT, DEFAULT_PINNED_COPY_SHORTCUTS, DEFAULT_RECORD_SHORTCUT,
+    DEFAULT_RESET_SEARCH_SHORTCUT, DEFAULT_SHORTCUT, RECORD_FORMATS, SILENT, SOUND_NAMES, SettingsDto,
 };
 
 use crate::domain::clip;
@@ -18,6 +18,9 @@ pub fn get(conn: &Connection, key: &str) -> String {
     let default = match key {
         "theme" | "locale" => "system",
         "shortcut" => DEFAULT_SHORTCUT,
+        "captureShortcut" => DEFAULT_CAPTURE_SHORTCUT,
+        "recordShortcut" => DEFAULT_RECORD_SHORTCUT,
+        "recordFormat" => "mp4",
         "panelPinShortcut" => DEFAULT_PANEL_PIN_SHORTCUT,
         "resetSearchShortcut" => DEFAULT_RESET_SEARCH_SHORTCUT,
         "pinnedCopy1Shortcut" => DEFAULT_PINNED_COPY_SHORTCUTS[0],
@@ -65,6 +68,11 @@ pub fn copy_sound(conn: &Connection) -> Option<String> {
     (get(conn, "sound") == "on" && name != SILENT).then_some(name)
 }
 
+/// Whether capture and record sounds play: they follow only the sound switch, not `soundName`.
+pub fn capture_sounds(conn: &Connection) -> bool {
+    get(conn, "sound") == "on"
+}
+
 const DAY_MS: i64 = 86_400_000;
 /// Clips last used before this (ms) are pruned; `None` keeps everything.
 pub fn cutoff_for(value: &str, now: i64) -> Option<i64> {
@@ -93,6 +101,12 @@ fn validate(key: &str, value: &str) -> AppResult<()> {
         "panelResize" | "ocr" | "dragConvert" | "videoHwAccel" => matches!(value, "on" | "off"),
         "convertKey" => matches!(value, "alt" | "ctrl" | "shift"),
         "videoQuality" => matches!(value, "small" | "normal" | "original"),
+        "recordFormat" => RECORD_FORMATS.contains(&value),
+        // "" (the OS Downloads folder) is a reset, written with `set_raw`.
+        "recordFolder" => {
+            let path = std::path::Path::new(value);
+            path.is_absolute() && path.is_dir()
+        }
         // Modifiers and a key code joined by `+`, as built by the settings recorder.
         "panelPinShortcut" | "resetSearchShortcut" | "pinnedCopy1Shortcut" | "pinnedCopy2Shortcut" | "pinnedCopy3Shortcut" => {
             value.contains('+') && value.split('+').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric()))
@@ -278,5 +292,47 @@ mod tests {
         assert!(set(&conn, "ocr", "maybe").is_err());
         set(&conn, "ocr", "off").unwrap();
         assert_eq!(get(&conn, "ocr"), "off");
+    }
+
+    #[test]
+    fn capture_and_record_defaults() {
+        let c = db::open_in_memory().unwrap();
+        assert_eq!(get(&c, "captureShortcut"), "CommandOrControl+Alt+Shift+Digit4");
+        assert_eq!(get(&c, "recordShortcut"), "CommandOrControl+Alt+Shift+Digit5");
+        assert_eq!(get(&c, "recordFormat"), "mp4");
+        assert_eq!(get(&c, "recordFolder"), "");
+    }
+
+    #[test]
+    fn record_format_accepts_only_known() {
+        let c = db::open_in_memory().unwrap();
+        set(&c, "recordFormat", "gif").unwrap();
+        assert!(matches!(set(&c, "recordFormat", "mkv"), Err(AppError::InvalidInput(_))));
+        assert_eq!(get(&c, "recordFormat"), "gif");
+    }
+
+    #[test]
+    fn record_folder_must_be_an_existing_absolute_dir() {
+        let c = db::open_in_memory().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_str().unwrap();
+        set(&c, "recordFolder", path).unwrap();
+        assert_eq!(get(&c, "recordFolder"), path);
+        for bad in ["relative/dir", "/definitely/missing/vee-dir", ""] {
+            assert!(matches!(set(&c, "recordFolder", bad), Err(AppError::InvalidInput(_))), "{bad}");
+        }
+        assert_eq!(get(&c, "recordFolder"), path);
+        set_raw(&c, "recordFolder", "").unwrap(); // reset to Downloads goes through set_raw
+        assert_eq!(get(&c, "recordFolder"), "");
+    }
+
+    #[test]
+    fn capture_sounds_follow_the_sound_switch() {
+        let c = db::open_in_memory().unwrap();
+        assert!(capture_sounds(&c));
+        set(&c, "soundName", "none").unwrap();
+        assert!(capture_sounds(&c));
+        set(&c, "sound", "off").unwrap();
+        assert!(!capture_sounds(&c));
     }
 }

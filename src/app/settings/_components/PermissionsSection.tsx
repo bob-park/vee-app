@@ -1,12 +1,14 @@
+import { useState } from 'react';
+
 import Button from '@/app/settings/_components/Button';
 import Row from '@/app/settings/_components/Row';
 import SettingSection from '@/app/settings/_components/SettingSection';
 import { BADGE } from '@/app/settings/_components/badge';
 import { openAutomationSettings, requestFinderAccess } from '@/domain/convert/apis/convert';
 import { useFinderAccess } from '@/domain/convert/queries/convert';
-import { openDiskAccessSettings } from '@/domain/settings/apis/settings';
+import { openDiskAccessSettings, openScreenAccessSettings, requestScreenAccess } from '@/domain/settings/apis/settings';
 import type { Settings } from '@/domain/settings/apis/settings.dto';
-import { useDiskAccess } from '@/domain/settings/queries/settings';
+import { useDiskAccess, useScreenAccess } from '@/domain/settings/queries/settings';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
 interface Props {
@@ -16,19 +18,30 @@ interface Props {
 }
 
 /**
- * macOS permissions; both are null on Windows, where the tab is hidden.
+ * macOS permissions; all are null on Windows, where the tab is hidden.
  * Re-checked on focus so they update after the user returns from System Settings.
  */
 export default function PermissionsSection({ settings, run }: Props) {
+  // state
+  // macOS shows its prompt only once, so later presses open System Settings.
+  const [screenRequested, setScreenRequested] = useState(false);
+
   // hooks
   const s = useI18n().t.settings;
 
   // queries
   const { granted } = useDiskAccess();
   const { access } = useFinderAccess();
+  const { granted: screenGranted } = useScreenAccess();
+
+  // handle
+  const handleScreenAllow = () => {
+    run(screenRequested ? openScreenAccessSettings() : requestScreenAccess());
+    setScreenRequested(true);
+  };
 
   const c = s.convert;
-  if (granted === null && !access) return null;
+  if (granted === null && screenGranted === null && !access) return null;
   return (
     <SettingSection>
       {granted !== null && (
@@ -37,6 +50,18 @@ export default function PermissionsSection({ settings, run }: Props) {
             <span className={BADGE}>{s.diskAccessGranted}</span>
           ) : (
             <Button onClick={() => void openDiskAccessSettings()}>{s.diskAccessGrant}</Button>
+          )}
+        </Row>
+      )}
+      {screenGranted !== null && (
+        <Row
+          label={s.screenAccess}
+          hint={screenRequested && !screenGranted ? s.screenAccessRelaunchHint : s.screenAccessHint}
+        >
+          {screenGranted ? (
+            <span className={BADGE}>{c.allowed}</span>
+          ) : (
+            <Button onClick={handleScreenAllow}>{screenRequested ? c.openSystemSettings : c.allow}</Button>
           )}
         </Row>
       )}

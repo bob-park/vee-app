@@ -2,8 +2,9 @@
 
 use crate::{
     app::{
+        ai,
         drop_target::{self, DropFolder},
-        ai, editor, engines, office,
+        editor, engines, office,
         state::{AppState, now_ms},
         window::{self, PANEL, Rect, ToastPayload, USES_POINTS},
     },
@@ -34,10 +35,33 @@ const HIDE_FALLBACK_MS: u64 = 200;
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ConvertNote {
-    Saved { format: Format, count: usize, folder: String },
-    Failed { name: String, error: JobError },
-    NotFolder { finder_blocked: bool },
+    Saved {
+        format: Format,
+        count: usize,
+        folder: String,
+    },
+    Failed {
+        name: String,
+        error: JobError,
+    },
+    NotFolder {
+        finder_blocked: bool,
+    },
     Unsupported,
+    // Recording (`app::recorder`): saved in Downloads as the `recordFolder` is gone; the recording failed;
+    // the OS is too old; Windows needs FFmpeg to record.
+    RecordFolderMissing {
+        format: Format,
+        folder: String,
+    },
+    /// Shown while a stopped recording is converted to WEBM / GIF; it stays up until the result's toast.
+    RecordConverting {
+        format: Format,
+    },
+    RecordFailed,
+    RecordUnsupported,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    RecordNeedsFfmpeg,
 }
 
 /// The card being dragged. Survives `finish_drag` so the overlay's drop (which arrives later) can take it.

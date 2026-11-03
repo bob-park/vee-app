@@ -2,9 +2,12 @@ import { StrictMode } from 'react';
 
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 
+import CaptureApp from '@/app/capture/CaptureApp';
 import ConvertApp from '@/app/convert/ConvertApp';
 import { EditorApp } from '@/app/editor/EditorApp';
 import { PanelApp } from '@/app/panel/PanelApp';
+import RecFrameApp from '@/app/recorder/RecFrameApp';
+import RecorderApp from '@/app/recorder/RecorderApp';
 import { SettingsApp } from '@/app/settings/SettingsApp';
 import { ToastApp } from '@/app/toast/ToastApp';
 import { WhatsNewApp } from '@/app/whats-new/WhatsNewApp';
@@ -33,7 +36,13 @@ const View =
           ? WhatsNewApp
           : label === 'editor'
             ? EditorApp
-            : SettingsApp;
+            : label.startsWith('capture')
+              ? CaptureApp
+              : label === 'recorder'
+                ? RecorderApp
+                : label === 'recframe'
+                  ? RecFrameApp
+                  : SettingsApp;
 
 // Seed settings before the first paint so there is no flash of the wrong theme or language.
 // On failure the query fetches (and retries) on mount instead.

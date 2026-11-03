@@ -3,6 +3,7 @@
 pub mod ai;
 pub mod ai_worker;
 pub mod autostart;
+pub mod capture;
 pub mod convert;
 pub mod disk_access;
 pub mod drop_target;
@@ -12,7 +13,9 @@ pub mod front_app;
 pub mod i18n;
 pub mod ocr;
 pub mod office;
+pub mod recorder;
 pub mod retention;
+pub mod screen_access;
 pub mod shortcut;
 pub mod sound;
 pub mod state;

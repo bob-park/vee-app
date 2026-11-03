@@ -4,22 +4,31 @@ import cx from 'classnames';
 
 interface SegmentedProps<T extends string> {
   value: T;
-  options: { value: T; label: string }[];
+  /** `disabled` options are dimmed and can't be picked; `title` is their tooltip. */
+  options: { value: T; label: string; disabled?: boolean; title?: string }[];
   onChange: (value: T) => void;
   /** Fills the row, options sharing the width. */
   wide?: boolean;
   /** An option waiting for confirmation, outlined in red. */
   pending?: T;
+  ariaLabel?: string;
 }
 
 /** Radio group drawn as a segmented control, with a thumb that slides to the selection. */
-export default function Segmented<T extends string>({ value, options, onChange, wide, pending }: SegmentedProps<T>) {
+export default function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+  wide,
+  pending,
+  ariaLabel,
+}: SegmentedProps<T>) {
   const index = options.findIndex((o) => o.value === value);
 
   // handle
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const next = arrowStep(e.key, Math.max(index, 0), options.length);
-    if (next === null) return;
+    if (next === null || options[next].disabled) return;
     e.preventDefault();
     onChange(options[next].value);
     e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
@@ -32,6 +41,7 @@ export default function Segmented<T extends string>({ value, options, onChange, 
         wide ? 'grid' : 'inline-grid',
       )}
       role="radiogroup"
+      aria-label={ariaLabel}
       onKeyDown={handleKeyDown}
     >
       {index >= 0 && (
@@ -48,15 +58,25 @@ export default function Segmented<T extends string>({ value, options, onChange, 
           role="radio"
           aria-checked={i === index}
           tabIndex={i === index || (index < 0 && i === 0) ? 0 : -1}
-          className={cx('relative rounded-lg px-2.5 py-1 text-[12px]', {
-            'font-semibold': i === index,
-            'outline-error text-error outline-[1.5px] outline-dashed': o.value === pending,
-            'text-base-content': i === index && o.value !== pending,
-            'text-muted': i !== index && o.value !== pending,
-          })}
-          onClick={() => onChange(o.value)}
+          // Not `disabled`: a disabled button shows no tooltip in WebKit.
+          aria-disabled={o.disabled}
+          title={o.title}
+          className={cx(
+            'relative rounded-lg px-2.5 py-1 text-[12px] aria-disabled:cursor-not-allowed aria-disabled:opacity-60',
+            {
+              'font-semibold': i === index,
+              'outline-error text-error outline-[1.5px] outline-dashed': o.value === pending,
+              'text-base-content': i === index && o.value !== pending,
+              'text-muted': i !== index && o.value !== pending,
+            },
+          )}
+          onClick={() => !o.disabled && onChange(o.value)}
         >
-          {o.label}
+          {/* A hidden bold copy holds the width, so picking an option doesn't widen the cells. */}
+          <span className="grid">
+            <span className="invisible col-start-1 row-start-1 font-semibold">{o.label}</span>
+            <span className="col-start-1 row-start-1">{o.label}</span>
+          </span>
         </button>
       ))}
     </div>

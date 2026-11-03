@@ -1,6 +1,12 @@
 use serde::Serialize;
 
 pub const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+V";
+/// Global: opens the screen capture overlay.
+pub const DEFAULT_CAPTURE_SHORTCUT: &str = "CommandOrControl+Alt+Shift+Digit4";
+/// Global: starts or stops a screen recording.
+pub const DEFAULT_RECORD_SHORTCUT: &str = "CommandOrControl+Alt+Shift+Digit5";
+/// `recordFormat` values; the first is the default.
+pub const RECORD_FORMATS: [&str; 4] = ["mp4", "mov", "webm", "gif"];
 /// Panel-only, so it is matched in the panel instead of being registered with the OS.
 pub const DEFAULT_PANEL_PIN_SHORTCUT: &str = "CommandOrControl+Shift+KeyP";
 /// Panel-only, like the pin shortcut.
@@ -19,6 +25,8 @@ pub struct SettingsDto {
     pub theme: String,
     pub locale: String,
     pub shortcut: String,
+    pub capture_shortcut: String,
+    pub record_shortcut: String,
     pub panel_pin_shortcut: String,
     pub reset_search_shortcut: String,
     pub pinned_copy1_shortcut: String,
@@ -37,6 +45,8 @@ pub struct SettingsDto {
     pub convert_key: String,
     pub video_quality: String,
     pub video_hw_accel: String,
+    pub record_folder: String,
+    pub record_format: String,
     pub autostart: bool,
     pub version: String,
 }

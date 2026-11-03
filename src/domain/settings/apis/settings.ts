@@ -1,4 +1,10 @@
-import type { Retention, SettingKey, Settings, SoundName } from '@/domain/settings/apis/settings.dto';
+import type {
+  GlobalShortcutKey,
+  Retention,
+  SettingKey,
+  Settings,
+  SoundName,
+} from '@/domain/settings/apis/settings.dto';
 import call from '@/shared/api';
 
 export async function getSettings() {
@@ -9,8 +15,18 @@ export async function setSetting(key: SettingKey, value: string) {
   return call<void>('set_setting', { key, value });
 }
 
-export async function setShortcut(accel: string) {
-  return call<void>('set_shortcut', { accel });
+export async function setShortcut(key: GlobalShortcutKey, accel: string) {
+  return call<void>('set_shortcut', { key, accel });
+}
+
+/** Setting keys of the global shortcuts that failed to register. */
+export async function getShortcutFailures() {
+  return call<GlobalShortcutKey[]>('get_shortcut_failures');
+}
+
+/** Opens the OS keyboard shortcut settings (macOS); a no-op on Windows. */
+export async function openKeyboardSettings() {
+  return call<void>('open_keyboard_settings');
 }
 
 export async function countPrunable(value: Retention) {
@@ -32,4 +48,18 @@ export async function getDiskAccess() {
 
 export async function openDiskAccessSettings() {
   return call<void>('open_disk_access_settings');
+}
+
+/** Screen & System Audio Recording; null where the permission doesn't exist (Windows). */
+export async function getScreenAccess() {
+  return call<boolean | null>('get_screen_access');
+}
+
+/** Shows the macOS prompt; only the first call ever does. */
+export async function requestScreenAccess() {
+  return call<void>('request_screen_access');
+}
+
+export async function openScreenAccessSettings() {
+  return call<void>('open_screen_access_settings');
 }

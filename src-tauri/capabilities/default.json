@@ -1,6 +1,6 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "windows": ["panel", "toast", "convert", "settings", "whats-new", "editor"],
+  "windows": ["panel", "toast", "convert", "settings", "whats-new", "editor", "capture*", "recorder", "recframe"],
   "permissions": ["core:default", "core:window:allow-start-dragging", "dialog:default"]
 }
