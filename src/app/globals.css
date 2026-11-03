@@ -230,11 +230,11 @@
     pointer;
 }
 
-/* Window pick while recording: the camera with a red "● REC" badge at its top right. */
+/* Window pick while recording: a video camera. */
 @utility cursor-record {
   cursor:
-    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='36' height='32' viewBox='0 0 36 32'><g transform='translate(0 5)'><path d='M4 9.5A2.5 2.5 0 0 1 6.5 7h3l1.6-2.2h5.8L18.5 7h3A2.5 2.5 0 0 1 24 9.5v10a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 4 19.5z' fill='%23222' stroke='white' stroke-width='1.5'/><circle cx='14' cy='14.3' r='4.2' fill='none' stroke='white' stroke-width='1.6'/></g><rect x='21' y='2.5' width='14.5' height='7' rx='3.5' fill='white' stroke='%23222' stroke-width='0.6'/><circle cx='24.2' cy='6' r='1.6' fill='%23ff3b30'/><text x='26.5' y='7.8' textLength='7.6' lengthAdjust='spacingAndGlyphs' font-family='-apple-system,Segoe UI,sans-serif' font-size='5' font-weight='700' fill='%23ff3b30'>REC</text></svg>")
-      14 19,
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><rect x='3' y='8' width='16' height='12' rx='2.5' fill='%23222' stroke='white' stroke-width='1.5'/><path d='M19 12.5l6-3.5v10l-6-3.5z' fill='%23222' stroke='white' stroke-width='1.5' stroke-linejoin='round'/></svg>")
+      14 14,
     pointer;
 }
 
