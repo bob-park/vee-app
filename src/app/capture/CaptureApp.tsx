@@ -201,7 +201,10 @@ export default function CaptureApp() {
   const box = (rect: Rect) => ({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
   return (
     <div
-      className={cx('fixed inset-0 select-none', windowMode ? 'cursor-camera' : 'cursor-crosshair')}
+      className={cx(
+        'fixed inset-0 select-none',
+        !windowMode ? 'cursor-crosshair' : open?.mode === 'record' ? 'cursor-record' : 'cursor-camera',
+      )}
       onPointerDown={handlePointerDown}
       onPointerMove={(e) => setPointer(point(e))}
       onPointerUp={handlePointerUp}
