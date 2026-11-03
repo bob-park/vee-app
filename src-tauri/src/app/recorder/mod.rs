@@ -41,10 +41,8 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const RECORDER: &str = "recorder";
-/// The dashed border around the area being recorded.
+/// The dashed border around the area being recorded, over a dimmed rest of its monitor.
 pub const FRAME: &str = "recframe";
-/// How far the border sits outside the recorded area, in logical px, so it never falls inside it.
-const FRAME_OUTSET: f64 = 3.0;
 /// Windows: the start sound is over by then (0.34 s), so it isn't recorded; the overlay is gone too.
 /// macOS leaves Vee's own sound and windows out of the recording, so it starts at once.
 const START_DELAY_MS: u64 = if cfg!(windows) { 400 } else { 0 };
@@ -507,12 +505,13 @@ fn show_pill(app: &AppHandle, monitor: &MonitorInfo) {
     let _ = pill.show();
 }
 
-/// The dashed border just outside the recorded `area`; clicks pass through it.
+/// Covers the monitor: dims all but the recorded `area` (monitor-local logical px) and dashes its edge.
+/// Clicks pass through, and it stays out of the recording (Vee is excluded from it).
 fn show_frame(app: &AppHandle, monitor: &MonitorInfo, (x, y, w, h): RectF) {
     let Some(frame) = app.get_webview_window(FRAME) else { return };
-    let o = FRAME_OUTSET;
-    let (px, py, pw, ph) = geometry::to_physical((x - o, y - o, w + 2.0 * o, h + 2.0 * o), monitor);
+    let (px, py, pw, ph) = geometry::to_physical((0.0, 0.0, monitor.width, monitor.height), monitor);
     let _ = window::place(&frame, window::rect_from((px, py), (pw, ph), monitor.scale, window::USES_POINTS));
+    let _ = frame.emit("recframe://area", (x, y, w, h));
     let _ = frame.set_ignore_cursor_events(true);
     let _ = frame.show();
 }
