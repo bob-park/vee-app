@@ -222,19 +222,37 @@
   --shadow-toast: var(--vee-toast-shadow);
 }
 
-/* The capture overlay's window mode: a camera, like macOS ⌘⇧4 → Space. */
+/*
+ * Capture overlay window-pick cursors: app-icon style badges, purple camera for capture, red record
+ * button for recording. image-set adds a 2x image so HiDPI screens (Windows 150%/200%) draw them
+ * full size and sharp; the plain url() line is the fallback. Kept at 32px: WebView2 hides larger
+ * custom cursors near the viewport edge.
+ */
 @utility cursor-camera {
   cursor:
-    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><path d='M4 9.5A2.5 2.5 0 0 1 6.5 7h3l1.6-2.2h5.8L18.5 7h3A2.5 2.5 0 0 1 24 9.5v10a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 4 19.5z' fill='%23222' stroke='white' stroke-width='1.5'/><circle cx='14' cy='14.3' r='4.2' fill='none' stroke='white' stroke-width='1.6'/></svg>")
-      14 14,
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><rect x='2' y='2' width='28' height='28' rx='9' fill='%237132f5' stroke='white' stroke-width='2'/><path d='M9 13a2 2 0 0 1 2-2h1.8l1.2-1.6h4l1.2 1.6H21a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H11a2 2 0 0 1-2-2z' fill='white'/><circle cx='16' cy='16.3' r='3' fill='%237132f5'/></svg>")
+      16 16,
+    pointer;
+  cursor:
+    image-set(
+        url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><rect x='2' y='2' width='28' height='28' rx='9' fill='%237132f5' stroke='white' stroke-width='2'/><path d='M9 13a2 2 0 0 1 2-2h1.8l1.2-1.6h4l1.2 1.6H21a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H11a2 2 0 0 1-2-2z' fill='white'/><circle cx='16' cy='16.3' r='3' fill='%237132f5'/></svg>") 1x,
+        url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 32 32'><rect x='2' y='2' width='28' height='28' rx='9' fill='%237132f5' stroke='white' stroke-width='2'/><path d='M9 13a2 2 0 0 1 2-2h1.8l1.2-1.6h4l1.2 1.6H21a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H11a2 2 0 0 1-2-2z' fill='white'/><circle cx='16' cy='16.3' r='3' fill='%237132f5'/></svg>") 2x
+      )
+      16 16,
     pointer;
 }
 
-/* Window pick while recording: a video camera with a red record dot. */
 @utility cursor-record {
   cursor:
-    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><rect x='3' y='8' width='16' height='12' rx='2.5' fill='%23222' stroke='white' stroke-width='1.5'/><path d='M19 12.5l6-3.5v10l-6-3.5z' fill='%23222' stroke='white' stroke-width='1.5' stroke-linejoin='round'/><circle cx='11' cy='14' r='3' fill='%23ff3b30'/></svg>")
-      14 14,
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><rect x='2' y='2' width='28' height='28' rx='9' fill='%23e5283c' stroke='white' stroke-width='2'/><circle cx='16' cy='16' r='6.5' fill='none' stroke='white' stroke-width='2'/><circle cx='16' cy='16' r='3.8' fill='white'/></svg>")
+      16 16,
+    pointer;
+  cursor:
+    image-set(
+        url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><rect x='2' y='2' width='28' height='28' rx='9' fill='%23e5283c' stroke='white' stroke-width='2'/><circle cx='16' cy='16' r='6.5' fill='none' stroke='white' stroke-width='2'/><circle cx='16' cy='16' r='3.8' fill='white'/></svg>") 1x,
+        url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 32 32'><rect x='2' y='2' width='28' height='28' rx='9' fill='%23e5283c' stroke='white' stroke-width='2'/><circle cx='16' cy='16' r='6.5' fill='none' stroke='white' stroke-width='2'/><circle cx='16' cy='16' r='3.8' fill='white'/></svg>") 2x
+      )
+      16 16,
     pointer;
 }
 

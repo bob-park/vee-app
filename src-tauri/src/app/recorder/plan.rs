@@ -116,6 +116,95 @@ pub fn mux_args_video_only(video: &Path, out: &Path) -> Vec<OsString> {
     a
 }
 
+/// The longest side of a piped window recording; larger windows are scaled down to it.
+#[cfg_attr(not(windows), allow(dead_code))] // the Windows engine
+pub const MAX_SIDE: u32 = 1920;
+
+/// The frame rate of a piped window recording.
+#[cfg_attr(not(windows), allow(dead_code))] // the Windows engine
+pub const FPS: u32 = 30;
+
+/// The fixed output size of a window first seen at `w`×`h`: the longest side capped at `MAX_SIDE`, both sides even.
+#[cfg_attr(not(windows), allow(dead_code))] // the Windows engine
+pub fn output_size(w: u32, h: u32) -> (u32, u32) {
+    let max = w.max(h);
+    let (w, h) = if max > MAX_SIDE {
+        let s = f64::from(MAX_SIDE) / f64::from(max);
+        ((f64::from(w) * s).round() as u32, (f64::from(h) * s).round() as u32)
+    } else {
+        (w, h)
+    };
+    (even(w), even(h))
+}
+
+/// Where a `src`-sized frame sits in a `dst` canvas as `(x, y, w, h)`: shrunk to fit keeping its aspect, never
+/// upscaled, centred.
+#[cfg_attr(not(windows), allow(dead_code))] // the Windows engine
+pub fn fit_rect(src: (u32, u32), dst: (u32, u32)) -> (u32, u32, u32, u32) {
+    let f = f64::from;
+    let scale = (f(dst.0) / f(src.0)).min(f(dst.1) / f(src.1)).min(1.0);
+    let w = ((f(src.0) * scale).round() as u32).clamp(1, dst.0);
+    let h = ((f(src.1) * scale).round() as u32).clamp(1, dst.1);
+    ((dst.0 - w) / 2, (dst.1 - h) / 2, w, h)
+}
+
+/// Lays a tight BGRA `src` frame onto the tight BGRA `dst` canvas of `dst_size` at its `fit_rect`, black around
+/// it, so a resized window keeps the output size fixed. `dst` is reused by the caller: nothing is allocated but
+/// one column table when shrinking.
+/// Shrinking averages the 2×2 source pixels around each output pixel's centre: an exact box filter at 2:1, and
+/// smooth enough down to it from 1:1 (the window is at most ~2× `MAX_SIDE` on today's monitors).
+// ponytail: beyond 2:1 it skips source pixels (aliasing on fine text); widen the box by the ratio if that shows.
+#[cfg_attr(not(windows), allow(dead_code))] // the Windows engine
+pub fn compose_into(src: &[u8], src_size: (u32, u32), dst: &mut [u8], dst_size: (u32, u32)) {
+    let (x, y, w, h) = fit_rect(src_size, dst_size);
+    let (sw, sh, w, h) = (src_size.0 as usize, src_size.1 as usize, w as usize, h as usize);
+    let (stride, srow, at) = (dst_size.0 as usize * 4, sw * 4, x as usize * 4);
+    if (x, y, w, h) != (0, 0, dst_size.0 as usize, dst_size.1 as usize) {
+        dst.as_chunks_mut::<4>().0.fill([0, 0, 0, 255]);
+    }
+    let dst = &mut dst[y as usize * stride..];
+    if (w, h) == (sw, sh) {
+        for (line, out) in src.chunks_exact(srow).zip(dst.chunks_mut(stride)) {
+            out[at..at + srow].copy_from_slice(line);
+        }
+        return;
+    }
+    // The two source indices around output index `c`'s centre (`n` outputs over `s` inputs); one when not shrunk.
+    let near = |c: usize, n: usize, s: usize| {
+        let i = (((2 * c + 1) * s).saturating_sub(n) / (2 * n)).min(s - 1);
+        (i, if s > n { (i + 1).min(s - 1) } else { i })
+    };
+    let cols: Vec<(usize, usize)> = (0..w).map(|c| near(c, w, sw)).map(|(i, j)| (i * 4, j * 4)).collect();
+    for (r, out) in dst.chunks_mut(stride).take(h).enumerate() {
+        let (i, j) = near(r, h, sh);
+        let (a, b) = (&src[i * srow..][..srow], &src[j * srow..][..srow]);
+        for (o, &(c0, c1)) in out[at..at + w * 4].as_chunks_mut::<4>().0.iter_mut().zip(&cols) {
+            for k in 0..4 {
+                let sum = u16::from(a[c0 + k]) + u16::from(a[c1 + k]) + u16::from(b[c0 + k]) + u16::from(b[c1 + k]);
+                o[k] = ((sum + 2) / 4) as u8;
+            }
+        }
+    }
+}
+
+/// How many frames should have been written `elapsed` after the start, at `FPS`; frame 0 is due at once.
+#[cfg_attr(not(windows), allow(dead_code))] // the Windows engine
+pub fn frames_due(elapsed: std::time::Duration) -> u64 {
+    (elapsed.as_nanos() * u128::from(FPS) / 1_000_000_000) as u64 + 1
+}
+
+/// FFmpeg args reading rawvideo BGRA `w`×`h` frames at `FPS` from stdin into `out`, with the same encoder
+/// settings as `grab_args`.
+#[cfg_attr(not(windows), allow(dead_code))] // the Windows engine
+pub fn pipe_args(w: u32, h: u32, out: &Path) -> Vec<OsString> {
+    let mut a: Vec<OsString> =
+        ["-y", "-hide_banner", "-loglevel", "error", "-nostats", "-f", "rawvideo", "-pix_fmt", "bgra"].map(OsString::from).into();
+    a.extend(["-s".into(), format!("{w}x{h}"), "-r".into(), FPS.to_string()].map(OsString::from));
+    a.extend(["-i", "-", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "18", "-pix_fmt", "yuv420p"].map(OsString::from));
+    a.push(out.into());
+    a
+}
+
 /// A global rect `win` clipped to the global `display` rect, in display-local coordinates; `None` if off it.
 pub fn clip_to_display(win: (f64, f64, f64, f64), display: (f64, f64, f64, f64)) -> Option<(f64, f64, f64, f64)> {
     let (x0, y0) = (win.0.max(display.0), win.1.max(display.1));
@@ -231,5 +320,130 @@ mod tests {
     #[test]
     fn even_rounds_down_to_at_least_two() {
         assert_eq!((even(301), even(300), even(1)), (300, 300, 2));
+    }
+
+    #[test]
+    fn output_size_caps_longest_side_and_keeps_even() {
+        assert_eq!(output_size(3840, 2160), (1920, 1080));
+        assert_eq!(output_size(2160, 3840), (1080, 1920));
+        assert_eq!(output_size(4000, 1000), (1920, 480));
+        assert_eq!(output_size(1000, 700), (1000, 700));
+        assert_eq!(output_size(1001, 701), (1000, 700));
+        assert_eq!(output_size(1920, 1200), (1920, 1200));
+        assert_eq!(output_size(1, 1), (2, 2));
+    }
+
+    #[test]
+    fn fit_rect_shrinks_larger_and_centres_smaller() {
+        assert_eq!(fit_rect((1920, 1080), (1920, 1080)), (0, 0, 1920, 1080));
+        assert_eq!(fit_rect((800, 600), (1920, 1080)), (560, 240, 800, 600)); // no upscale
+        assert_eq!(fit_rect((3840, 1080), (1920, 1080)), (0, 270, 1920, 540));
+        assert_eq!(fit_rect((1000, 2000), (1920, 1080)), (690, 0, 540, 1080));
+        let (_, _, w, h) = fit_rect((10_000, 1), (100, 100));
+        assert!(w >= 1 && h >= 1);
+    }
+
+    /// `compose_into` on a canvas dirtied first, so every test also checks that nothing old is left.
+    fn compose(src: &[u8], src_size: (u32, u32), dst_size: (u32, u32)) -> Vec<u8> {
+        let mut out = vec![7u8; (dst_size.0 * dst_size.1 * 4) as usize];
+        compose_into(src, src_size, &mut out, dst_size);
+        out
+    }
+
+    #[test]
+    fn compose_same_size_is_identity() {
+        let src: Vec<u8> = (0..2 * 2 * 4).map(|i| i as u8).collect();
+        assert_eq!(compose(&src, (2, 2), (2, 2)), src);
+    }
+
+    #[test]
+    fn compose_centres_smaller_on_black() {
+        let red = [0u8, 0, 255, 255];
+        let src: Vec<u8> = red.repeat(4); // 2×2
+        let out = compose(&src, (2, 2), (4, 4));
+        assert_eq!(out.len(), 4 * 4 * 4);
+        let px = |x: usize, y: usize| &out[(y * 4 + x) * 4..(y * 4 + x) * 4 + 4];
+        assert_eq!(px(0, 0), [0, 0, 0, 255]);
+        assert_eq!(px(1, 1), red);
+        assert_eq!(px(2, 2), red);
+        assert_eq!(px(3, 3), [0, 0, 0, 255]);
+    }
+
+    #[test]
+    fn compose_shrinks_wider_with_letterbox() {
+        let src: Vec<u8> = [255u8, 255, 255, 255].repeat(4 * 2); // white 4×2
+        let out = compose(&src, (4, 2), (2, 2)); // fits as 2×1 at y = 0
+        assert_eq!(out.len(), 2 * 2 * 4);
+        assert_eq!(&out[2 * 4..], [0, 0, 0, 255, 0, 0, 0, 255]); // row 1 black
+        assert_eq!(&out[..2 * 4], [255; 8]); // row 0 white
+    }
+
+    #[test]
+    fn compose_shrinks_taller_with_pillarbox_averaging_2x2() {
+        // 2×4: left column [0,0,200,255], right column [100,0,0,255]; fits 4×2 as 1×2 at x = 1.
+        let src: Vec<u8> = [0u8, 0, 200, 255, 100, 0, 0, 255].repeat(4);
+        let out = compose(&src, (2, 4), (4, 2));
+        let px = |x: usize, y: usize| &out[(y * 4 + x) * 4..(y * 4 + x) * 4 + 4];
+        for y in 0..2 {
+            assert_eq!(px(0, y), [0, 0, 0, 255]);
+            assert_eq!(px(1, y), [50, 0, 100, 255]);
+            assert_eq!(px(2, y), [0, 0, 0, 255]);
+            assert_eq!(px(3, y), [0, 0, 0, 255]);
+        }
+    }
+
+    #[test]
+    fn compose_halves_by_averaging_each_2x2_block() {
+        // 4×2 → 2×1: each output pixel is the mean of one 2×2 block.
+        let row0 = [10u8, 20, 30, 255, 30, 40, 50, 255, 0, 0, 0, 255, 200, 200, 200, 255];
+        let row1 = [10u8, 20, 30, 255, 30, 40, 50, 255, 0, 0, 0, 255, 200, 200, 200, 255];
+        let src = [row0, row1].concat();
+        let out = compose(&src, (4, 2), (2, 2));
+        assert_eq!(&out[..8], [20, 30, 40, 255, 100, 100, 100, 255]);
+    }
+
+    #[test]
+    fn frames_due_follows_the_wall_clock() {
+        use std::time::Duration;
+        assert_eq!(frames_due(Duration::ZERO), 1);
+        assert_eq!(frames_due(Duration::from_millis(33)), 1);
+        assert_eq!(frames_due(Duration::from_millis(34)), 2);
+        assert_eq!(frames_due(Duration::from_secs(1)), 31);
+        assert_eq!(frames_due(Duration::from_secs(60)), 1801);
+    }
+
+    #[test]
+    fn pipe_args_read_bgra_from_stdin() {
+        let a = pipe_args(1920, 1080, Path::new("v.mkv"));
+        let s: Vec<&str> = a.iter().map(|x| x.to_str().unwrap()).collect();
+        assert_eq!(
+            s,
+            [
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-nostats",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "bgra",
+                "-s",
+                "1920x1080",
+                "-r",
+                "30",
+                "-i",
+                "-",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-crf",
+                "18",
+                "-pix_fmt",
+                "yuv420p",
+                "v.mkv"
+            ]
+        );
     }
 }

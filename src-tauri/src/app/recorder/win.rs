@@ -1,18 +1,25 @@
 //! Windows 10 2004+ recording: an FFmpeg child grabs the screen into `video.mkv` while a thread records system
 //! audio with WASAPI loopback into `audio.wav`; `stop` ends both and muxes them into the output.
 //!
-//! Video is `gdigrab`, not `ddagrab` (see `plan::grab_args`): any GPU, RDP and VMs, and a plain offset + size.
+//! A region is grabbed with `gdigrab`, not `ddagrab` (see `plan::grab_args`): any GPU, RDP and VMs, and a plain
+//! offset + size. A window is grabbed with Windows.Graphics.Capture (`wgc`), so only its own pixels are recorded
+//! wherever it moves and whatever covers it: a pump thread composes its newest frame onto a fixed canvas (longest
+//! side ≤ `plan::MAX_SIDE`) and pipes it to FFmpeg as rawvideo at `plan::FPS`, repeating frames so the video keeps
+//! wall-clock length. Where WGC is unavailable, the window's rect at the start is grabbed with `gdigrab` instead.
 //!
 //! A/V sync: the loopback client starts first, then FFmpeg is spawned at once, so both start at about the same
 //! instant. Loopback delivers no packets while nothing plays, so the audio thread pads with silence to keep its
-//! length on the wall clock; the mux cuts both to the shorter (`-shortest`).
-//! ponytail: FFmpeg's input-open latency (~0.1–0.3 s) shows as audio slightly ahead of video; trim the WAV by
-//! the time FFmpeg reports its first frame (`-progress`) if that is noticeable.
+//! length on the wall clock; the mux cuts both to the shorter (`-shortest`). A WGC window recording's pump
+//! clocks its frames from the moment the audio client started, so the two share one start.
+//! ponytail: with `gdigrab` (a region, or a window where WGC is unavailable), FFmpeg's input-open latency
+//! (~0.1–0.3 s) shows as audio slightly ahead of video; trim the WAV by the time FFmpeg reports its first frame
+//! (`-progress`) if that is noticeable.
 //!
 //! Vee's own sounds are not excluded here (process-excluding loopback is Windows 11 only): the caller plays the
 //! start sound before `start` and the stop sound after `stop`.
 
 use super::plan::{self, Container};
+use super::wgc::{self, StartError};
 use crate::{
     app::{
         capture::geometry::{MonitorInfo, Selection, to_physical},
@@ -24,7 +31,7 @@ use crate::{
 use std::fs::File;
 use std::io::{BufWriter, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{ChildStdin, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -44,11 +51,21 @@ pub struct Running {
     grab: Option<Killed>,
     audio: Option<JoinHandle<Result<(), String>>>,
     stop_audio: Arc<AtomicBool>,
+    /// A window recording's frame pump (its stop flag and thread), which owns FFmpeg's stdin and the WGC capture.
+    pump: Option<(Arc<AtomicBool>, JoinHandle<()>)>,
     video_file: PathBuf,
     audio_file: PathBuf,
     /// FFmpeg's stderr (`-loglevel error`, so only its errors).
     log_file: PathBuf,
     out: PathBuf,
+}
+
+/// What FFmpeg records.
+enum Source {
+    /// A global physical rect, through `gdigrab`.
+    Rect((i32, i32, u32, u32)),
+    /// A window's WGC frames, piped in at this output size.
+    Window(wgc::Capture, (u32, u32)),
 }
 
 fn other(step: &str, e: impl std::fmt::Display) -> AppError {
@@ -58,13 +75,23 @@ fn other(step: &str, e: impl std::fmt::Display) -> AppError {
 impl Running {
     pub fn start(app: &AppHandle, monitor: &MonitorInfo, sel: &Selection, _container: Container, out: &Path) -> AppResult<Running> {
         let (ffmpeg, _) = engines::ffmpeg(app).ok_or_else(|| other("ffmpeg", "not installed"))?;
-        let rect = match *sel {
-            Selection::Rect { x, y, width, height } => to_physical((x, y, width, height), monitor),
-            // Cut to the overlay's monitor, as on macOS: gdigrab fails on a rect past the desktop's edge.
-            Selection::Window { id } => {
-                let display = to_physical((0.0, 0.0, monitor.width, monitor.height), monitor);
-                plan::clip_physical(window_rect(id)?, display).ok_or_else(|| other("window", format!("{id} is off the display")))?
-            }
+        let source = match *sel {
+            Selection::Rect { x, y, width, height } => Source::Rect(to_physical((x, y, width, height), monitor)),
+            Selection::Window { id } => match wgc::Capture::start(id) {
+                Ok(cap) => {
+                    let (w, h) = cap.size();
+                    Source::Window(cap, plan::output_size(w, h))
+                }
+                Err(StartError::Gone) => return Err(other("window", format!("{id} is gone"))),
+                Err(StartError::Unavailable(why)) => {
+                    log::warn!("recording: WGC unavailable ({why}); grabbing the screen rect");
+                    // Cut to the overlay's monitor, as on macOS: gdigrab fails on a rect past the desktop's edge.
+                    let display = to_physical((0.0, 0.0, monitor.width, monitor.height), monitor);
+                    let rect = plan::clip_physical(window_rect(id)?, display)
+                        .ok_or_else(|| other("window", format!("{id} is off the display")))?;
+                    Source::Rect(rect)
+                }
+            },
         };
         // The session's own dir (made by the caller), next to `out`.
         let dir = out.parent().ok_or_else(|| other("output", "no folder"))?;
@@ -77,25 +104,44 @@ impl Running {
             std::thread::spawn(move || loopback(&path, &stop, ready_tx))
         };
         // From here on, dropping `running` stops and joins the audio thread and kills FFmpeg.
-        let mut running =
-            Running { ffmpeg, grab: None, audio: Some(audio), stop_audio, video_file, audio_file, log_file, out: out.to_path_buf() };
+        let mut running = Running {
+            ffmpeg,
+            grab: None,
+            audio: Some(audio),
+            stop_audio,
+            pump: None,
+            video_file,
+            audio_file,
+            log_file,
+            out: out.to_path_buf(),
+        };
         match ready.recv_timeout(TIMEOUT) {
             Ok(Ok(())) => {}
             Ok(Err(e)) => return Err(running.fail(other("audio", e))),
             Err(_) => return Err(running.fail(other("audio", "timed out"))),
         }
+        // The WAV's clock started about now: the pump's frame 0 is due at this instant too.
+        let t0 = Instant::now();
+        let (args, piped) = match source {
+            Source::Rect(rect) => (plan::grab_args(rect, &running.video_file), None),
+            Source::Window(cap, (w, h)) => (plan::pipe_args(w, h, &running.video_file), Some((cap, (w, h)))),
+        };
         // stderr goes to a file, not a pipe nobody drains, so FFmpeg's message is there if it fails.
-        let child = File::create(&running.log_file).and_then(|log| {
-            command(&running.ffmpeg)
-                .args(plan::grab_args(rect, &running.video_file))
-                .stdin(Stdio::piped())
-                .stdout(Stdio::null())
-                .stderr(log)
-                .spawn()
-        });
+        let child = File::create(&running.log_file)
+            .and_then(|log| command(&running.ffmpeg).args(args).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(log).spawn());
         match child {
             Ok(c) => running.grab = Some(Killed(c)),
             Err(e) => return Err(running.fail(other("ffmpeg", e))),
+        }
+        if let Some((cap, size)) = piped {
+            let stdin = running.grab.as_mut().and_then(|g| g.0.stdin.take());
+            let Some(stdin) = stdin else { return Err(running.fail(other("ffmpeg", "no stdin"))) };
+            let stop = Arc::new(AtomicBool::new(false));
+            let pump = {
+                let stop = stop.clone();
+                std::thread::spawn(move || pump(cap, size, stdin, t0, &stop))
+            };
+            running.pump = Some((stop, pump));
         }
         // A bad rect or device makes FFmpeg exit at once: fail now, not at Stop.
         std::thread::sleep(EARLY_EXIT);
@@ -130,9 +176,25 @@ impl Running {
 
     fn finish(&mut self) -> AppResult<()> {
         let mut grab = self.grab.take().ok_or_else(|| other("ffmpeg", "not running"))?;
-        // `q` makes FFmpeg flush and close the file; dropping stdin then also ends it if `q` was missed.
-        if let Some(mut stdin) = grab.0.stdin.take() {
-            let _ = stdin.write_all(b"q");
+        // A piped FFmpeg reads rawvideo from stdin, so it gets no `q`: the pump closing stdin ends it.
+        if let Some((stop, pump)) = self.pump.take() {
+            stop.store(true, Ordering::SeqCst);
+            let deadline = Instant::now() + TIMEOUT;
+            while !pump.is_finished() {
+                if Instant::now() >= deadline {
+                    // Killing FFmpeg breaks the pipe, which unblocks a pump stuck in a write.
+                    drop(grab);
+                    let _ = pump.join();
+                    return Err(other("ffmpeg", "did not stop"));
+                }
+                std::thread::sleep(POLL);
+            }
+            let _ = pump.join();
+        } else {
+            // `q` makes FFmpeg flush and close the file; dropping stdin then also ends it if `q` was missed.
+            if let Some(mut stdin) = grab.0.stdin.take() {
+                let _ = stdin.write_all(b"q");
+            }
         }
         let deadline = Instant::now() + TIMEOUT;
         loop {
@@ -163,7 +225,8 @@ impl Running {
         }
     }
 
-    /// Stops the audio thread (joined) and kills FFmpeg if it still runs. `Err` when the audio thread failed.
+    /// Stops the audio thread (joined), kills FFmpeg if it still runs, then stops and joins the pump. `Err` when the
+    /// audio thread failed.
     fn halt(&mut self) -> Result<(), String> {
         self.stop_audio.store(true, Ordering::SeqCst);
         let audio = match self.audio.take().map(JoinHandle::join) {
@@ -171,7 +234,12 @@ impl Running {
             Some(Err(_)) => Err("thread panicked".into()),
             None => Ok(()),
         };
+        // FFmpeg first: killing it breaks the pipe, so a pump blocked in a write returns.
         self.grab = None;
+        if let Some((stop, pump)) = self.pump.take() {
+            stop.store(true, Ordering::SeqCst);
+            let _ = pump.join();
+        }
         audio
     }
 
@@ -202,6 +270,39 @@ impl Drop for Running {
     fn drop(&mut self) {
         let _ = self.halt();
     }
+}
+
+/// Writes `cap`'s newest frame, composed onto a black `size` canvas, to FFmpeg's `stdin` once per frame due at
+/// `plan::FPS` from `t0` (repeating it, and catching up when behind) until `stop` is set or FFmpeg stops reading.
+/// A catch-up burst is capped at one second of frames per pass, so `stop` and new frames are seen in between.
+fn pump(cap: wgc::Capture, size: (u32, u32), mut stdin: ChildStdin, t0: Instant, stop: &AtomicBool) {
+    // Black until the first WGC frame arrives; then each new frame is composed into this same buffer.
+    let mut canvas = [0u8, 0, 0, 255].repeat((size.0 * size.1) as usize);
+    let mut shown: Option<Arc<wgc::Frame>> = None;
+    let mut written = 0u64;
+    'run: while !stop.load(Ordering::SeqCst) {
+        if let Some(f) = cap.latest()
+            && !shown.as_ref().is_some_and(|s| Arc::ptr_eq(s, &f))
+        {
+            plan::compose_into(&f.bgra, (f.width, f.height), &mut canvas, size);
+            shown = Some(f);
+        }
+        let mut burst = 0;
+        while burst < plan::FPS && written < plan::frames_due(t0.elapsed()) && !stop.load(Ordering::SeqCst) {
+            // FFmpeg died or was killed: `finish` or the early-exit check reports it.
+            if stdin.write_all(&canvas).is_err() {
+                break 'run;
+            }
+            written += 1;
+            burst += 1;
+        }
+        // Frame `written` is due at `written / FPS` s.
+        let next = t0 + Duration::from_secs_f64(written as f64 / f64::from(plan::FPS));
+        std::thread::sleep(next.saturating_duration_since(Instant::now()));
+    }
+    // Closing stdin makes FFmpeg finish the file; then the capture session and its buffers go.
+    drop(stdin);
+    drop(cap);
 }
 
 /// The window's frame (no drop shadow) in global physical px at the start, recorded as a fixed rect.

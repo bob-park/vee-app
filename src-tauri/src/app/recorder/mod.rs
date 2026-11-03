@@ -7,6 +7,8 @@
 mod mac;
 pub mod plan;
 #[cfg(windows)]
+mod wgc;
+#[cfg(windows)]
 mod win;
 
 #[cfg(target_os = "macos")]
