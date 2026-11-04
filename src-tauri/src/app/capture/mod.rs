@@ -11,7 +11,7 @@ use crate::{
     shared::error::{AppError, AppResult},
 };
 use geometry::{MonitorInfo, Point, RectF, Selection};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -27,7 +27,7 @@ const CLAIM_TIMEOUT_MS: u64 = 1000;
 /// How often the open overlays check which monitor the mouse is on.
 const FOLLOW_MS: u64 = 30;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Mode {
     Capture,
@@ -42,6 +42,8 @@ pub struct OpenPayload {
     windows: Vec<WinInfo>,
     /// Where the mouse is, if on this monitor: the window under it is tinted before it moves.
     cursor: Option<Point>,
+    /// Why a capture overlay can't switch to record, if it can't. Always `None` in record mode.
+    record_blocked: Option<recorder::RecordBlock>,
 }
 
 /// One monitor's overlay in a session.
@@ -86,6 +88,22 @@ fn claim(slot: &mut Option<Session>, label: &str) -> Option<(OpenPayload, bool)>
     let overlay = session.overlays.iter_mut().find(|o| o.label == label)?;
     overlay.claimed = true;
     Some((overlay.payload.clone(), focus))
+}
+
+/// Switches every overlay of the open session to `mode`. The labels to notify, or `None` if nothing is open
+/// or it is already in `mode`.
+fn set_mode(slot: &mut Option<Session>, mode: Mode) -> Option<Vec<String>> {
+    let session = slot.as_mut()?;
+    if session.overlays.first()?.payload.mode == mode {
+        return None;
+    }
+    for overlay in &mut session.overlays {
+        overlay.payload.mode = mode;
+        if mode == Mode::Record {
+            overlay.payload.record_blocked = None;
+        }
+    }
+    Some(session.overlays.iter().map(|o| o.label.clone()).collect())
 }
 
 /// The mouse is on the monitor at `origin`: its overlay takes the keyboard. The label to focus, if that changed
@@ -174,6 +192,7 @@ pub fn open(app: &AppHandle, mode: Mode) -> bool {
     let Ok(monitors) = app.available_monitors() else { return false };
     let cursor = window::cursor_monitor(app).map(|m| *m.position());
     let pointer = window::cursor_at(app);
+    let record_blocked = if mode == Mode::Capture { recorder::record_block(app) } else { None };
     let mut overlays = Vec::new();
     let mut focus = None;
     for (index, m) in monitors.iter().enumerate() {
@@ -194,7 +213,7 @@ pub fn open(app: &AppHandle, mode: Mode) -> bool {
             focus = Some(label.clone());
         }
         let at = pointer.and_then(|p| geometry::local_cursor(p, &monitor, window::USES_POINTS));
-        let payload = OpenPayload { mode, monitor, windows: window_list::list(&monitor), cursor: at };
+        let payload = OpenPayload { mode, monitor, windows: window_list::list(&monitor), cursor: at, record_blocked };
         overlays.push(Overlay { label, origin: (pos.x, pos.y), payload, claimed: false });
     }
     // A monitor that went away leaves its overlay behind: drop it.
@@ -271,6 +290,41 @@ pub(crate) fn record_target(label: &str, selection: &Selection) -> Option<(Monit
     Some((overlay.payload.monitor, selection_rect(selection, &overlay.payload.windows)))
 }
 
+/// Switches the open overlays to `mode`, handing the session to or taking it back from the recorder; the mode
+/// now in effect. Never holds `SESSION` while calling the recorder: its dispatch may open the overlay.
+fn switch_mode(app: &AppHandle, mode: Mode) -> AppResult<Mode> {
+    let current = SESSION
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|s| s.overlays.first().map(|o| o.payload.mode))
+        .ok_or_else(|| AppError::InvalidInput("capture overlay is not open".into()))?;
+    if current == mode {
+        return Ok(current);
+    }
+    match mode {
+        // The page already disables record when it's blocked; this only guards a race, so it stays silent.
+        Mode::Record if !recorder::adopt_overlay(app) => return Ok(current),
+        Mode::Record => {}
+        Mode::Capture => recorder::overlay_closed(app),
+    }
+    let mut slot = SESSION.lock().unwrap();
+    if slot.is_none() {
+        drop(slot);
+        // Closed meanwhile: don't leave the recorder selecting.
+        if mode == Mode::Record {
+            recorder::overlay_closed(app);
+        }
+        return Err(AppError::InvalidInput("capture overlay is not open".into()));
+    }
+    let labels = set_mode(&mut slot, mode);
+    drop(slot);
+    for label in labels.iter().flatten() {
+        let _ = app.emit_to(label.as_str(), "capture://session-mode", mode);
+    }
+    Ok(mode)
+}
+
 fn capture(app: &AppHandle, label: &str, selection: Selection) -> AppResult<()> {
     let session = close(app).ok_or_else(|| AppError::InvalidInput("capture overlay is not open".into()))?;
     let overlay =
@@ -297,7 +351,7 @@ fn capture(app: &AppHandle, label: &str, selection: Selection) -> AppResult<()> 
 }
 
 pub mod commands {
-    use super::{OpenPayload, geometry::Selection};
+    use super::{Mode, OpenPayload, geometry::Selection};
     use crate::shared::error::{AppError, AppResult};
     use tauri::{AppHandle, WebviewWindow};
 
@@ -327,6 +381,12 @@ pub mod commands {
         result
     }
 
+    /// Switches the open overlays between capture and record (`capture://session-mode`); the mode now in effect.
+    #[tauri::command]
+    pub fn set_capture_mode(app: AppHandle, mode: Mode) -> AppResult<Mode> {
+        super::switch_mode(&app, mode)
+    }
+
     #[tauri::command]
     pub fn cancel_capture(app: AppHandle) {
         if super::close(&app).is_some_and(|s| s.overlays.first().is_some_and(|o| o.payload.mode == super::Mode::Record)) {
@@ -344,7 +404,7 @@ mod tests {
         let overlay = |label: &str| Overlay {
             label: label.into(),
             origin: if label == "capture" { (0, 0) } else { (1920, 0) },
-            payload: OpenPayload { mode: Mode::Capture, monitor, windows: Vec::new(), cursor: None },
+            payload: OpenPayload { mode: Mode::Capture, monitor, windows: Vec::new(), cursor: None, record_blocked: None },
             claimed: false,
         };
         Some(Session { generation, overlays: vec![overlay("capture"), overlay("capture-1")], focus: "capture-1".into(), prev_app: None })
@@ -376,6 +436,16 @@ mod tests {
         assert_eq!(refocus(&mut session, (1920, 0)).as_deref(), Some("capture-1"));
         assert_eq!(refocus(&mut session, (5000, 0)), None, "no overlay there");
         assert_eq!(session.focus, "capture-1");
+    }
+
+    #[test]
+    fn set_mode_flips_every_overlay_once() {
+        let mut slot = session(1); // two overlays, Capture
+        let labels = set_mode(&mut slot, Mode::Record).unwrap();
+        assert_eq!(labels.len(), slot.as_ref().unwrap().overlays.len());
+        assert!(slot.as_ref().unwrap().overlays.iter().all(|o| o.payload.mode == Mode::Record && o.payload.record_blocked.is_none()));
+        assert_eq!(set_mode(&mut slot, Mode::Record), None);
+        assert!(set_mode(&mut None, Mode::Capture).is_none());
     }
 
     #[test]
