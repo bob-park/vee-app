@@ -2,7 +2,13 @@ import type { CaptureMode, RecordBlock } from '@/domain/capture/apis/capture.dto
 import Segmented from '@/shared/components/Segmented';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
+import cx from 'classnames';
+
+import { floatClass } from './float';
+
 interface CaptureToolbarProps {
+  /** On the monitor under the mouse and not dragging; hidden it eases out and ignores input. */
+  shown: boolean;
   mode: CaptureMode;
   windowMode: boolean;
   recordBlocked: RecordBlock | null;
@@ -39,6 +45,7 @@ function Option({ icon, label }: { icon: React.ReactNode; label: string }) {
 
 /** The overlay's bottom toolbar: capture/record, area/window, and ✕. Shown on the monitor under the mouse. */
 export default function CaptureToolbar({
+  shown,
   mode,
   windowMode,
   recordBlocked,
@@ -58,7 +65,11 @@ export default function CaptureToolbar({
   return (
     // Its own clicks must not start a drag or pick a window on the overlay.
     <div
-      className="glass shadow-glass absolute bottom-10 left-1/2 flex -translate-x-1/2 cursor-default items-center rounded-full p-1 whitespace-nowrap"
+      className={cx(
+        'glass shadow-glass absolute bottom-10 left-1/2 flex -translate-x-1/2 cursor-default items-center rounded-full p-1 whitespace-nowrap',
+        floatClass(shown),
+      )}
+      inert={!shown}
       onPointerDown={(e) => e.stopPropagation()}
     >
       <Segmented

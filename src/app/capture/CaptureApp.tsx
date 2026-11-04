@@ -349,17 +349,16 @@ export default function CaptureApp() {
           {Math.round(hole.width * scale)} × {Math.round(hole.height * scale)}
         </span>
       )}
-      {showPill && <RecordPill format={format} ffmpeg={ffmpeg} onFormat={setPicked} onStart={handleRecord} />}
-      {showToolbar && (
-        <CaptureToolbar
-          mode={open.mode}
-          windowMode={windowMode}
-          recordBlocked={open.recordBlocked}
-          onMode={handleMode}
-          onWindowMode={handleWindowMode}
-          onCancel={handleCancel}
-        />
-      )}
+      <RecordPill shown={showPill} format={format} ffmpeg={ffmpeg} onFormat={setPicked} onStart={handleRecord} />
+      <CaptureToolbar
+        shown={showToolbar}
+        mode={open.mode}
+        windowMode={windowMode}
+        recordBlocked={open.recordBlocked}
+        onMode={handleMode}
+        onWindowMode={handleWindowMode}
+        onCancel={handleCancel}
+      />
     </div>
   );
 }

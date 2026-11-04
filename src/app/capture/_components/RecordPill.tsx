@@ -3,7 +3,13 @@ import Segmented from '@/shared/components/Segmented';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { needsFfmpeg } from '@/utils/recording';
 
+import cx from 'classnames';
+
+import { floatClass } from './float';
+
 interface RecordPillProps {
+  /** A record selection waits here and the toolbar is shown; hidden it eases out and ignores input. */
+  shown: boolean;
   format: RecordFormat;
   /** FFmpeg is installed: the formats that need it can be picked. */
   ffmpeg: boolean;
@@ -14,7 +20,7 @@ interface RecordPillProps {
 const isMac = navigator.userAgent.includes('Mac');
 
 /** The format and Start button for a picked record selection, one row above the toolbar. Cancel is the toolbar's ✕. */
-export default function RecordPill({ format, ffmpeg, onFormat, onStart }: RecordPillProps) {
+export default function RecordPill({ shown, format, ffmpeg, onFormat, onStart }: RecordPillProps) {
   // hooks
   const { t } = useI18n();
 
@@ -22,7 +28,11 @@ export default function RecordPill({ format, ffmpeg, onFormat, onStart }: Record
   return (
     // Its own clicks must not start a new drag on the overlay.
     <div
-      className="glass shadow-glass absolute bottom-[88px] left-1/2 flex -translate-x-1/2 cursor-default items-center gap-1.5 rounded-full p-1 whitespace-nowrap"
+      className={cx(
+        'glass shadow-glass absolute bottom-[88px] left-1/2 flex -translate-x-1/2 cursor-default items-center gap-1.5 rounded-full p-1 whitespace-nowrap',
+        floatClass(shown),
+      )}
+      inert={!shown}
       onPointerDown={(e) => e.stopPropagation()}
     >
       <Segmented
