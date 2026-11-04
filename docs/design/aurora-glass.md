@@ -27,6 +27,7 @@ Radius: box 14px(`--radius-box: 0.875rem`), field 12px, selector 10px. daisyUI d
 | `--color-panel` | `#eeedf6` | `#1a1b22` | 패널 창 바탕 (`bg-panel`). 흰/검은 페이지 위에서도 테두리가 보이도록 `base-100`과 따로 둔다 |
 | `--color-glass` | `rgba(255,255,255,.58)` | `rgba(30,31,40,.55)` | 유리 채움 |
 | `--color-glass-edge` | `rgba(255,255,255,.85)` | `rgba(255,255,255,.08)` | 유리 1px 테두리 |
+| `--color-glass-float` | `rgba(255,255,255,.9)` | `rgba(30,31,40,.88)` | 아무 바탕화면 위에나 뜨는 유리(캡처 툴바·녹화 알약)의 진한 채움. `.glass` 위에 `bg-glass-float`로 덮는다 |
 | `--color-aurora-1` | `#a98bff` | `#5b3bd6` | 오로라 블롭 (보라) |
 | `--color-aurora-2` | `#7fd4ff` | `#1f6f9e` | 오로라 블롭 (하늘) |
 | `--color-aurora-3` | `#ffb3d9` | `#7a2d63` | 오로라 블롭 (분홍) |

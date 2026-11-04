@@ -127,6 +127,8 @@
   /* Aurora Glass: the .glass fill and hairline, and the three .aurora-blob colours. */
   --vee-glass: rgba(255, 255, 255, 0.58);
   --vee-glass-edge: rgba(255, 255, 255, 0.85);
+  /* Glass that floats over any desktop (capture overlay toolbar): denser so its labels stay readable. */
+  --vee-glass-float: rgba(255, 255, 255, 0.9);
   --vee-aurora-1: #a98bff;
   --vee-aurora-2: #7fd4ff;
   --vee-aurora-3: #ffb3d9;
@@ -161,6 +163,7 @@
   --vee-toast-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 10px rgba(0, 0, 0, 0.28), 0 10px 24px rgba(0, 0, 0, 0.35);
   --vee-glass: rgba(30, 31, 40, 0.55);
   --vee-glass-edge: rgba(255, 255, 255, 0.08);
+  --vee-glass-float: rgba(30, 31, 40, 0.88);
   --vee-aurora-1: #5b3bd6;
   --vee-aurora-2: #1f6f9e;
   --vee-aurora-3: #7a2d63;
@@ -191,6 +194,7 @@
   --color-donut-rest: var(--vee-donut-rest);
   --color-glass: var(--vee-glass);
   --color-glass-edge: var(--vee-glass-edge);
+  --color-glass-float: var(--vee-glass-float);
   --color-aurora-1: var(--vee-aurora-1);
   --color-aurora-2: var(--vee-aurora-2);
   --color-aurora-3: var(--vee-aurora-3);
