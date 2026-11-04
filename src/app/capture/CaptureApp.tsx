@@ -1,14 +1,20 @@
 import { type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { cancelCapture, getCaptureSession, startRecording, takeCapture } from '@/domain/capture/apis/capture';
-import type { CaptureOpen, Point, Rect, Selection } from '@/domain/capture/apis/capture.dto';
+import CaptureToolbar from '@/app/capture/_components/CaptureToolbar';
+import RecordPill from '@/app/capture/_components/RecordPill';
+import {
+  cancelCapture,
+  getCaptureSession,
+  setCaptureMode,
+  startRecording,
+  takeCapture,
+} from '@/domain/capture/apis/capture';
+import type { CaptureMode, CaptureOpen, Point, Rect, Selection } from '@/domain/capture/apis/capture.dto';
 import { useEngineStatus } from '@/domain/convert/queries/engines';
-import { RECORD_FORMATS, type RecordFormat } from '@/domain/settings/apis/settings.dto';
+import type { RecordFormat } from '@/domain/settings/apis/settings.dto';
 import { useSettings } from '@/domain/settings/queries/settings';
-import Segmented from '@/shared/components/Segmented';
-import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 import { coveredParts, normalizeRect, overlayShapes, windowAt } from '@/utils/captureSelection';
-import { initialFormat, needsFfmpeg } from '@/utils/recording';
+import { initialFormat } from '@/utils/recording';
 
 import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -19,6 +25,8 @@ const LABEL_GAP = 6;
 /** The overlay's fade out (its `duration-150`) before Rust hides it. */
 const FADE_MS = 150;
 const isMac = navigator.userAgent.includes('Mac');
+/** A picked window's highlight follows the system's window corners. */
+const WINDOW_RADIUS = isMac ? 12 : 8;
 /** This overlay's window; there is one per monitor. */
 const me = getCurrentWindow();
 
@@ -34,6 +42,13 @@ interface Pending {
   rect: Rect;
 }
 
+/** Asks Rust to switch the session's mode; `capture://session-mode` then updates every overlay. A refused
+ * switch (Rust answers with the old mode) changes nothing, so the answer is ignored. */
+function requestMode(open: CaptureOpen | null, next: CaptureMode) {
+  if (!open || next === open.mode || (next === 'record' && open.recordBlocked)) return;
+  void setCaptureMode(next);
+}
+
 /** The selection overlay on one monitor: drag a region, or Space to pick a window. Shared by capture and record.
  * The overlays of the other monitors follow its Space mode and drop their pick when this one picks. */
 export default function CaptureApp() {
@@ -42,6 +57,8 @@ export default function CaptureApp() {
   const windowModeRef = useRef(false);
   /** Record was pressed: the overlay fades out while the recording frame fades in, then Rust hides it. */
   const leavingRef = useRef(false);
+  /** The record pill is up here: Tab then moves focus through it instead of switching the mode. */
+  const pillShownRef = useRef(false);
 
   // state
   const [open, setOpen] = useState<CaptureOpen | null>(null);
@@ -55,15 +72,15 @@ export default function CaptureApp() {
   /** The format picked in the pill; null until the user picks one. */
   const [picked, setPicked] = useState<RecordFormat | null>(null);
 
-  // hooks
-  const { t } = useI18n();
-
   // queries
   const { settings } = useSettings();
   const { status: ffmpegStatus } = useEngineStatus('ffmpeg');
 
   const ffmpeg = ffmpegStatus?.state === 'installed';
   const format = picked ?? initialFormat(settings?.recordFormat ?? 'mp4', ffmpeg, isMac);
+  // Only the monitor under the mouse shows the toolbar and the pill.
+  const showToolbar = pointer !== null && !dragFrom && !leaving;
+  const showPill = showToolbar && pending !== null;
 
   // callback
   // Before the effects: the Enter key starts it.
@@ -114,6 +131,22 @@ export default function CaptureApp() {
         setDragFrom(null);
         setWindowMode(e.payload);
       }),
+      // Rust switched the session (this overlay asked, or another one did): start over in the new mode.
+      listen<CaptureMode>('capture://session-mode', (e) => {
+        const current = openRef.current;
+        if (!current) return;
+        const next = {
+          ...current,
+          mode: e.payload,
+          recordBlocked: e.payload === 'record' ? null : current.recordBlocked,
+        };
+        openRef.current = next;
+        setOpen(next);
+        setPending(null);
+        setWindowPicked(false);
+        setDragFrom(null);
+        setPicked(null);
+      }),
       // One waiting record selection across the monitors.
       listen<PickedEvent>('capture://picked', (e) => {
         if (e.payload.label !== me.label) setPending(null);
@@ -142,11 +175,18 @@ export default function CaptureApp() {
         setDragFrom(null);
         setWindowMode(next);
         void emit('capture://mode', next);
+      } else if (e.key === 'Tab' && !e.repeat && openRef.current && !pillShownRef.current) {
+        e.preventDefault();
+        requestMode(openRef.current, openRef.current.mode === 'capture' ? 'record' : 'capture');
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  useEffect(() => {
+    pillShownRef.current = showPill;
+  }, [showPill]);
 
   useEffect(() => {
     if (!pending) return;
@@ -176,6 +216,17 @@ export default function CaptureApp() {
     leavingRef.current = true;
     setLeaving(true);
     setTimeout(() => void cancelCapture(), FADE_MS);
+  };
+
+  const handleMode = (next: CaptureMode) => requestMode(openRef.current, next);
+
+  /** The toolbar's area/window switch, like Space. */
+  const handleWindowMode = (on: boolean) => {
+    if (on === windowModeRef.current) return;
+    windowModeRef.current = on;
+    setDragFrom(null);
+    setWindowMode(on);
+    void emit('capture://mode', on);
   };
 
   /** Capture grabs it now; record waits in the pill, and a new drag or click replaces it. */
@@ -222,12 +273,14 @@ export default function CaptureApp() {
   }, [open, pointer, windowMode, windowPicked, dragFrom, pending]);
 
   if (!open) return null;
-  const r = t.record;
   const { width, height, scale } = open.monitor;
   const { hole, tint, outline, planned, covered } = shapes;
   const holePath = hole ? ` M${hole.x} ${hole.y}h${hole.width}v${hole.height}h${-hole.width}Z` : '';
   const labelBelow = hole && hole.y + hole.height + LABEL_GAP + 24 < height;
   const box = (rect: Rect) => ({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+  // Every tint is a window; the planned rect only when the pick is one.
+  const corner = { rx: WINDOW_RADIUS, ry: WINDOW_RADIUS };
+  const plannedCorner = pending?.selection.kind === 'window' ? corner : {};
   return (
     <div
       className={cx(
@@ -262,17 +315,25 @@ export default function CaptureApp() {
         {tint && (
           <>
             <mask id="tint-visible">
-              <rect className="fill-white" {...box(tint)} />
+              <rect className="fill-white" {...box(tint)} {...corner} />
               {covered.map((part) => (
                 <rect key={`${part.x},${part.y}`} className="fill-black" {...box(part)} />
               ))}
             </mask>
-            <rect className="fill-pick" mask="url(#tint-visible)" {...box(tint)} />
+            <rect className="fill-pick" mask="url(#tint-visible)" {...box(tint)} {...corner} />
           </>
         )}
         {outline && <rect className="stroke-primary fill-none" strokeWidth={1} {...box(outline)} />}
         {/* The area the recording will cover, in the recording border's dashes. */}
-        {planned && <rect className="stroke-rec fill-none" strokeWidth={2} strokeDasharray="6 4" {...box(planned)} />}
+        {planned && (
+          <rect
+            className="stroke-rec fill-none"
+            strokeWidth={2}
+            strokeDasharray="6 4"
+            {...box(planned)}
+            {...plannedCorner}
+          />
+        )}
       </svg>
       {/* A picked window's size isn't the user's to set: no label. */}
       {hole && !windowMode && (
@@ -286,46 +347,16 @@ export default function CaptureApp() {
           {Math.round(hole.width * scale)} × {Math.round(hole.height * scale)}
         </span>
       )}
-      {leaving ? null : pending && !dragFrom ? (
-        // Solid, not glass: it floats over any desktop and must be read (aurora-glass §3). Its own clicks
-        // must not start a new drag on the overlay.
-        <div
-          className="bg-card border-toast-border text-base-content shadow-toast absolute bottom-10 left-1/2 flex -translate-x-1/2 cursor-default items-center gap-1.5 rounded-full border p-1.5"
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <Segmented
-            ariaLabel={r.format}
-            value={format}
-            onChange={setPicked}
-            options={RECORD_FORMATS.map((f) => {
-              const locked = !ffmpeg && needsFfmpeg(f, isMac);
-              return { value: f, label: f.toUpperCase(), disabled: locked, title: locked ? r.ffmpegNeeded : undefined };
-            })}
-          />
-          <button
-            className="from-primary to-sky flex items-center gap-1.5 rounded-full bg-linear-to-r px-3 py-1.5 text-[12px] font-semibold text-white transition-transform duration-150 active:scale-96 motion-reduce:transition-none"
-            onClick={handleRecord}
-          >
-            <span className="size-2 rounded-full bg-white" aria-hidden />
-            {r.start}
-          </button>
-          <button
-            className="hover:bg-subtle grid size-7.5 place-items-center rounded-full"
-            aria-label={r.cancel}
-            title={r.cancel}
-            onClick={handleCancel}
-          >
-            <svg className="size-4" viewBox="0 0 24 24" aria-hidden>
-              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth={2} strokeLinecap="round" fill="none" />
-            </svg>
-          </button>
-        </div>
-      ) : (
-        !dragFrom && (
-          <div className="glass text-base-content shadow-glass absolute bottom-10 left-1/2 -translate-x-1/2 rounded-full px-4 py-2 text-[13px]">
-            {windowMode ? t.capture.windowHint : t.capture.regionHint}
-          </div>
-        )
+      {showPill && <RecordPill format={format} ffmpeg={ffmpeg} onFormat={setPicked} onStart={handleRecord} />}
+      {showToolbar && (
+        <CaptureToolbar
+          mode={open.mode}
+          windowMode={windowMode}
+          recordBlocked={open.recordBlocked}
+          onMode={handleMode}
+          onWindowMode={handleWindowMode}
+          onCancel={handleCancel}
+        />
       )}
     </div>
   );

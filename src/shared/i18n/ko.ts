@@ -50,8 +50,6 @@ export const ko: Dict = {
     window: '창',
     cancel: '취소',
     recordBusy: '이미 녹화 중이에요',
-    regionHint: '드래그해서 선택 · space 창 · esc 취소',
-    windowHint: '창을 클릭 · space 영역 · esc 취소',
   },
   record: {
     failed: '화면을 녹화하지 못했어요',

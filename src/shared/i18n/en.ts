@@ -49,8 +49,6 @@ export const en = {
     window: 'Window',
     cancel: 'Cancel',
     recordBusy: 'Already recording',
-    regionHint: 'Drag to select · space Windows · esc Cancel',
-    windowHint: 'Click a window · space Area · esc Cancel',
   },
   record: {
     failed: "Couldn't record the screen",
