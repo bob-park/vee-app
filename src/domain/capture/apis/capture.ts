@@ -1,4 +1,4 @@
-import type { CaptureOpen, RecorderStarted, Selection } from '@/domain/capture/apis/capture.dto';
+import type { CaptureMode, CaptureOpen, RecorderStarted, Selection } from '@/domain/capture/apis/capture.dto';
 import type { RecordFormat } from '@/domain/settings/apis/settings.dto';
 import call from '@/shared/api';
 
@@ -10,6 +10,11 @@ export async function getCaptureSession() {
 /** Hides the overlay, grabs `selection` and copies it into the clipboard and history. */
 export async function takeCapture(selection: Selection) {
   return call<void>('take_capture', { selection });
+}
+
+/** Switches the open overlay between capture and record; returns the mode now in effect. */
+export async function setCaptureMode(mode: CaptureMode) {
+  return call<CaptureMode>('set_capture_mode', { mode });
 }
 
 /** Hides the overlay without capturing. */
