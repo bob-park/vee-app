@@ -30,6 +30,9 @@ export type Selection = ({ kind: 'rect' } & Rect) | { kind: 'window'; id: number
 
 export type CaptureMode = 'capture' | 'record';
 
+/** Why the overlay can't switch to record; mirrors Rust `RecordBlock`. */
+export type RecordBlock = 'recording' | 'unsupported' | 'needsFfmpeg';
+
 /** The open overlay session, from `get_capture_session` (`capture://open` only signals it). */
 export interface CaptureOpen {
   mode: CaptureMode;
@@ -37,6 +40,8 @@ export interface CaptureOpen {
   windows: WinInfo[];
   /** Where the mouse is, if on this monitor. */
   cursor: Point | null;
+  /** Why record mode is off limits right now; null when it is allowed. */
+  recordBlocked: RecordBlock | null;
 }
 
 /** The `recorder://started` payload and `get_recorder_state`; mirrors Rust `recorder::Started`. */

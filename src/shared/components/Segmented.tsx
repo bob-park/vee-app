@@ -4,8 +4,11 @@ import cx from 'classnames';
 
 interface SegmentedProps<T extends string> {
   value: T;
-  /** `disabled` options are dimmed and can't be picked; `title` is their tooltip. */
-  options: { value: T; label: string; disabled?: boolean; title?: string }[];
+  /**
+   * `disabled` options are dimmed and can't be picked; `title` is their tooltip.
+   * `activeClassName` replaces `text-base-content` while the option is selected.
+   */
+  options: { value: T; label: React.ReactNode; disabled?: boolean; title?: string; activeClassName?: string }[];
   onChange: (value: T) => void;
   /** Fills the row, options sharing the width. */
   wide?: boolean;
@@ -66,7 +69,7 @@ export default function Segmented<T extends string>({
             {
               'font-semibold': i === index,
               'outline-error text-error outline-[1.5px] outline-dashed': o.value === pending,
-              'text-base-content': i === index && o.value !== pending,
+              [o.activeClassName ?? 'text-base-content']: i === index && o.value !== pending,
               'text-muted': i !== index && o.value !== pending,
             },
           )}

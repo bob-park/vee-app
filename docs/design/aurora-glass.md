@@ -27,6 +27,7 @@ Radius: box 14px(`--radius-box: 0.875rem`), field 12px, selector 10px. daisyUI d
 | `--color-panel` | `#eeedf6` | `#1a1b22` | 패널 창 바탕 (`bg-panel`). 흰/검은 페이지 위에서도 테두리가 보이도록 `base-100`과 따로 둔다 |
 | `--color-glass` | `rgba(255,255,255,.58)` | `rgba(30,31,40,.55)` | 유리 채움 |
 | `--color-glass-edge` | `rgba(255,255,255,.85)` | `rgba(255,255,255,.08)` | 유리 1px 테두리 |
+| `--color-glass-float` | `rgba(255,255,255,.9)` | `rgba(30,31,40,.88)` | 아무 바탕화면 위에나 뜨는 유리(캡처 툴바·녹화 알약)의 진한 채움. `.glass` 위에 `bg-glass-float`로 덮는다 |
 | `--color-aurora-1` | `#a98bff` | `#5b3bd6` | 오로라 블롭 (보라) |
 | `--color-aurora-2` | `#7fd4ff` | `#1f6f9e` | 오로라 블롭 (하늘) |
 | `--color-aurora-3` | `#ffb3d9` | `#7a2d63` | 오로라 블롭 (분홍) |
@@ -46,6 +47,7 @@ Radius: box 14px(`--radius-box: 0.875rem`), field 12px, selector 10px. daisyUI d
 - 유리 레시피는 이것 하나다. 두 번째 레시피를 만들지 않는다.
 - **유리를 쓰는 곳:** 패널의 검색창·필터·아이콘 버튼·카드, 설정의 탭 바와 섹션, 토스트의 아이콘 타일, 새 기능 안내의 항목 카드 — 각 작업이 정한 곳만.
 - **단색 `bg-card`를 그대로 쓰는 곳:** 드롭다운, 모달, 그 밖에 내용 위에 떠서 읽혀야 하는 면. `--vee-card`는 단색으로 남는다.
+- **예외:** 캡처 오버레이의 툴바와 녹화 pill은 어떤 바탕화면 위에도 떠야 해서 `.glass` + `bg-glass-float`(더 진한 채움)를 쓴다. 이 예외는 여기 하나뿐이고, 그 밖의 떠서 읽혀야 하는 면은 단색 `bg-card`를 쓴다.
 - 유리는 CSS(`backdrop-filter`)만 쓴다. macOS 네이티브 vibrancy는 쓰지 않는다. 그래서 유리 뒤에 비치는 건 앱 안의 오로라와 바탕뿐이다.
 
 ## 4. 은은한 오로라

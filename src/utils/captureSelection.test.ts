@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { coveredParts, normalizeRect, overlayShapes, windowAt } from './captureSelection.ts';
+import { coveredParts, normalizeRect, overlayShapes, rectPath, windowAt } from './captureSelection.ts';
 
 void test('a drag in any direction becomes a top-left rect', () => {
   assert.deepEqual(normalizeRect({ x: 50, y: 50 }, { x: 10, y: 20 }), { x: 10, y: 20, width: 40, height: 30 });
@@ -77,4 +77,15 @@ void test('only the windows in front cover a window, clipped to it', () => {
   const apart = win(4, 300, 300, 10, 10);
   assert.deepEqual(coveredParts([apart, front, back, behind], back), [{ x: 150, y: 150, width: 50, height: 50 }]);
   assert.deepEqual(coveredParts([front, back], front), []);
+});
+
+void test('rectPath is square at radius 0 and rounds the corners otherwise', () => {
+  const rect = { x: 10, y: 20, width: 100, height: 50 };
+  assert.equal(rectPath(rect, 0), 'M10 20h100v50h-100Z');
+  assert.equal(
+    rectPath(rect, 12),
+    'M22 20h76a12 12 0 0 1 12 12v26a12 12 0 0 1 -12 12h-76a12 12 0 0 1 -12 -12v-26a12 12 0 0 1 12 -12Z',
+  );
+  // A radius bigger than half the shorter side is capped there.
+  assert.ok(rectPath({ x: 0, y: 0, width: 10, height: 6 }, 12).startsWith('M3 0h4a3 3'));
 });

@@ -66,6 +66,7 @@ export async function setSetting(key: SettingKey, value: string) {
 | `editor://opened` | — | `app/editor.rs` `open` (to `editor` only) | `EditorApp` (reload the source) |
 | `editor://closed` | — | `app/editor.rs` `close` (every close path, to `editor` only) | `EditorApp` (reset all state, freeing the images) |
 | `capture://open` | — | `app/capture` `open` (to `capture` only) | `CaptureApp` (claims the session with `get_capture_session`, which shows the overlay; resets all state) |
+| `capture://session-mode` | `"capture" \| "record"` | `app/capture` `switch_mode` (to every overlay, the sender included, after `set_capture_mode` succeeds) | `CaptureApp` (updates `open.mode` / `recordBlocked`; clears `pending`, `windowPicked`, `dragFrom`) |
 | `recorder://started` | `{ startedMs, format, limitMs }` | `app/recorder` `begin` (to `recorder` only) | `RecorderApp` (also asks `get_recorder_state` on mount, in case it missed the event) |
 | `recorder://stopped` | — | `app/recorder` `dispatch` when it hides the pill (to `recorder` only) | `RecorderApp` (clears its timer) |
 | `update://status` | `UpdateStatus` | `updater::set_status` | `useUpdateStatus` |

@@ -87,6 +87,10 @@ pub enum Event {
     Shortcut {
         session: u64,
     },
+    /// A capture overlay that is already open becomes the overlay of record session `session`.
+    Adopt {
+        session: u64,
+    },
     /// The engine of `session` is running.
     Start {
         session: u64,
@@ -117,6 +121,7 @@ pub enum Action {
 pub fn next(phase: &Phase, ev: Event) -> (Phase, Action) {
     match (*phase, ev) {
         (Phase::Idle, Event::Shortcut { session }) => (Phase::Selecting { session }, Action::OpenOverlay),
+        (Phase::Idle, Event::Adopt { session }) => (Phase::Selecting { session }, Action::Nothing),
         (Phase::Selecting { .. }, Event::Cancel) => (Phase::Idle, Action::Nothing),
         (Phase::Selecting { session }, Event::Start { session: s, format, started_ms }) if s == session => {
             (Phase::Recording { session, started_ms, format, limit_ms: plan::limit_ms(format) }, Action::StartEngine)
@@ -244,23 +249,70 @@ pub fn on_shortcut(app: &AppHandle) {
     if phase(app) == Phase::Idle && !can_record(app) {
         return;
     }
-    let session = app.state::<Recorder>().sessions.fetch_add(1, Ordering::SeqCst) + 1;
+    let session = next_session(app);
     dispatch(app, Event::Shortcut { session });
 }
 
+fn next_session(app: &AppHandle) -> u64 {
+    app.state::<Recorder>().sessions.fetch_add(1, Ordering::SeqCst) + 1
+}
+
+/// Why this machine can't start a recording now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RecordBlock {
+    /// A record session is already open or running.
+    Recording,
+    /// The OS can't record the screen.
+    Unsupported,
+    /// Windows records through ffmpeg, which isn't installed.
+    NeedsFfmpeg,
+}
+
+fn block_reason(idle: bool, supported: bool, has_ffmpeg: bool) -> Option<RecordBlock> {
+    if !idle {
+        Some(RecordBlock::Recording)
+    } else if !supported {
+        Some(RecordBlock::Unsupported)
+    } else if !has_ffmpeg {
+        Some(RecordBlock::NeedsFfmpeg)
+    } else {
+        None
+    }
+}
+
+/// What keeps a recording from starting now, if anything. No side effects.
+pub(crate) fn record_block(app: &AppHandle) -> Option<RecordBlock> {
+    let has_ffmpeg = cfg!(not(windows)) || engines::ffmpeg(app).is_some();
+    block_reason(phase(app) == Phase::Idle, screen_access::recording_supported(), has_ffmpeg)
+}
+
+/// Hands an open capture overlay to the recorder as a new record session; false if it can't record now.
+pub(crate) fn adopt_overlay(app: &AppHandle) -> bool {
+    if record_block(app).is_some() {
+        return false;
+    }
+    let session = next_session(app);
+    dispatch(app, Event::Adopt { session });
+    // Another session may have taken the idle phase in between.
+    phase(app) == (Phase::Selecting { session })
+}
+
 /// The OS and engine gates; tells the user why not. Screen access is checked by `capture::open`.
+/// Only called when idle, so `Recording` never shows up here.
 fn can_record(app: &AppHandle) -> bool {
-    if !screen_access::recording_supported() {
-        window::show_toast(app, ToastPayload::convert(ConvertNote::RecordUnsupported, Kind::Files));
-        return false;
+    match record_block(app) {
+        None | Some(RecordBlock::Recording) => true,
+        Some(RecordBlock::Unsupported) => {
+            window::show_toast(app, ToastPayload::convert(ConvertNote::RecordUnsupported, Kind::Files));
+            false
+        }
+        Some(RecordBlock::NeedsFfmpeg) => {
+            window::show_toast(app, ToastPayload::convert(ConvertNote::RecordNeedsFfmpeg, Kind::Files));
+            window::show_settings(app, "convert");
+            false
+        }
     }
-    #[cfg(windows)]
-    if engines::ffmpeg(app).is_none() {
-        window::show_toast(app, ToastPayload::convert(ConvertNote::RecordNeedsFfmpeg, Kind::Files));
-        window::show_settings(app, "convert");
-        return false;
-    }
-    true
 }
 
 /// The record overlay closed without a recording (Esc, or the page never answered).
@@ -746,6 +798,21 @@ mod tests {
         assert_eq!(refused(SEL, 3, Some(3)), SEL);
         assert_eq!(refused(SEL, 4, None), SEL);
         assert_eq!(refused(Phase::Finishing, 3, None), Phase::Finishing);
+    }
+
+    #[test]
+    fn block_reason_orders_busy_then_os_then_ffmpeg() {
+        assert_eq!(block_reason(true, true, true), None);
+        assert_eq!(block_reason(false, false, false), Some(RecordBlock::Recording));
+        assert_eq!(block_reason(true, false, false), Some(RecordBlock::Unsupported));
+        assert_eq!(block_reason(true, true, false), Some(RecordBlock::NeedsFfmpeg));
+    }
+
+    #[test]
+    fn adopt_selects_only_when_idle() {
+        assert_eq!(next(&Phase::Idle, Event::Adopt { session: 7 }), (Phase::Selecting { session: 7 }, Action::Nothing));
+        assert_eq!(next(&SEL, Event::Adopt { session: 7 }), (SEL, Action::Nothing));
+        assert_eq!(next(&recording(1), Event::Adopt { session: 7 }), (recording(1), Action::Nothing));
     }
 
     #[test]
