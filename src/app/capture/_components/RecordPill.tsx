@@ -26,7 +26,7 @@ export default function RecordPill({ shown, format, ffmpeg, onFormat, onStart }:
 
   const r = t.record;
   return (
-    // Its own clicks and hovers must not start a new drag or tint the window under it on the overlay.
+    // Its own clicks must not start a new drag on the overlay.
     <div
       className={cx(
         'glass shadow-glass absolute bottom-[88px] left-1/2 flex -translate-x-1/2 cursor-default items-center gap-1.5 rounded-full p-1 whitespace-nowrap',
@@ -34,7 +34,6 @@ export default function RecordPill({ shown, format, ffmpeg, onFormat, onStart }:
       )}
       inert={!shown}
       onPointerDown={(e) => e.stopPropagation()}
-      onPointerMove={(e) => e.stopPropagation()}
     >
       <Segmented
         ariaLabel={r.format}
