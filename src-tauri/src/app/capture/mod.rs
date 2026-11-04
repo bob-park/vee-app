@@ -328,13 +328,14 @@ fn switch_mode(app: &AppHandle, mode: Mode) -> AppResult<Mode> {
 
 fn capture(app: &AppHandle, label: &str, selection: Selection) -> AppResult<()> {
     let session = close(app).ok_or_else(|| AppError::InvalidInput("capture overlay is not open".into()))?;
-    let overlay =
-        session.overlay(label).filter(|o| o.claimed).ok_or_else(|| AppError::InvalidInput("capture overlay is not open".into()))?;
-    // Switched to record while this grab was in flight: release the recorder instead of grabbing.
-    if overlay.payload.mode == Mode::Record {
+    // Switched to record while this grab was in flight: release the recorder instead of grabbing. Checked on the
+    // session's mode before the label lookup, so an unknown or unclaimed label can't skip the release.
+    if session.overlays.first().is_some_and(|o| o.payload.mode == Mode::Record) {
         recorder::overlay_closed(app);
         return Err(AppError::InvalidInput("capture overlay is in record mode".into()));
     }
+    let overlay =
+        session.overlay(label).filter(|o| o.claimed).ok_or_else(|| AppError::InvalidInput("capture overlay is not open".into()))?;
     let sound = settings::capture_sounds(&app.state::<AppState>().db.lock().unwrap());
     // The shutter sounds as the overlay goes, like the system's; AppKit, so on the main thread.
     if sound {

@@ -63,7 +63,7 @@ export default function CaptureToolbar({
     needsFfmpeg: t.record.ffmpegNeeded,
   };
   return (
-    // Its own clicks must not start a drag or pick a window on the overlay.
+    // Its own clicks and hovers must not start a drag, pick a window or tint the one under it on the overlay.
     <div
       className={cx(
         'glass shadow-glass absolute bottom-10 left-1/2 flex -translate-x-1/2 cursor-default items-center rounded-full p-1 whitespace-nowrap',
@@ -71,6 +71,7 @@ export default function CaptureToolbar({
       )}
       inert={!shown}
       onPointerDown={(e) => e.stopPropagation()}
+      onPointerMove={(e) => e.stopPropagation()}
     >
       <Segmented
         ariaLabel={c.modeLabel}

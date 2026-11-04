@@ -131,7 +131,7 @@ export default function CaptureApp() {
         setDragFrom(null);
         setWindowMode(e.payload);
       }),
-      // Rust switched the session (this overlay asked, or another one did): start over in the new mode.
+      // Rust switched the session (this overlay asked, or another one did): start over in the new mode, keeping the picked format.
       listen<CaptureMode>('capture://session-mode', (e) => {
         const current = openRef.current;
         if (!current) return;
@@ -145,7 +145,6 @@ export default function CaptureApp() {
         setPending(null);
         setWindowPicked(false);
         setDragFrom(null);
-        setPicked(null);
       }),
       // One waiting record selection across the monitors.
       listen<PickedEvent>('capture://picked', (e) => {
