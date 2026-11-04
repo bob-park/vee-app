@@ -13,7 +13,7 @@ import type { CaptureMode, CaptureOpen, Point, Rect, Selection } from '@/domain/
 import { useEngineStatus } from '@/domain/convert/queries/engines';
 import type { RecordFormat } from '@/domain/settings/apis/settings.dto';
 import { useSettings } from '@/domain/settings/queries/settings';
-import { coveredParts, normalizeRect, overlayShapes, windowAt } from '@/utils/captureSelection';
+import { coveredParts, normalizeRect, overlayShapes, rectPath, windowAt } from '@/utils/captureSelection';
 import { initialFormat } from '@/utils/recording';
 
 import { emit, listen } from '@tauri-apps/api/event';
@@ -275,7 +275,9 @@ export default function CaptureApp() {
   if (!open) return null;
   const { width, height, scale } = open.monitor;
   const { hole, tint, outline, planned, covered } = shapes;
-  const holePath = hole ? ` M${hole.x} ${hole.y}h${hole.width}v${hole.height}h${-hole.width}Z` : '';
+  // A picked window's cutout follows its rounded corners, like its tint and dashes; a dragged area stays square.
+  const holeRadius = hole && pending?.selection.kind === 'window' && hole === pending.rect ? WINDOW_RADIUS : 0;
+  const holePath = hole ? ` ${rectPath(hole, holeRadius)}` : '';
   const labelBelow = hole && hole.y + hole.height + LABEL_GAP + 24 < height;
   const box = (rect: Rect) => ({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
   // Every tint is a window; the planned rect only when the pick is one.

@@ -54,3 +54,11 @@ export function overlayShapes(
   if (windowMode) return { dim: pending !== null, hole: pending, tint: hover, outline: null, planned: pending };
   return { dim: true, hole: drag ?? pending, tint: null, outline: drag, planned: drag ? null : pending };
 }
+
+/** An SVG subpath tracing `rect` with corners of radius `r` (capped at half the shorter side); 0 is square. */
+export function rectPath({ x, y, width: w, height: h }: Rect, r: number): string {
+  const c = Math.min(r, w / 2, h / 2);
+  if (c <= 0) return `M${x} ${y}h${w}v${h}h${-w}Z`;
+  const arc = (dx: number, dy: number) => `a${c} ${c} 0 0 1 ${dx} ${dy}`;
+  return `M${x + c} ${y}h${w - 2 * c}${arc(c, c)}v${h - 2 * c}${arc(-c, c)}h${2 * c - w}${arc(-c, -c)}v${2 * c - h}${arc(c, -c)}Z`;
+}
