@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useRef } from 'react';
+import { type ReactNode, type RefObject, useEffect, useRef } from 'react';
 
 import type { Filter } from '@/domain/clip/apis/clip.dto';
 import type { App } from '@/domain/source_app/apis/sourceApp.dto';
@@ -18,7 +18,7 @@ const isMac = navigator.userAgent.includes('Mac');
  * Hover label under a toolbar button (the `group`), with the shortcut drawn as keycaps.
  * Dark in both themes, like a native tooltip; shows after a short hover.
  */
-function Tip({ label, accel, className = 'right-0' }: { label: string; accel: string; className?: string }) {
+function Tip({ label, accel, className = 'right-0' }: { label: string; accel?: string; className?: string }) {
   return (
     <span
       className={cx(
@@ -28,22 +28,62 @@ function Tip({ label, accel, className = 'right-0' }: { label: string; accel: st
       aria-hidden
     >
       {label}
-      <span className="flex gap-0.75">
-        {acceleratorKeys(accel, isMac).map((k, i) => (
-          // A keycap: thicker bottom edge.
-          <kbd
-            key={i}
-            className="border-keycap-border bg-keycap-bg flex h-[1.7em] min-w-[1.7em] items-center justify-center rounded-[5px] border border-b-2 px-[0.4em] [font-family:inherit] text-[10px]"
-          >
-            {k}
-          </kbd>
-        ))}
-      </span>
+      {accel && (
+        <span className="flex gap-0.75">
+          {acceleratorKeys(accel, isMac).map((k, i) => (
+            // A keycap: thicker bottom edge.
+            <kbd
+              key={i}
+              className="border-keycap-border bg-keycap-bg flex h-[1.7em] min-w-[1.7em] items-center justify-center rounded-[5px] border border-b-2 px-[0.4em] [font-family:inherit] text-[10px]"
+            >
+              {k}
+            </kbd>
+          ))}
+        </span>
+      )}
     </span>
   );
 }
 
 const ICON_BTN = 'group relative rounded-[10px] px-1.5 text-[24px] leading-none';
+
+/** Filter tab icons for a toolbar too narrow for the labels. Lucide `layout-grid`, `type`, `image`, `file`, `link` (ISC). */
+const FILTER_ICONS: Record<Filter, ReactNode> = {
+  all: (
+    <>
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+    </>
+  ),
+  text: (
+    <>
+      <path d="M12 4v16" />
+      <path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2" />
+      <path d="M9 20h6" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="9" cy="9" r="2" />
+      <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+    </>
+  ),
+  files: (
+    <>
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </>
+  ),
+};
 
 interface Props {
   query: string;
@@ -129,7 +169,7 @@ export function Toolbar({
   return (
     // z-2: above the card body (z-1, later in the DOM) so the suggest list, update popover and tips
     // aren't covered by cards; both stay above the aurora (z-0).
-    <div className="relative z-2 mb-2.5 flex items-center gap-1.5 in-data-side:flex-wrap in-data-side:gap-y-2">
+    <div className="@container relative z-2 mb-2.5 flex items-center gap-1.5 in-data-side:flex-wrap in-data-side:gap-y-2">
       {/* Docked left/right the toolbar wraps below the search box; z-3 keeps its app list over that second line. */}
       <div className="rounded-box glass text-muted relative flex shrink-0 basis-55 items-center gap-1.5 px-2.5 py-1.5 in-data-side:z-3 in-data-side:basis-full">
         <span aria-hidden>🔍</span>
@@ -185,13 +225,28 @@ export function Toolbar({
             role="tab"
             aria-selected={f === filter}
             className={cx(
-              'relative px-2.5 py-1 text-[12px]',
+              'group relative flex items-center justify-center px-2.5 py-1 text-[12px]',
               f === filter ? 'text-primary-content font-semibold' : 'text-muted',
             )}
             onClick={() => onFilter(f)}
+            aria-label={t.filters[f]}
             tabIndex={-1}
           >
-            {t.filters[f]}
+            {/* 328px: the widest label row (English, 324px) plus slack; narrower, the tabs show icons. */}
+            <span className="@max-[328px]:hidden">{t.filters[f]}</span>
+            <svg
+              className="hidden size-4 @max-[328px]:block"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              {FILTER_ICONS[f]}
+            </svg>
+            <Tip label={t.filters[f]} className="left-1/2 -translate-x-1/2 font-normal @min-[328px]:hidden" />
           </button>
         ))}
       </div>
