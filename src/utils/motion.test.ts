@@ -14,25 +14,25 @@ void test('tilt settles back when the cursor stops moving sideways', () => {
   assert.ok(Math.abs(nextTilt(nextTilt(nextTilt(10, 0), 0), 0)) < 4);
 });
 
-void test('the card hands off to the OS drag once it starts to cross the top or sides of the window', () => {
-  const box = (left: number, top: number) => ({ left, top, right: left + 200, bottom: top + 220 });
-  const lifted = box(100, 40);
-  assert.equal(ghostLeaves(box(300, 40), lifted, 1200), false);
-  assert.equal(ghostLeaves(box(100, -1), lifted, 1200), true);
-  assert.equal(ghostLeaves(box(-1, 40), lifted, 1200), true);
-  assert.equal(ghostLeaves(box(1001, 40), lifted, 1200), true);
+void test('the card hands off to the OS drag once it starts to cross any edge of the window', () => {
+  const lifted = { left: 100, top: 40, right: 300, bottom: 260 };
+  assert.equal(ghostLeaves(lifted, 200, 0, 1200, 800), false);
+  assert.equal(ghostLeaves(lifted, 0, -41, 1200, 800), true);
+  assert.equal(ghostLeaves(lifted, -101, 0, 1200, 800), true);
+  assert.equal(ghostLeaves(lifted, 901, 0, 1200, 800), true);
+  // Dragging down out of a top-docked panel.
+  assert.equal(ghostLeaves(lifted, 0, 540, 1200, 800), false);
+  assert.equal(ghostLeaves(lifted, 0, 541, 1200, 800), true);
 });
 
 void test('a card that already overhangs an edge when lifted only hands off once it goes further', () => {
-  // The panel sits on the screen's bottom edge: a lifted card overhangs it, and moving down is never a drag out.
-  assert.equal(
-    ghostLeaves({ left: 100, top: 90, right: 300, bottom: 310 }, { left: 100, top: 82, right: 300, bottom: 302 }, 1200),
-    false,
-  );
+  const low = { left: 100, top: 82, right: 300, bottom: 302 };
+  assert.equal(ghostLeaves(low, 0, -2, 1200, 300), false);
+  assert.equal(ghostLeaves(low, 0, 8, 1200, 300), true);
   // The last, partly scrolled-in card sticks out on the right from the start.
   const partly = { left: 1100, top: 40, right: 1300, bottom: 260 };
-  assert.equal(ghostLeaves(partly, partly, 1200), false);
-  assert.equal(ghostLeaves({ ...partly, left: 1110, right: 1310 }, partly, 1200), true);
+  assert.equal(ghostLeaves(partly, 0, 0, 1200, 800), false);
+  assert.equal(ghostLeaves(partly, 10, 0, 1200, 800), true);
 });
 
 void test('the drag image is padded so the grabbed point sits at its centre', () => {
