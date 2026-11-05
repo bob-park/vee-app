@@ -188,7 +188,7 @@ export function Toolbar({
           </span>
         )}
         <input
-          className="text-base-content placeholder:text-placeholder min-w-0 flex-1 p-px outline-none"
+          className="text-base-content placeholder:text-placeholder w-0 min-w-0 flex-1 p-px outline-none"
           ref={inputRef}
           value={query}
           placeholder={app ? '' : t.search}
