@@ -27,3 +27,8 @@ void test('a tall side panel fits all three pins with history', () => {
 void test('a panel too short for even one card beside the toolbar fits no pins', () => {
   assert.equal(pinsThatFit(1280, 684), 0);
 });
+
+void test('the three-row side toolbar leaves a 340×1080 panel room for one pin, a 260pt one three', () => {
+  assert.equal(pinsThatFit(340, 1080), 1);
+  assert.equal(pinsThatFit(260, 1101), 3);
+});

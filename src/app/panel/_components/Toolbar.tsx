@@ -208,108 +208,111 @@ export function Toolbar({
         </button>
       )}
       <span className="flex-1" />
-      {updateVersion && (
-        // `update` is the hook PanelApp keeps a click inside from cancelling the prompt by.
-        // mr-3: the hopping pill needs more room from the pin button than the toolbar's 6px gap.
-        // Hover pauses the hop on this still wrapper, not the moving button, so a cursor just above the pill
-        // can't flicker it; `before:` stretches the hover area over the hop's ~8px rise.
-        <div className="update group relative mr-3 before:absolute before:inset-x-0 before:-top-2.5 before:bottom-0">
-          {/* Landing shadow: a sibling of the button so it stays on the ground while the pill hops. */}
-          <span
-            className="bg-ok-solid/45 animate-jump-shadow pointer-events-none absolute inset-x-[15%] -bottom-1.5 h-1 rounded-full blur-[2px] group-hover:animate-none"
-            aria-hidden
-          />
+      {/* Docked left/right this is its own row: the update pill at the start, pin and settings at the end. */}
+      <div className="flex items-center gap-1.5 in-data-side:basis-full in-data-side:justify-between">
+        {updateVersion && (
+          // `update` is the hook PanelApp keeps a click inside from cancelling the prompt by.
+          // mr-3: the hopping pill needs more room from the pin button than the toolbar's 6px gap.
+          // Hover pauses the hop on this still wrapper, not the moving button, so a cursor just above the pill
+          // can't flicker it; `before:` stretches the hover area over the hop's ~8px rise.
+          <div className="update group relative mr-3 before:absolute before:inset-x-0 before:-top-2.5 before:bottom-0">
+            {/* Landing shadow: a sibling of the button so it stays on the ground while the pill hops. */}
+            <span
+              className="bg-ok-solid/45 animate-jump-shadow pointer-events-none absolute inset-x-[15%] -bottom-1.5 h-1 rounded-full blur-[2px] group-hover:animate-none"
+              aria-hidden
+            />
+            <button
+              // Hops until hovered so a ready update isn't missed.
+              className="bg-ok-solid text-ok-solid-fg animate-jump relative flex items-center gap-1.25 rounded-md py-0.75 pr-2 pl-1.5 text-[12px] font-semibold group-hover:animate-none"
+              onClick={onUpdate}
+              tabIndex={-1}
+            >
+              <span aria-hidden>↑</span>
+              {t.newVersion(updateVersion)}
+            </button>
+            {updateConfirming && (
+              <div
+                className="rounded-box border-base-300 bg-card shadow-suggest animate-spring-in absolute top-[calc(100%+6px)] right-0 z-2 grid w-60 origin-top-right gap-2.5 border p-3 in-data-side:right-auto in-data-side:left-0 in-data-side:max-w-[calc(100vw-24px)] in-data-side:origin-top-left"
+                role="dialog"
+              >
+                <div>
+                  <p className="font-semibold">{t.updateConfirm(updateVersion)}</p>
+                  <p className={cx('mt-0.5 text-[12px]', updateFailed ? 'text-error' : 'text-muted')}>
+                    {updateFailed ? t.updateFailed : updateInstalling ? t.updateInstalling : t.updateRestartHint}
+                  </p>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <ConfirmButton onClick={onCancelUpdate} disabled={updateInstalling} tabIndex={-1}>
+                    {t.cancel}
+                  </ConfirmButton>
+                  <ConfirmButton tone="go" onClick={onConfirmUpdate} disabled={updateInstalling} tabIndex={-1}>
+                    {t.restart}
+                  </ConfirmButton>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {/* ml-auto keeps pin and settings at the end when there is no update pill. */}
+        <div className="ml-auto flex items-center gap-1.5">
           <button
-            // Hops until hovered so a ready update isn't missed.
-            className="bg-ok-solid text-ok-solid-fg animate-jump relative flex items-center gap-1.25 rounded-md py-0.75 pr-2 pl-1.5 text-[12px] font-semibold group-hover:animate-none"
-            onClick={onUpdate}
+            // The transparent border keeps the size of the idle glass button's hairline.
+            className={cx(
+              ICON_BTN,
+              panelPinned ? 'bg-accent-subtle text-primary border border-transparent' : 'glass text-muted',
+            )}
+            onClick={onTogglePanelPin}
+            aria-pressed={panelPinned}
+            aria-label={panelPinned ? t.unpinPanel : t.pinPanel}
             tabIndex={-1}
           >
-            <span aria-hidden>↑</span>
-            {t.newVersion(updateVersion)}
-          </button>
-          {updateConfirming && (
-            <div
-              className="rounded-box border-base-300 bg-card shadow-suggest animate-spring-in absolute top-[calc(100%+6px)] right-0 z-2 grid w-60 origin-top-right gap-2.5 border p-3"
-              role="dialog"
-            >
-              <div>
-                <p className="font-semibold">{t.updateConfirm(updateVersion)}</p>
-                <p className={cx('mt-0.5 text-[12px]', updateFailed ? 'text-error' : 'text-muted')}>
-                  {updateFailed ? t.updateFailed : updateInstalling ? t.updateInstalling : t.updateRestartHint}
-                </p>
-              </div>
-              <div className="flex justify-end gap-2">
-                <ConfirmButton onClick={onCancelUpdate} disabled={updateInstalling} tabIndex={-1}>
-                  {t.cancel}
-                </ConfirmButton>
-                <ConfirmButton tone="go" onClick={onConfirmUpdate} disabled={updateInstalling} tabIndex={-1}>
-                  {t.restart}
-                </ConfirmButton>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-      {/* Pin and settings wrap together, kept at the right, when a narrow side panel runs out of room. */}
-      <div className="flex items-center gap-1.5 in-data-side:ml-auto">
-        <button
-          // The transparent border keeps the size of the idle glass button's hairline.
-          className={cx(
-            ICON_BTN,
-            panelPinned ? 'bg-accent-subtle text-primary border border-transparent' : 'glass text-muted',
-          )}
-          onClick={onTogglePanelPin}
-          aria-pressed={panelPinned}
-          aria-label={panelPinned ? t.unpinPanel : t.pinPanel}
-          tabIndex={-1}
-        >
-          {/* A red pushpin drawn for Vee (not an emoji, which differs per OS); it tilts while pinned.
+            {/* A red pushpin drawn for Vee (not an emoji, which differs per OS); it tilts while pinned.
             `rotate` composes with the drop/pull keyframes, which animate `transform`. */}
-          <svg
-            className={cx(
-              'ease-spring block size-4.5 transition-[rotate] duration-200',
-              panelPinned && '-rotate-30',
-              panelPinPressing && 'animate-pin-drop',
-              panelPinReleasing && 'animate-pin-pull',
-            )}
-            viewBox="0 0 24 24"
-            fill="none"
-            strokeLinecap="round"
-            aria-hidden
+            <svg
+              className={cx(
+                'ease-spring block size-4.5 transition-[rotate] duration-200',
+                panelPinned && '-rotate-30',
+                panelPinPressing && 'animate-pin-drop',
+                panelPinReleasing && 'animate-pin-pull',
+              )}
+              viewBox="0 0 24 24"
+              fill="none"
+              strokeLinecap="round"
+              aria-hidden
+            >
+              <path className="stroke-pin-needle" strokeWidth="2" d="M11 14.5 4.5 21" />
+              <path
+                className="fill-pin"
+                d="M14.6 2.6a1.2 1.2 0 0 1 1.7 0l5.1 5.1a1.2 1.2 0 0 1 0 1.7l-1.2 1.2-1.6-.5-3.1 3.1.7 3.4a1 1 0 0 1-.3.9l-.8.8L6.7 10l.8-.8a1 1 0 0 1 .9-.3l3.4.7 3.1-3.1-.5-1.6z"
+              />
+              <path className="stroke-pin-hi" strokeWidth="1.3" opacity="0.8" d="M15.4 3.6 19.9 8" />
+            </svg>
+            <Tip label={panelPinned ? t.unpinPanel : t.pinPanel} accel={panelPinShortcut} />
+          </button>
+          <button
+            className={cx(ICON_BTN, 'glass text-muted')}
+            onClick={onSettings}
+            aria-label={t.settings.title}
+            tabIndex={-1}
           >
-            <path className="stroke-pin-needle" strokeWidth="2" d="M11 14.5 4.5 21" />
-            <path
-              className="fill-pin"
-              d="M14.6 2.6a1.2 1.2 0 0 1 1.7 0l5.1 5.1a1.2 1.2 0 0 1 0 1.7l-1.2 1.2-1.6-.5-3.1 3.1.7 3.4a1 1 0 0 1-.3.9l-.8.8L6.7 10l.8-.8a1 1 0 0 1 .9-.3l3.4.7 3.1-3.1-.5-1.6z"
-            />
-            <path className="stroke-pin-hi" strokeWidth="1.3" opacity="0.8" d="M15.4 3.6 19.9 8" />
-          </svg>
-          <Tip label={panelPinned ? t.unpinPanel : t.pinPanel} accel={panelPinShortcut} />
-        </button>
-        <button
-          className={cx(ICON_BTN, 'glass text-muted')}
-          onClick={onSettings}
-          aria-label={t.settings.title}
-          tabIndex={-1}
-        >
-          {/* An SVG, not the ⚙︎ glyph: font metrics put the glyph off centre, so it wobbled as it turned. 60° is one tooth, so it lands looking as it started.
+            {/* An SVG, not the ⚙︎ glyph: font metrics put the glyph off centre, so it wobbled as it turned. 60° is one tooth, so it lands looking as it started.
             Lucide `settings` (ISC); the tip below is a sibling so it doesn't turn with it. */}
-          <svg
-            className="ease-spring block size-4.5 transition-transform duration-500 motion-safe:group-hover:rotate-60"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-          <Tip label={t.settings.title} accel="CommandOrControl+Comma" />
-        </button>
+            <svg
+              className="ease-spring block size-4.5 transition-transform duration-500 motion-safe:group-hover:rotate-60"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            <Tip label={t.settings.title} accel="CommandOrControl+Comma" />
+          </button>
+        </div>
       </div>
     </div>
   );

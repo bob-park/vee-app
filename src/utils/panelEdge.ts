@@ -30,7 +30,7 @@ export function dragSize(p: PanelPosition, start: DragStart, x: number, y: numbe
 export const MAX_PINNED = 3;
 // ponytail: fixed layout heights measured off the side panel (padding, two-line toolbar, gaps, divider);
 // a toolbar restyle that changes its height needs these updated.
-const CHROME = 116; // panel padding 22 + toolbar 80 + history list padding 14
+const CHROME = 144; // panel padding 22 + three-row toolbar 108 + history list padding 14
 const PIN_BLOCK = 23; // pinned group padding 10 + divider 13
 const GAP = 10;
 const CARD_INSET = 32; // panel px-3 + list p-1, both sides
