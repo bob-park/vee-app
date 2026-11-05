@@ -8,12 +8,17 @@ export function nextTilt(prev: number, dx: number): number {
 type Box = { left: number; top: number; right: number; bottom: number };
 
 /**
- * The window is about to cut more of the floating card off than it did when the card was
- * lifted (`start`): time to hand it to the OS drag. The bottom never counts — the panel sits
- * on the screen's bottom edge, so a lifted card already overhangs it and nothing is below.
+ * The `w`×`h` window is about to cut more of the floating card off than it did when the card
+ * was lifted (`start`): time to hand it to the OS drag. Every edge counts; one the lifted card
+ * already overhung (the panel's docked edge) counts only past that overhang.
  */
-export function ghostLeaves(box: Box, start: Box, w: number): boolean {
-  return box.top < Math.min(0, start.top) || box.left < Math.min(0, start.left) || box.right > Math.max(w, start.right);
+export function ghostLeaves(box: Box, start: Box, w: number, h: number): boolean {
+  return (
+    box.top < Math.min(0, start.top) ||
+    box.left < Math.min(0, start.left) ||
+    box.right > Math.max(w, start.right) ||
+    box.bottom > Math.max(h, start.bottom)
+  );
 }
 
 /**

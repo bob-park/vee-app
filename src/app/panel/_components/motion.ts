@@ -135,7 +135,7 @@ export function floatCard(card: HTMLElement, x0: number, y0: number, onLeave: (i
     tilt = nextTilt(tilt, e.clientX - lastX);
     lastX = e.clientX;
     place(e.clientX, e.clientY);
-    if (ghostLeaves(ghost.getBoundingClientRect(), lifted, innerWidth)) leave();
+    if (ghostLeaves(ghost.getBoundingClientRect(), lifted, innerWidth, innerHeight)) leave();
   }
 
   cancelActive = () => {
