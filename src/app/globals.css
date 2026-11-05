@@ -1,4 +1,6 @@
 @import 'tailwindcss';
+/* Docs aren't UI: their example class names (e.g. a plan's `@max-[Npx]` placeholder) would compile into real, sometimes invalid, CSS. */
+@source not '../../docs';
 @import 'pretendard/dist/web/variable/pretendardvariable.css';
 @plugin 'daisyui' {
   themes: false;
