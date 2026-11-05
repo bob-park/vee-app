@@ -209,7 +209,11 @@ export function Toolbar({
           />
         )}
       </div>
-      <div className="glass rounded-box relative inline-grid auto-cols-fr grid-flow-col gap-1 p-[3px]" role="tablist">
+      {/* in-data-side:z-2: the glass is its own stacking context, so without it the icon tips sit under row 3. */}
+      <div
+        className="glass rounded-box relative inline-grid auto-cols-fr grid-flow-col gap-1 p-[3px] in-data-side:z-2"
+        role="tablist"
+      >
         {/* The sliding pill behind the selected tab: one column wide (3px padding, 4px gaps), moved by whole columns. */}
         <span
           className="bg-primary ease-spring absolute inset-y-[3px] left-[3px] rounded-[9px] transition-transform duration-450"
