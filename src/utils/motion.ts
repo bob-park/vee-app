@@ -8,16 +8,18 @@ export function nextTilt(prev: number, dx: number): number {
 type Box = { left: number; top: number; right: number; bottom: number };
 
 /**
- * The `w`×`h` window is about to cut more of the floating card off than it did when the card
- * was lifted (`start`): time to hand it to the OS drag. Every edge counts; one the lifted card
- * already overhung (the panel's docked edge) counts only past that overhang.
+ * The `w`×`h` window is about to cut more of the floating card off than it did when it was
+ * lifted at `start`, now that it has moved by (`dx`, `dy`): time to hand it to the OS drag.
+ * Every edge counts; one the lifted card already overhung (a partly scrolled-in card) counts
+ * only past that overhang. The card's tilt is left out on purpose: its rotated box grows
+ * taller, so a sideways flick alone would cross an edge.
  */
-export function ghostLeaves(box: Box, start: Box, w: number, h: number): boolean {
+export function ghostLeaves(start: Box, dx: number, dy: number, w: number, h: number): boolean {
   return (
-    box.top < Math.min(0, start.top) ||
-    box.left < Math.min(0, start.left) ||
-    box.right > Math.max(w, start.right) ||
-    box.bottom > Math.max(h, start.bottom)
+    start.top + dy < Math.min(0, start.top) ||
+    start.left + dx < Math.min(0, start.left) ||
+    start.right + dx > Math.max(w, start.right) ||
+    start.bottom + dy > Math.max(h, start.bottom)
   );
 }
 
