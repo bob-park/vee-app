@@ -112,6 +112,10 @@
   /* Solid green for the update pill: darker than --color-success so white 12px text clears AA (4.8:1). */
   --vee-ok-solid: #0e8350;
   --vee-ok-solid-fg: #ffffff;
+  /* Pin button pushpin: red head, lighter shine, grey needle. */
+  --vee-pin: #e5484d;
+  --vee-pin-hi: #ff8a8d;
+  --vee-pin-needle: #8b8fa3;
   --vee-toast-fg: #101114;
   --vee-toast-border: #dedee5;
   /* Donut slices on the aurora plate; the plate floats, so it has the one shadow, and a 1px edge. */
@@ -152,6 +156,9 @@
   --vee-ok-fg: #5fd39c;
   --vee-ok-solid: #5fd39c;
   --vee-ok-solid-fg: #101114;
+  --vee-pin: #ff6369;
+  --vee-pin-hi: #ffa3a6;
+  --vee-pin-needle: #a6a9ba;
   --vee-toast-fg: #ececf1;
   --vee-toast-border: #3a3b47;
   --vee-donut: #34364a;
@@ -187,6 +194,9 @@
   --color-ok-fg: var(--vee-ok-fg);
   --color-ok-solid: var(--vee-ok-solid);
   --color-ok-solid-fg: var(--vee-ok-solid-fg);
+  --color-pin: var(--vee-pin);
+  --color-pin-hi: var(--vee-pin-hi);
+  --color-pin-needle: var(--vee-pin-needle);
   --color-toast-fg: var(--vee-toast-fg);
   --color-toast-border: var(--vee-toast-border);
   --color-donut: var(--vee-donut);

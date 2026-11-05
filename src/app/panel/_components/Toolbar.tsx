@@ -264,27 +264,26 @@ export function Toolbar({
           aria-label={panelPinned ? t.unpinPanel : t.pinPanel}
           tabIndex={-1}
         >
-          {/* Lucide `pin` (ISC); the head fills while pinned. */}
+          {/* A red pushpin drawn for Vee (not an emoji, which differs per OS); it tilts while pinned.
+            `rotate` composes with the drop/pull keyframes, which animate `transform`. */}
           <svg
             className={cx(
-              'block size-4.5',
+              'ease-spring block size-4.5 transition-[rotate] duration-200',
+              panelPinned && '-rotate-30',
               panelPinPressing && 'animate-pin-drop',
               panelPinReleasing && 'animate-pin-pull',
             )}
             viewBox="0 0 24 24"
             fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
             strokeLinecap="round"
-            strokeLinejoin="round"
             aria-hidden
           >
-            <path d="M12 17v5" />
+            <path className="stroke-pin-needle" strokeWidth="2" d="M11 14.5 4.5 21" />
             <path
-              className="transition-[fill] duration-200"
-              fill={panelPinned ? 'currentColor' : 'none'}
-              d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"
+              className="fill-pin"
+              d="M14.6 2.6a1.2 1.2 0 0 1 1.7 0l5.1 5.1a1.2 1.2 0 0 1 0 1.7l-1.2 1.2-1.6-.5-3.1 3.1.7 3.4a1 1 0 0 1-.3.9l-.8.8L6.7 10l.8-.8a1 1 0 0 1 .9-.3l3.4.7 3.1-3.1-.5-1.6z"
             />
+            <path className="stroke-pin-hi" strokeWidth="1.3" opacity="0.8" d="M15.4 3.6 19.9 8" />
           </svg>
           <Tip label={panelPinned ? t.unpinPanel : t.pinPanel} accel={panelPinShortcut} />
         </button>
