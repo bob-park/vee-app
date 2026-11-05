@@ -28,20 +28,20 @@ export function dragSize(p: PanelPosition, start: DragStart, x: number, y: numbe
 
 /** Mirrors `MAX_PINNED` in `domain/clip/model.rs`. */
 export const MAX_PINNED = 3;
-// ponytail: fixed layout heights measured off the side panel (padding, two-line toolbar, gaps, divider);
-// a toolbar restyle that changes its height needs these updated.
-const CHROME = 144; // panel padding 22 + three-row toolbar 108 + history list padding 14
+// ponytail: fixed layout heights measured off the side panel (padding, gaps, divider); the toolbar is
+// measured live, so only a restyle of these parts needs the numbers updated.
+const CHROME = 46; // panel padding 22 + toolbar bottom margin 10 + history list padding 14
 const PIN_BLOCK = 23; // pinned group padding 10 + divider 13
 const GAP = 10;
 const CARD_INSET = 32; // panel px-3 + list p-1, both sides
 
 /**
  * How many pinned (square) cards a left/right panel of `w`×`h` CSS px shows with at least one whole
- * history card below them.
+ * history card below them. `toolbar` is the toolbar's height in CSS px, which grows when its rows wrap.
  */
-export function pinsThatFit(w: number, h: number): number {
+export function pinsThatFit(w: number, h: number, toolbar: number): number {
   const card = w - CARD_INSET;
-  const room = h - CHROME - card;
+  const room = h - CHROME - toolbar - card;
   for (let k = MAX_PINNED; k > 0; k--) {
     if (PIN_BLOCK + k * card + (k - 1) * GAP <= room) return k;
   }

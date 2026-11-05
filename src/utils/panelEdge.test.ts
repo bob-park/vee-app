@@ -3,6 +3,9 @@ import { test } from 'node:test';
 
 import { dragSize, isSide, pinsThatFit } from './panelEdge.ts';
 
+// The three-row side toolbar's measured height (offsetHeight, without its bottom margin).
+const TOOLBAR = 98;
+
 void test('dragging the inner edge outward grows the panel on every edge', () => {
   const s = { size: 300, x: 500, y: 500 };
   assert.equal(dragSize('bottom', s, 500, 450), 350);
@@ -16,19 +19,23 @@ void test('only left and right are side positions', () => {
 });
 
 void test('a 432pt-wide side panel on a MacBook Pro 16" fits one pin with history, a 340pt one two', () => {
-  assert.equal(pinsThatFit(432, 1101), 1); // cards ~400pt
-  assert.equal(pinsThatFit(340, 1101), 2);
+  assert.equal(pinsThatFit(432, 1101, TOOLBAR), 1); // cards ~400pt
+  assert.equal(pinsThatFit(340, 1101, TOOLBAR), 2);
 });
 
 void test('a tall side panel fits all three pins with history', () => {
-  assert.equal(pinsThatFit(340, 1904), 3); // portrait screen
+  assert.equal(pinsThatFit(340, 1904, TOOLBAR), 3); // portrait screen
 });
 
 void test('a panel too short for even one card beside the toolbar fits no pins', () => {
-  assert.equal(pinsThatFit(1280, 684), 0);
+  assert.equal(pinsThatFit(1280, 684, TOOLBAR), 0);
 });
 
 void test('the three-row side toolbar leaves a 340×1080 panel room for one pin, a 260pt one three', () => {
-  assert.equal(pinsThatFit(340, 1080), 1);
-  assert.equal(pinsThatFit(260, 1101), 3);
+  assert.equal(pinsThatFit(340, 1080, TOOLBAR), 1);
+  assert.equal(pinsThatFit(260, 1101, TOOLBAR), 3);
+});
+
+void test('a taller toolbar (a wrapped reset-search chip) leaves room for fewer pins', () => {
+  assert.equal(pinsThatFit(260, 1101, 126), 2);
 });

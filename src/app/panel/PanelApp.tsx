@@ -76,6 +76,7 @@ export function PanelApp() {
   const requestId = useRef(0);
   const loadingMore = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
   /** Card positions captured just before an animated reload, consumed by the next layout. */
   const flipFrom = useRef<Map<number, number> | null>(null);
@@ -213,7 +214,7 @@ export function PanelApp() {
     const reached = lastPinCount.current < MAX_PINNED && pinned.length === MAX_PINNED;
     lastPinCount.current = pinned.length;
     if (!reached || !side || !openRef.current) return;
-    const fits = pinsThatFit(window.innerWidth, window.innerHeight);
+    const fits = pinsThatFit(window.innerWidth, window.innerHeight, toolbarRef.current?.offsetHeight ?? 0);
     if (fits < MAX_PINNED) void warnSidePins(fits);
   }, [pinned.length, side]);
 
@@ -579,6 +580,7 @@ export function PanelApp() {
       )}
       {!closing && <ResizeHandle />}
       <Toolbar
+        toolbarRef={toolbarRef}
         query={query}
         onQuery={setQuery}
         filter={filter}

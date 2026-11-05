@@ -91,6 +91,8 @@ interface Props {
   filter: Filter;
   onFilter: (filter: Filter) => void;
   inputRef: RefObject<HTMLInputElement | null>;
+  /** The toolbar's root, measured for how many side pins fit. */
+  toolbarRef: RefObject<HTMLDivElement | null>;
   /** The app tag in the search box, or null. */
   app: App | null;
   onClearApp: () => void;
@@ -131,6 +133,7 @@ export function Toolbar({
   filter,
   onFilter,
   inputRef,
+  toolbarRef,
   app,
   onClearApp,
   suggesting,
@@ -169,7 +172,10 @@ export function Toolbar({
   return (
     // z-2: above the card body (z-1, later in the DOM) so the suggest list, update popover and tips
     // aren't covered by cards; both stay above the aurora (z-0).
-    <div className="@container relative z-2 mb-2.5 flex items-center gap-1.5 in-data-side:flex-wrap in-data-side:gap-y-2">
+    <div
+      ref={toolbarRef}
+      className="@container relative z-2 mb-2.5 flex items-center gap-1.5 in-data-side:flex-wrap in-data-side:gap-y-2"
+    >
       {/* Docked left/right the toolbar wraps below the search box; z-3 keeps its app list over that second line. */}
       <div className="rounded-box glass text-muted relative flex shrink-0 basis-55 items-center gap-1.5 px-2.5 py-1.5 in-data-side:z-3 in-data-side:basis-full">
         <span aria-hidden>🔍</span>
