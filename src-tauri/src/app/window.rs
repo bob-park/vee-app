@@ -28,7 +28,7 @@ const PANEL_RATIO: f64 = 0.30;
 /// Default side-panel width as a share of the work-area width.
 const PANEL_WIDTH_RATIO: f64 = 0.25;
 /// Narrowest a side panel may be, in design points, so the toolbar still fits.
-const PANEL_MIN_WIDTH: f64 = 340.0;
+const PANEL_MIN_WIDTH: f64 = 260.0;
 /// The least of the work area a resized panel may take.
 const PANEL_MIN_SHARE: f64 = 0.15;
 /// The most of the work area a resized panel may take.
@@ -491,7 +491,9 @@ pub fn resize_panel(app: &AppHandle, size: f64, save: bool) -> AppResult<()> {
 
 /// Forgets the saved size of the current position's axis and puts a visible panel back at the default.
 pub fn reset_panel_size(app: &AppHandle) -> AppResult<()> {
-    settings::set_raw(&app.state::<AppState>().db.lock().unwrap(), stored_position(app).ratio_key(), "")?;
+    // Read first: `stored_position` takes the db lock, which `std::Mutex` won't hand out twice.
+    let key = stored_position(app).ratio_key();
+    settings::set_raw(&app.state::<AppState>().db.lock().unwrap(), key, "")?;
     place_panel(app);
     settings::commands::changed(app);
     Ok(())
@@ -1008,10 +1010,10 @@ mod tests {
     }
 
     #[test]
-    fn side_width_defaults_to_a_quarter_with_a_340pt_floor() {
+    fn side_width_defaults_to_a_quarter_with_a_260pt_floor() {
         use PanelPosition::Left;
         assert_eq!(panel_extent_for(Left, 1728.0, 1728.0, None), 432.0);
-        assert_eq!(panel_extent_for(Left, 1728.0, 1728.0, Some(0.1)), 340.0); // floor beats 15%
+        assert_eq!(panel_extent_for(Left, 1728.0, 1728.0, Some(0.1)), 260.0); // floor beats 15% (259.2)
         assert_eq!(panel_extent_for(Left, 1728.0, 1728.0, Some(0.7)), 864.0); // 50% cap
         assert_eq!(panel_extent_for(PanelPosition::Bottom, 1117.0, 1117.0, None), 335.0); // unchanged
     }
@@ -1019,8 +1021,8 @@ mod tests {
     #[test]
     fn side_width_floor_never_exceeds_the_cap() {
         use PanelPosition::Right;
-        assert_eq!(clamp_panel_extent(Right, 600.0, 100.0), 300.0); // 50% of 600 < 340
-        assert_eq!(panel_extent_for(Right, 1728.0, 600.0, None), 300.0); // small external display
+        assert_eq!(clamp_panel_extent(Right, 400.0, 100.0), 200.0); // 50% of 400 < 260
+        assert_eq!(panel_extent_for(Right, 1728.0, 400.0, None), 200.0); // small external display
     }
 
     #[test]
