@@ -297,7 +297,7 @@ export function Toolbar({
             </button>
             {updateConfirming && (
               <div
-                className="rounded-box border-base-300 bg-card shadow-suggest animate-spring-in absolute top-[calc(100%+6px)] right-0 z-2 grid w-60 origin-top-right gap-2.5 border p-3 in-data-side:right-auto in-data-side:left-0 in-data-side:max-w-[calc(100vw-24px)] in-data-side:origin-top-left"
+                className="rounded-box border-base-300 bg-card shadow-suggest animate-spring-in absolute top-[calc(100%+6px)] right-0 z-2 grid w-60 origin-top-right gap-2.5 border p-3 in-data-side:right-auto in-data-side:left-0 in-data-side:max-w-[calc(100vw-26px)] in-data-side:origin-top-left"
                 role="dialog"
               >
                 <div>
@@ -332,11 +332,10 @@ export function Toolbar({
             tabIndex={-1}
           >
             {/* A red pushpin drawn for Vee (not an emoji, which differs per OS); it tilts while pinned.
-            `rotate` composes with the drop/pull keyframes, which animate `transform`. */}
+              The tilt is on the inner <g>, so the drop/pull keyframes on the <svg> still move straight up and down. */}
             <svg
               className={cx(
-                'ease-spring block size-4.5 transition-[rotate] duration-200',
-                panelPinned && '-rotate-30',
+                'block size-4.5',
                 panelPinPressing && 'animate-pin-drop',
                 panelPinReleasing && 'animate-pin-pull',
               )}
@@ -345,12 +344,19 @@ export function Toolbar({
               strokeLinecap="round"
               aria-hidden
             >
-              <path className="stroke-pin-needle" strokeWidth="2" d="M11 14.5 4.5 21" />
-              <path
-                className="fill-pin"
-                d="M14.6 2.6a1.2 1.2 0 0 1 1.7 0l5.1 5.1a1.2 1.2 0 0 1 0 1.7l-1.2 1.2-1.6-.5-3.1 3.1.7 3.4a1 1 0 0 1-.3.9l-.8.8L6.7 10l.8-.8a1 1 0 0 1 .9-.3l3.4.7 3.1-3.1-.5-1.6z"
-              />
-              <path className="stroke-pin-hi" strokeWidth="1.3" opacity="0.8" d="M15.4 3.6 19.9 8" />
+              <g
+                className={cx(
+                  'ease-spring origin-center transition-[rotate] duration-200',
+                  panelPinned && '-rotate-30',
+                )}
+              >
+                <path className="stroke-pin-needle" strokeWidth="2" d="M11 14.5 4.5 21" />
+                <path
+                  className="fill-pin"
+                  d="M14.6 2.6a1.2 1.2 0 0 1 1.7 0l5.1 5.1a1.2 1.2 0 0 1 0 1.7l-1.2 1.2-1.6-.5-3.1 3.1.7 3.4a1 1 0 0 1-.3.9l-.8.8L6.7 10l.8-.8a1 1 0 0 1 .9-.3l3.4.7 3.1-3.1-.5-1.6z"
+                />
+                <path className="stroke-pin-hi" strokeWidth="1.3" opacity="0.8" d="M15.4 3.6 19.9 8" />
+              </g>
             </svg>
             <Tip label={panelPinned ? t.unpinPanel : t.pinPanel} accel={panelPinShortcut} />
           </button>
