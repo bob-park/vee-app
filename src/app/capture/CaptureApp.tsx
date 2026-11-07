@@ -277,7 +277,9 @@ export default function CaptureApp() {
     const drag = dragFrom && pointer ? normalizeRect(dragFrom, pointer) : null;
     // Only what shows of the window is tinted: the parts in front of it aren't taken.
     const covered = open && hover ? coveredParts(open.windows, hover) : [];
-    return { ...overlayShapes(windowMode, hover, drag, pending?.rect ?? null), covered };
+    // Over the desktop (or the menu bar, Dock, taskbar): nothing to pick there.
+    const overDesktop = open !== null && pointer !== null && windowMode && !windowPicked && !hover;
+    return { ...overlayShapes(windowMode, hover, drag, pending?.rect ?? null), covered, overDesktop };
   }, [open, pointer, windowMode, windowPicked, dragFrom, pending]);
   // The tint glides from window to window and fades in and out instead of popping.
   const glide = useGlide(shapes.tint, shapes.covered);
@@ -303,9 +305,11 @@ export default function CaptureApp() {
           ? 'cursor-crosshair'
           : windowPicked
             ? 'cursor-default'
-            : open.mode === 'record'
-              ? 'cursor-record'
-              : 'cursor-camera',
+            : shapes.overDesktop
+              ? 'cursor-blocked'
+              : open.mode === 'record'
+                ? 'cursor-record'
+                : 'cursor-camera',
       )}
       onPointerDown={handlePointerDown}
       onPointerMove={(e) => setPointer(point(e))}
