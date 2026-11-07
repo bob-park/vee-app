@@ -223,7 +223,7 @@ fn dispatch(app: &AppHandle, ev: Event) {
         }
         (Action::StopEngine | Action::CancelEngine, Some(running), Phase::Recording { session, format, .. }) => {
             hide_controls(app);
-            // The hidden pill drops its timer, so it never shows this recording's time when shown again.
+            // The pill fades out on its last time and stops its timer; `recorder://started` replaces it before the next show.
             let _ = app.emit_to(RECORDER, "recorder://stopped", ());
             let (app, keep) = (app.clone(), action == Action::StopEngine);
             // macOS leaves Vee's sound out of the recording, so the stop sound needn't wait for the engine.

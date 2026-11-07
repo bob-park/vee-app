@@ -34,6 +34,8 @@ export default function RecorderApp() {
       setNow(Date.now());
       setStarted(e.payload);
       setLeaving(false);
+      // The last pill's tooltip must not come up on the new one before the mouse moves.
+      setTip(null);
     });
     // Rust is hiding the pill (stop, cancel, GIF limit): it fades out on the last time, which then stops.
     // `recorder://started` replaces it before the pill is shown again, so this recording's time never comes back.
