@@ -205,6 +205,14 @@ export default function CaptureApp() {
 
   useEffect(() => () => clearTimeout(noticeTimerRef.current), []);
 
+  // Gone for good when window mode ends or the toolbar hides (another monitor, a drag), not just hidden: back within
+  // its time, it would show the rest.
+  useEffect(() => {
+    if (windowMode && showToolbar) return;
+    clearTimeout(noticeTimerRef.current);
+    setNotice(false);
+  }, [windowMode, showToolbar]);
+
   useEffect(() => {
     if (!pending) return;
     const onKey = (e: KeyboardEvent) => {
@@ -354,8 +362,9 @@ export default function CaptureApp() {
             <>
               <mask id="tint-visible">
                 <rect className="fill-white" {...box(glide.rect)} {...corner} />
-                {glide.covered.map((part) => (
-                  <rect key={`${part.x},${part.y}`} className="fill-black" {...box(part)} {...corner} />
+                {/* By index: two windows in front can share an origin. */}
+                {glide.covered.map((part, i) => (
+                  <rect key={i} className="fill-black" {...box(part)} {...corner} />
                 ))}
               </mask>
               <rect className="fill-pick" mask="url(#tint-visible)" {...box(glide.rect)} {...corner} />
