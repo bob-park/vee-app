@@ -18,6 +18,7 @@ export default function DesktopNotice({ shown, mode, abovePill }: DesktopNoticeP
   // hooks
   const { t } = useI18n();
 
+  const text = mode === 'record' ? t.capture.noWindowRecord : t.capture.noWindowCapture;
   return (
     <div
       className={cx(
@@ -25,10 +26,13 @@ export default function DesktopNotice({ shown, mode, abovePill }: DesktopNoticeP
         abovePill ? 'bottom-[136px]' : 'bottom-[88px]',
         floatClass(shown),
       )}
-      role="status"
-      aria-live="polite"
     >
-      {mode === 'record' ? t.capture.noWindowRecord : t.capture.noWindowCapture}
+      {/* Stays while it fades out; the live region below says it instead. */}
+      <span aria-hidden>{text}</span>
+      {/* Filled only while shown, so each click is announced, not the hidden text. */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {shown && text}
+      </span>
     </div>
   );
 }

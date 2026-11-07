@@ -387,7 +387,11 @@ export default function CaptureApp() {
         </span>
       )}
       {/* Only while window mode is on: Space back to area mode drops it at once. */}
-      <DesktopNotice shown={notice && windowMode && showToolbar} mode={open.mode} abovePill={showPill} />
+      <DesktopNotice
+        shown={notice && windowMode && !windowPicked && showToolbar}
+        mode={open.mode}
+        abovePill={showPill}
+      />
       <RecordPill shown={showPill} format={format} ffmpeg={ffmpeg} onFormat={setPicked} onStart={handleRecord} />
       <CaptureToolbar
         shown={showToolbar}
