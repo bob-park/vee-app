@@ -16,16 +16,15 @@ export function windowAt(windows: WinInfo[], p: Point): WinInfo | null {
   return windows.find((w) => p.x >= w.x && p.x < w.x + w.width && p.y >= w.y && p.y < w.y + w.height) ?? null;
 }
 
-/** The parts of `win` that windows in front of it cover; `windows` comes front to back. */
+/** The windows in front of `win` that overlap it, whole: drawn rounded, their corners leave `win` showing.
+ * `windows` comes front to back. */
 export function coveredParts(windows: WinInfo[], win: WinInfo): Rect[] {
   const parts: Rect[] = [];
   for (const w of windows) {
     if (w.id === win.id) break;
-    const x = Math.max(w.x, win.x);
-    const y = Math.max(w.y, win.y);
-    const width = Math.min(w.x + w.width, win.x + win.width) - x;
-    const height = Math.min(w.y + w.height, win.y + win.height) - y;
-    if (width > 0 && height > 0) parts.push({ x, y, width, height });
+    const overlaps =
+      w.x < win.x + win.width && win.x < w.x + w.width && w.y < win.y + win.height && win.y < w.y + w.height;
+    if (overlaps) parts.push({ x: w.x, y: w.y, width: w.width, height: w.height });
   }
   return parts;
 }

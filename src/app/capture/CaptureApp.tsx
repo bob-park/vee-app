@@ -331,7 +331,7 @@ export default function CaptureApp() {
               <mask id="tint-visible">
                 <rect className="fill-white" {...box(glide.rect)} {...corner} />
                 {glide.covered.map((part) => (
-                  <rect key={`${part.x},${part.y}`} className="fill-black" {...box(part)} />
+                  <rect key={`${part.x},${part.y}`} className="fill-black" {...box(part)} {...corner} />
                 ))}
               </mask>
               <rect className="fill-pick" mask="url(#tint-visible)" {...box(glide.rect)} {...corner} />

@@ -70,12 +70,12 @@ void test('a drag replaces the planned box in region mode', () => {
   });
 });
 
-void test('only the windows in front cover a window, clipped to it', () => {
+void test('only the overlapping windows in front cover a window, whole so their corners round', () => {
   const front = win(1, 150, 150, 100, 100);
   const back = win(2, 0, 0, 200, 200);
   const behind = win(3, 0, 0, 500, 500);
   const apart = win(4, 300, 300, 10, 10);
-  assert.deepEqual(coveredParts([apart, front, back, behind], back), [{ x: 150, y: 150, width: 50, height: 50 }]);
+  assert.deepEqual(coveredParts([apart, front, back, behind], back), [{ x: 150, y: 150, width: 100, height: 100 }]);
   assert.deepEqual(coveredParts([front, back], front), []);
 });
 
