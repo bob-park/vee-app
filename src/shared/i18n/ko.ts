@@ -50,6 +50,8 @@ export const ko: Dict = {
     window: '창',
     cancel: '취소',
     recordBusy: '이미 녹화 중이에요',
+    noWindowCapture: '여기에는 캡처할 창이 없어요',
+    noWindowRecord: '여기에는 녹화할 창이 없어요',
   },
   record: {
     failed: '화면을 녹화하지 못했어요',

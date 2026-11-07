@@ -49,6 +49,8 @@ export const en = {
     window: 'Window',
     cancel: 'Cancel',
     recordBusy: 'Already recording',
+    noWindowCapture: 'No window here to capture',
+    noWindowRecord: 'No window here to record',
   },
   record: {
     failed: "Couldn't record the screen",

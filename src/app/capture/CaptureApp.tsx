@@ -1,6 +1,7 @@
 import { type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import CaptureToolbar from '@/app/capture/_components/CaptureToolbar';
+import DesktopNotice from '@/app/capture/_components/DesktopNotice';
 import RecordPill from '@/app/capture/_components/RecordPill';
 import { useGlide } from '@/app/capture/_hooks/useGlide';
 import {
@@ -26,6 +27,8 @@ import cx from 'classnames';
 const LABEL_GAP = 6;
 /** The overlay's fade out (its `duration-150`) before Rust hides it. */
 const FADE_MS = 150;
+/** How long the no-window notice stays up after a desktop click. */
+const NOTICE_MS = 1500;
 const isMac = navigator.userAgent.includes('Mac');
 /** A picked window's highlight follows the system's window corners. */
 const WINDOW_RADIUS = isMac ? 12 : 8;
@@ -63,6 +66,7 @@ export default function CaptureApp() {
   const leavingRef = useRef(false);
   /** The record pill is up here: Tab then moves focus through it instead of switching the mode. */
   const pillShownRef = useRef(false);
+  const noticeTimerRef = useRef<number | undefined>(undefined);
 
   // state
   const [open, setOpen] = useState<CaptureOpen | null>(null);
@@ -75,6 +79,8 @@ export default function CaptureApp() {
   const [leaving, setLeaving] = useState(false);
   /** The format picked in the pill; null until the user picks one. */
   const [picked, setPicked] = useState<RecordFormat | null>(null);
+  /** A window-mode click just hit the desktop. */
+  const [notice, setNotice] = useState(false);
 
   // queries
   const { settings } = useSettings();
@@ -107,6 +113,8 @@ export default function CaptureApp() {
         if (!session) return;
         openRef.current = session;
         windowModeRef.current = false;
+        clearTimeout(noticeTimerRef.current);
+        setNotice(false);
         leavingRef.current = false;
         setLeaving(false);
         setOpen(session);
@@ -195,6 +203,8 @@ export default function CaptureApp() {
     pillShownRef.current = showPill;
   }, [showPill]);
 
+  useEffect(() => () => clearTimeout(noticeTimerRef.current), []);
+
   useEffect(() => {
     if (!pending) return;
     const onKey = (e: KeyboardEvent) => {
@@ -216,6 +226,15 @@ export default function CaptureApp() {
     setPointer(null);
     setPending(null);
     setWindowPicked(false);
+    clearTimeout(noticeTimerRef.current);
+    setNotice(false);
+  };
+
+  /** Up again for the full time on each desktop click, so quick clicks keep one notice. */
+  const showNotice = () => {
+    clearTimeout(noticeTimerRef.current);
+    setNotice(true);
+    noticeTimerRef.current = window.setTimeout(() => setNotice(false), NOTICE_MS);
   };
 
   const handleCancel = () => {
@@ -257,6 +276,7 @@ export default function CaptureApp() {
       if (windowPicked) return;
       const win = windowAt(open.windows, point(e));
       if (win) select({ kind: 'window', id: win.id }, win);
+      else showNotice();
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -366,6 +386,8 @@ export default function CaptureApp() {
           {Math.round(hole.width * scale)} × {Math.round(hole.height * scale)}
         </span>
       )}
+      {/* Only while window mode is on: Space back to area mode drops it at once. */}
+      <DesktopNotice shown={notice && windowMode && showToolbar} mode={open.mode} abovePill={showPill} />
       <RecordPill shown={showPill} format={format} ffmpeg={ffmpeg} onFormat={setPicked} onStart={handleRecord} />
       <CaptureToolbar
         shown={showToolbar}
