@@ -6,6 +6,7 @@ import { useGlide } from '@/app/capture/_hooks/useGlide';
 import {
   cancelCapture,
   getCaptureSession,
+  refreshCursor,
   setCaptureMode,
   startRecording,
   takeCapture,
@@ -30,6 +31,8 @@ const isMac = navigator.userAgent.includes('Mac');
 const WINDOW_RADIUS = isMac ? 12 : 8;
 /** This overlay's window; there is one per monitor. */
 const me = getCurrentWindow();
+/** After React has drawn the new cursor class, so the refresh reads it. */
+const refreshCursorSoon = () => requestAnimationFrame(() => void refreshCursor());
 
 /** `capture://picked`: which overlay picked, and whether it picked a window. */
 interface PickedEvent {
@@ -108,6 +111,7 @@ export default function CaptureApp() {
         setLeaving(false);
         setOpen(session);
         setWindowMode(false);
+        refreshCursorSoon();
         // Known before the mouse moves, so Space tints the window under it at once.
         setPointer(session.cursor);
         setDragFrom(null);
@@ -131,6 +135,7 @@ export default function CaptureApp() {
         windowModeRef.current = e.payload;
         setDragFrom(null);
         setWindowMode(e.payload);
+        refreshCursorSoon();
       }),
       // Rust switched the session (this overlay asked, or another one did): start over in the new mode, keeping the picked format.
       listen<CaptureMode>('capture://session-mode', (e) => {
@@ -146,6 +151,7 @@ export default function CaptureApp() {
         setPending(null);
         setWindowPicked(false);
         setDragFrom(null);
+        refreshCursorSoon();
       }),
       // One waiting record selection across the monitors.
       listen<PickedEvent>('capture://picked', (e) => {
@@ -174,6 +180,7 @@ export default function CaptureApp() {
         windowModeRef.current = next;
         setDragFrom(null);
         setWindowMode(next);
+        refreshCursorSoon();
         void emit('capture://mode', next);
       } else if (e.key === 'Tab' && !e.repeat && openRef.current && !pillShownRef.current) {
         e.preventDefault();
@@ -226,6 +233,7 @@ export default function CaptureApp() {
     windowModeRef.current = on;
     setDragFrom(null);
     setWindowMode(on);
+    refreshCursorSoon();
     void emit('capture://mode', on);
   };
 

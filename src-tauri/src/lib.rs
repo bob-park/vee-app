@@ -176,6 +176,7 @@ pub fn run() {
             capture::commands::take_capture,
             capture::commands::cancel_capture,
             capture::commands::set_capture_mode,
+            capture::commands::refresh_cursor,
             recorder::commands::start_recording,
             recorder::commands::get_recorder_state,
             recorder::commands::stop_recording,
