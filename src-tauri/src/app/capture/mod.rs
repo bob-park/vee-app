@@ -357,35 +357,13 @@ fn capture(app: &AppHandle, label: &str, selection: Selection) -> AppResult<()> 
     .map_err(|e| AppError::Other(e.to_string()))
 }
 
-/// macOS: WKWebView re-reads the CSS cursor only on a mouse event, so a mode switch with the mouse still would keep
-/// the old one. A mouse move posted to the overlay's own event queue, where the mouse already is, makes it look again.
-fn refresh_cursor(app: &AppHandle, overlay: WebviewWindow) {
+/// macOS: a key press hides the cursor until the mouse moves (AppKit's typing behavior), so after Space or Tab the
+/// new mode's cursor stayed hidden. The overlay takes keys, not text: show it again at once.
+fn refresh_cursor(app: &AppHandle) {
     #[cfg(target_os = "macos")]
-    let _ = app.run_on_main_thread(move || {
-        use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType, NSWindow};
-        let ptr = match overlay.ns_window() {
-            Ok(ptr) => ptr,
-            Err(e) => return log::warn!("couldn't refresh the capture cursor: {e}"),
-        };
-        // SAFETY: Tauri hands out the live NSWindow, and this runs on the main thread.
-        let ns_window = unsafe { &*(ptr as *const NSWindow) };
-        let event = NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
-            NSEventType::MouseMoved,
-            ns_window.mouseLocationOutsideOfEventStream(),
-            NSEventModifierFlags::empty(),
-            0.0,
-            ns_window.windowNumber(),
-            None,
-            0,
-            0,
-            0.0,
-        );
-        if let Some(event) = event {
-            ns_window.postEvent_atStart(&event, false);
-        }
-    });
+    let _ = app.run_on_main_thread(|| objc2_app_kit::NSCursor::setHiddenUntilMouseMoves(false));
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, overlay);
+    let _ = app;
 }
 
 pub mod commands {
@@ -425,10 +403,10 @@ pub mod commands {
         super::switch_mode(&app, mode)
     }
 
-    /// Shows the cursor of the overlay's new mode without waiting for the mouse to move (macOS; elsewhere a no-op).
+    /// Shows the cursor again after a mode key hid it, without waiting for the mouse to move (macOS; elsewhere a no-op).
     #[tauri::command]
-    pub fn refresh_cursor(app: AppHandle, window: WebviewWindow) {
-        super::refresh_cursor(&app, window);
+    pub fn refresh_cursor(app: AppHandle) {
+        super::refresh_cursor(&app);
     }
 
     #[tauri::command]

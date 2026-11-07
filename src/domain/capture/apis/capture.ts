@@ -17,7 +17,7 @@ export async function setCaptureMode(mode: CaptureMode) {
   return call<CaptureMode>('set_capture_mode', { mode });
 }
 
-/** Makes this overlay show its mode's cursor now; macOS otherwise waits for the mouse to move. */
+/** Shows the cursor again after a mode key hid it; macOS otherwise keeps it hidden until the mouse moves. */
 export async function refreshCursor() {
   return call<void>('refresh_cursor');
 }
