@@ -43,9 +43,10 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const RECORDER: &str = "recorder";
-/// Bumped by each show and hide of the frame, so a late hide never takes down a newer recording's frame.
+/// Bumped by each show and hide of the frame and the pill, so a late hide never takes down a newer recording's.
 static FRAME_GENERATION: AtomicU64 = AtomicU64::new(0);
-/// The overlay → frame crossfade (`animate-fade-in`, the overlay's `duration-150`).
+/// The overlay → frame crossfade (`animate-fade-in`, the overlay's `duration-150`), and the pill's and frame's
+/// fade out at the end (their `duration-150`).
 const CROSSFADE_MS: u64 = 150;
 /// How often the pill is told where the cursor is (macOS, for its tooltips).
 #[cfg(target_os = "macos")]
@@ -542,21 +543,21 @@ pub fn exclude_window(window: &tauri::WebviewWindow) {
     let _ = window;
 }
 
-/// Hides the pill and the border.
+/// Hides the pill and the border. The caller sends `recorder://stopped`, which fades the pill out.
 fn hide_controls(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window(RECORDER) {
-        let _ = w.hide();
-    }
-    // The frame fades out, then goes, unless a newer recording has shown it again meanwhile.
+    // Both fade out, then go, unless a newer recording has shown them again meanwhile.
     let generation = FRAME_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let _ = app.emit_to(FRAME, "recframe://area", None::<RectF>);
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(CROSSFADE_MS));
-        if FRAME_GENERATION.load(Ordering::SeqCst) == generation
-            && let Some(w) = app.get_webview_window(FRAME)
-        {
-            let _ = w.hide();
+        if FRAME_GENERATION.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        for label in [RECORDER, FRAME] {
+            if let Some(w) = app.get_webview_window(label) {
+                let _ = w.hide();
+            }
         }
     });
 }
@@ -564,6 +565,7 @@ fn hide_controls(app: &AppHandle) {
 /// The pill at the bottom centre of the recorded monitor's work area.
 fn show_pill(app: &AppHandle, monitor: &MonitorInfo) {
     let Some(pill) = app.get_webview_window(RECORDER) else { return };
+    FRAME_GENERATION.fetch_add(1, Ordering::SeqCst);
     let found = app.available_monitors().ok().and_then(|ms| {
         ms.into_iter().find(|m| {
             let s = m.scale_factor();
