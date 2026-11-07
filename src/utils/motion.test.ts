@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { cursorCentredFrame, dragImageLayout, ghostLeaves, nextTilt } from './motion.ts';
+import { cubicBezier, cursorCentredFrame, dragImageLayout, easeMove, ghostLeaves, lerpRect, nextTilt } from './motion.ts';
 
 void test('tilt leans with horizontal motion and is capped at 10 degrees', () => {
   assert.equal(nextTilt(0, 5), 3);
@@ -55,4 +55,29 @@ void test('on Windows the drag image is drawn at device pixels, also centred on 
     px: 1.5,
     frame: { width: 340, height: 340, x: 140, y: 120 },
   });
+});
+
+void test('cubicBezier starts at 0, ends at 1 and clamps outside them', () => {
+  assert.equal(easeMove(0), 0);
+  assert.equal(easeMove(1), 1);
+  assert.equal(easeMove(-1), 0);
+  assert.equal(easeMove(2), 1);
+});
+
+void test('cubicBezier with linear control points is linear', () => {
+  assert.ok(Math.abs(cubicBezier(0, 0, 1, 1)(0.3) - 0.3) < 1e-4);
+});
+
+void test('easeMove front-loads the move and only ever rises', () => {
+  assert.ok(easeMove(0.5) > 0.85);
+  const steps = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9].map(easeMove);
+  steps.slice(1).forEach((v, i) => assert.ok(v > steps[i]));
+});
+
+void test('lerpRect moves every field the same fraction of the way', () => {
+  const a = { x: 0, y: 0, width: 10, height: 20 };
+  const b = { x: 10, y: 10, width: 30, height: 40 };
+  assert.deepEqual(lerpRect(a, b, 0.5), { x: 5, y: 5, width: 20, height: 30 });
+  assert.deepEqual(lerpRect(a, b, 0), a);
+  assert.deepEqual(lerpRect(a, b, 1), b);
 });
