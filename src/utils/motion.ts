@@ -82,8 +82,11 @@ export function lerpRect(a: Rect, b: Rect, k: number): Rect {
   return { x: mix(a.x, b.x), y: mix(a.y, b.y), width: mix(a.width, b.width), height: mix(a.height, b.height) };
 }
 
-/** A glide from `from` to `to`, now drawn at `drawn`; hidden (`shown` false) it keeps its last rect so it can fade out. */
-export type Glide = { from: Rect; to: Rect; drawn: Rect; shown: boolean };
+/**
+ * A glide from `from` to `to`, now drawn at `drawn`, with the `covered` parts of its target left out. Hidden (`shown`
+ * false) it keeps its last rect and parts, so it can fade out as it was.
+ */
+export type Glide = { from: Rect; to: Rect; drawn: Rect; shown: boolean; covered: Rect[] };
 
 const sameRect = (a: Rect, b: Rect) => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 
@@ -91,9 +94,13 @@ const sameRect = (a: Rect, b: Rect) => a.x === b.x && a.y === b.y && a.width ===
  * What a glide does when its target becomes `target`: hides on null, jumps when it was hidden (so it fades in
  * in place), and otherwise restarts from where it is drawn now, so a quick string of targets never snaps back.
  */
-export function nextGlide(prev: Glide | null, target: Rect | null): (Glide & { restart: boolean }) | null {
+export function nextGlide(
+  prev: Glide | null,
+  target: Rect | null,
+  covered: Rect[],
+): (Glide & { restart: boolean }) | null {
   if (!target) return prev && { ...prev, shown: false, restart: false };
-  if (!prev?.shown) return { from: target, to: target, drawn: target, shown: true, restart: false };
-  if (sameRect(prev.to, target)) return { ...prev, restart: false };
-  return { from: prev.drawn, to: target, drawn: prev.drawn, shown: true, restart: true };
+  if (!prev?.shown) return { from: target, to: target, drawn: target, shown: true, covered, restart: false };
+  if (sameRect(prev.to, target)) return { ...prev, covered, restart: false };
+  return { from: prev.drawn, to: target, drawn: prev.drawn, shown: true, covered, restart: true };
 }

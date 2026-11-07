@@ -280,11 +280,11 @@ export default function CaptureApp() {
     return { ...overlayShapes(windowMode, hover, drag, pending?.rect ?? null), covered };
   }, [open, pointer, windowMode, windowPicked, dragFrom, pending]);
   // The tint glides from window to window and fades in and out instead of popping.
-  const glide = useGlide(shapes.tint);
+  const glide = useGlide(shapes.tint, shapes.covered);
 
   if (!open) return null;
   const { width, height, scale } = open.monitor;
-  const { hole, outline, planned, covered } = shapes;
+  const { hole, outline, planned } = shapes;
   // A picked window's cutout follows its rounded corners, like its tint and dashes; a dragged area stays square.
   const holeRadius = hole && pending?.selection.kind === 'window' && hole === pending.rect ? WINDOW_RADIUS : 0;
   const holePath = hole ? ` ${rectPath(hole, holeRadius)}` : '';
@@ -324,19 +324,20 @@ export default function CaptureApp() {
           fillRule="evenodd"
           d={`M0 0H${width}V${height}H0Z${holePath}`}
         />
-        {glide.rect && (
-          <g
-            className={cx('transition-opacity duration-150 motion-reduce:transition-none', !glide.shown && 'opacity-0')}
-          >
-            <mask id="tint-visible">
-              <rect className="fill-white" {...box(glide.rect)} {...corner} />
-              {covered.map((part) => (
-                <rect key={`${part.x},${part.y}`} className="fill-black" {...box(part)} />
-              ))}
-            </mask>
-            <rect className="fill-pick" mask="url(#tint-visible)" {...box(glide.rect)} {...corner} />
-          </g>
-        )}
+        {/* Always mounted, so even the first tint fades in. */}
+        <g className={cx('transition-opacity duration-150 motion-reduce:transition-none', !glide.shown && 'opacity-0')}>
+          {glide.rect && (
+            <>
+              <mask id="tint-visible">
+                <rect className="fill-white" {...box(glide.rect)} {...corner} />
+                {glide.covered.map((part) => (
+                  <rect key={`${part.x},${part.y}`} className="fill-black" {...box(part)} />
+                ))}
+              </mask>
+              <rect className="fill-pick" mask="url(#tint-visible)" {...box(glide.rect)} {...corner} />
+            </>
+          )}
+        </g>
         {outline && <rect className="stroke-primary fill-none" strokeWidth={1} {...box(outline)} />}
         {/* The area the recording will cover, in the recording border's dashes. */}
         {planned && (
