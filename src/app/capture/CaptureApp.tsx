@@ -297,7 +297,7 @@ export default function CaptureApp() {
     <div
       className={cx(
         // Fades in each time it opens (it renders nothing while closed, so this remounts).
-        'animate-fade-in fixed inset-0 transition-opacity duration-150 select-none motion-reduce:animate-none motion-reduce:transition-none',
+        'animate-fade-in fixed inset-0 transition-opacity duration-150 ease-in select-none motion-reduce:animate-none motion-reduce:transition-none',
         leaving && 'pointer-events-none opacity-0',
         !windowMode
           ? 'cursor-crosshair'

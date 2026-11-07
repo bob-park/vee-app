@@ -74,6 +74,7 @@ Radius: box 14px(`--radius-box: 0.875rem`), field 12px, selector 10px. daisyUI d
 | 팝 (`animate-pop`) | 450ms | `ease-spring` | 배지·점: scale .3 → 1 |
 | 링 (`animate-ring`) | 900ms, 200ms 지연 | `ease-out` | `--ring-color`(기본 `--color-primary`)로 14px까지 퍼짐 |
 | 미끄러지는 알약 (탭·필터·Segmented) | 450ms | `ease-spring` | |
+| 캡처 창 하이라이트 이동 | 180ms | `EASE_MOVE` | `useGlide`: 창에서 창으로 미끄러짐, 나타나고 사라질 때는 150ms 페이드 |
 | 퇴장 | 150–250ms | `ease-in` | 토스트 `TOAST_EXIT_MS`, 패널 `PANEL_CLOSE_MS=200`과 맞물림 |
 | 떠다님 | drift 12s, bob 1.6s | `ease-in-out` | 오로라 블롭, 도넛의 ↓ 아이콘 |
 | FLIP 재정렬·드래그 | 그대로 | `EASE_MOVE` / `EASE_SPRING` (`motion.ts`) | 물리감이 필요한 곳은 기존 곡선 유지 |
