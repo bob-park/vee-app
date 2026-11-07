@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { cubicBezier, cursorCentredFrame, dragImageLayout, easeMove, ghostLeaves, lerpRect, nextTilt } from './motion.ts';
+import {
+  cubicBezier,
+  cursorCentredFrame,
+  dragImageLayout,
+  easeMove,
+  ghostLeaves,
+  lerpRect,
+  nextGlide,
+  nextTilt,
+} from './motion.ts';
 
 void test('tilt leans with horizontal motion and is capped at 10 degrees', () => {
   assert.equal(nextTilt(0, 5), 3);
@@ -80,4 +89,36 @@ void test('lerpRect moves every field the same fraction of the way', () => {
   assert.deepEqual(lerpRect(a, b, 0.5), { x: 5, y: 5, width: 20, height: 30 });
   assert.deepEqual(lerpRect(a, b, 0), a);
   assert.deepEqual(lerpRect(a, b, 1), b);
+});
+
+const A = { x: 0, y: 0, width: 100, height: 100 };
+const B = { x: 200, y: 0, width: 100, height: 100 };
+const C = { x: 0, y: 300, width: 50, height: 50 };
+
+void test('nextGlide keeps the last rect, hidden, once the target goes', () => {
+  assert.equal(nextGlide(null, null), null);
+  const g = nextGlide({ from: A, to: B, drawn: B, shown: true }, null);
+  assert.deepEqual(g, { from: A, to: B, drawn: B, shown: false, restart: false });
+});
+
+void test('nextGlide jumps, without gliding, to a target that appears from hidden', () => {
+  assert.deepEqual(nextGlide(null, A), { from: A, to: A, drawn: A, shown: true, restart: false });
+  assert.deepEqual(nextGlide({ from: A, to: A, drawn: A, shown: false }, B), {
+    from: B,
+    to: B,
+    drawn: B,
+    shown: true,
+    restart: false,
+  });
+});
+
+void test('nextGlide glides from the drawn rect to a new target', () => {
+  const mid = lerpRect(A, B, 0.5);
+  const g = nextGlide({ from: A, to: B, drawn: mid, shown: true }, C);
+  assert.deepEqual(g, { from: mid, to: C, drawn: mid, shown: true, restart: true });
+});
+
+void test('nextGlide leaves a glide alone when the target is the same rect again', () => {
+  const prev = { from: A, to: B, drawn: A, shown: true };
+  assert.deepEqual(nextGlide(prev, { ...B }), { ...prev, restart: false });
 });
