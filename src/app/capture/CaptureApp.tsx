@@ -2,9 +2,11 @@ import { type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } 
 
 import CaptureToolbar from '@/app/capture/_components/CaptureToolbar';
 import RecordPill from '@/app/capture/_components/RecordPill';
+import { useGlide } from '@/app/capture/_hooks/useGlide';
 import {
   cancelCapture,
   getCaptureSession,
+  refreshCursor,
   setCaptureMode,
   startRecording,
   takeCapture,
@@ -29,6 +31,8 @@ const isMac = navigator.userAgent.includes('Mac');
 const WINDOW_RADIUS = isMac ? 12 : 8;
 /** This overlay's window; there is one per monitor. */
 const me = getCurrentWindow();
+/** After React has drawn the new cursor class, so the refresh reads it. */
+const refreshCursorSoon = () => requestAnimationFrame(() => void refreshCursor());
 
 /** `capture://picked`: which overlay picked, and whether it picked a window. */
 interface PickedEvent {
@@ -107,6 +111,7 @@ export default function CaptureApp() {
         setLeaving(false);
         setOpen(session);
         setWindowMode(false);
+        refreshCursorSoon();
         // Known before the mouse moves, so Space tints the window under it at once.
         setPointer(session.cursor);
         setDragFrom(null);
@@ -130,6 +135,7 @@ export default function CaptureApp() {
         windowModeRef.current = e.payload;
         setDragFrom(null);
         setWindowMode(e.payload);
+        refreshCursorSoon();
       }),
       // Rust switched the session (this overlay asked, or another one did): start over in the new mode, keeping the picked format.
       listen<CaptureMode>('capture://session-mode', (e) => {
@@ -145,6 +151,7 @@ export default function CaptureApp() {
         setPending(null);
         setWindowPicked(false);
         setDragFrom(null);
+        refreshCursorSoon();
       }),
       // One waiting record selection across the monitors.
       listen<PickedEvent>('capture://picked', (e) => {
@@ -173,6 +180,7 @@ export default function CaptureApp() {
         windowModeRef.current = next;
         setDragFrom(null);
         setWindowMode(next);
+        refreshCursorSoon();
         void emit('capture://mode', next);
       } else if (e.key === 'Tab' && !e.repeat && openRef.current && !pillShownRef.current) {
         e.preventDefault();
@@ -225,6 +233,7 @@ export default function CaptureApp() {
     windowModeRef.current = on;
     setDragFrom(null);
     setWindowMode(on);
+    refreshCursorSoon();
     void emit('capture://mode', on);
   };
 
@@ -270,10 +279,12 @@ export default function CaptureApp() {
     const covered = open && hover ? coveredParts(open.windows, hover) : [];
     return { ...overlayShapes(windowMode, hover, drag, pending?.rect ?? null), covered };
   }, [open, pointer, windowMode, windowPicked, dragFrom, pending]);
+  // The tint glides from window to window and fades in and out instead of popping.
+  const glide = useGlide(shapes.tint, shapes.covered);
 
   if (!open) return null;
   const { width, height, scale } = open.monitor;
-  const { hole, tint, outline, planned, covered } = shapes;
+  const { hole, outline, planned } = shapes;
   // A picked window's cutout follows its rounded corners, like its tint and dashes; a dragged area stays square.
   const holeRadius = hole && pending?.selection.kind === 'window' && hole === pending.rect ? WINDOW_RADIUS : 0;
   const holePath = hole ? ` ${rectPath(hole, holeRadius)}` : '';
@@ -286,7 +297,7 @@ export default function CaptureApp() {
     <div
       className={cx(
         // Fades in each time it opens (it renders nothing while closed, so this remounts).
-        'animate-fade-in fixed inset-0 transition-opacity duration-150 select-none motion-reduce:animate-none motion-reduce:transition-none',
+        'animate-fade-in fixed inset-0 transition-opacity duration-150 ease-in select-none motion-reduce:animate-none motion-reduce:transition-none',
         leaving && 'pointer-events-none opacity-0',
         !windowMode
           ? 'cursor-crosshair'
@@ -313,17 +324,20 @@ export default function CaptureApp() {
           fillRule="evenodd"
           d={`M0 0H${width}V${height}H0Z${holePath}`}
         />
-        {tint && (
-          <>
-            <mask id="tint-visible">
-              <rect className="fill-white" {...box(tint)} {...corner} />
-              {covered.map((part) => (
-                <rect key={`${part.x},${part.y}`} className="fill-black" {...box(part)} />
-              ))}
-            </mask>
-            <rect className="fill-pick" mask="url(#tint-visible)" {...box(tint)} {...corner} />
-          </>
-        )}
+        {/* Always mounted, so even the first tint fades in. */}
+        <g className={cx('transition-opacity duration-150 motion-reduce:transition-none', !glide.shown && 'opacity-0')}>
+          {glide.rect && (
+            <>
+              <mask id="tint-visible">
+                <rect className="fill-white" {...box(glide.rect)} {...corner} />
+                {glide.covered.map((part) => (
+                  <rect key={`${part.x},${part.y}`} className="fill-black" {...box(part)} />
+                ))}
+              </mask>
+              <rect className="fill-pick" mask="url(#tint-visible)" {...box(glide.rect)} {...corner} />
+            </>
+          )}
+        </g>
         {outline && <rect className="stroke-primary fill-none" strokeWidth={1} {...box(outline)} />}
         {/* The area the recording will cover, in the recording border's dashes. */}
         {planned && (

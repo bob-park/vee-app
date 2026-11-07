@@ -20,6 +20,8 @@ export default function RecorderApp() {
   const [now, setNow] = useState(() => Date.now());
   /** The button under the mouse, for its tooltip. */
   const [tip, setTip] = useState<Tip | null>(null);
+  /** Stopped: the pill fades out (its `duration-150`, `CROSSFADE_MS` in recorder/mod.rs), then Rust hides it. */
+  const [leaving, setLeaving] = useState(false);
 
   // hooks
   const r = useI18n().t.record;
@@ -31,9 +33,13 @@ export default function RecorderApp() {
     const off = listen<RecorderStarted>('recorder://started', (e) => {
       setNow(Date.now());
       setStarted(e.payload);
+      setLeaving(false);
+      // The last pill's tooltip must not come up on the new one before the mouse moves.
+      setTip(null);
     });
-    // Rust hid the pill (stop, cancel, GIF limit): drop the timer so it never shows this recording again.
-    const offStopped = listen('recorder://stopped', () => setStarted(null));
+    // Rust is hiding the pill (stop, cancel, GIF limit): it fades out on the last time, which then stops.
+    // `recorder://started` replaces it before the pill is shown again, so this recording's time never comes back.
+    const offStopped = listen('recorder://stopped', () => setLeaving(true));
     // macOS: the pill isn't the key window, so it gets no hover; Rust sends the cursor instead.
     const offPointer = listen<{ x: number; y: number } | null>('recorder://pointer', (e) => {
       const el = e.payload && document.elementFromPoint(e.payload.x, e.payload.y)?.closest<HTMLElement>('[data-tip]');
@@ -47,19 +53,19 @@ export default function RecorderApp() {
   }, []);
 
   useEffect(() => {
-    if (!started) return;
+    if (!started || leaving) return;
     const id = setInterval(() => setNow(Date.now()), TICK_MS);
     return () => clearInterval(id);
-  }, [started]);
+  }, [started, leaving]);
 
   // handle
   const handleStop = () => {
-    setStarted(null);
+    setLeaving(true);
     void stopRecording();
   };
 
   const handleCancel = () => {
-    setStarted(null);
+    setLeaving(true);
     void cancelRecording();
   };
 
@@ -75,8 +81,16 @@ export default function RecorderApp() {
   const gif = started.limitMs !== null ? gifRemaining(elapsed, started.limitMs) : null;
   return (
     <div className="flex h-screen items-center justify-center">
-      {/* Solid, not glass: it floats over any desktop and must be read (aurora-glass §3). */}
-      <div className="bg-card border-toast-border text-base-content shadow-toast animate-fade-in flex items-center gap-1.5 rounded-full border p-1.5 motion-reduce:animate-none">
+      {/* Solid, not glass: it floats over any desktop and must be read (aurora-glass §3). Each recording remounts
+          it, so it fades in again; stopped, it ignores clicks so stop can't go twice. */}
+      <div
+        key={started.startedMs}
+        className={cx(
+          'bg-card border-toast-border text-base-content shadow-toast animate-fade-in flex items-center gap-1.5 rounded-full border p-1.5 transition-[opacity,scale] duration-150 ease-in motion-reduce:animate-none motion-reduce:transition-none',
+          leaving && 'pointer-events-none scale-95 opacity-0',
+        )}
+        inert={leaving}
+      >
         <span className="bg-rec animate-rec-pulse ml-2 size-2.25 rounded-full" aria-hidden />
         <span className="min-w-11 text-[13px] font-semibold tabular-nums" role="timer">
           {formatElapsed(elapsed)}

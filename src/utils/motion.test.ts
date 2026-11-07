@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { cursorCentredFrame, dragImageLayout, ghostLeaves, nextTilt } from './motion.ts';
+import {
+  cubicBezier,
+  cursorCentredFrame,
+  dragImageLayout,
+  easeMove,
+  ghostLeaves,
+  lerpRect,
+  nextGlide,
+  nextTilt,
+} from './motion.ts';
 
 void test('tilt leans with horizontal motion and is capped at 10 degrees', () => {
   assert.equal(nextTilt(0, 5), 3);
@@ -55,4 +64,69 @@ void test('on Windows the drag image is drawn at device pixels, also centred on 
     px: 1.5,
     frame: { width: 340, height: 340, x: 140, y: 120 },
   });
+});
+
+void test('cubicBezier starts at 0, ends at 1 and clamps outside them', () => {
+  assert.equal(easeMove(0), 0);
+  assert.equal(easeMove(1), 1);
+  assert.equal(easeMove(-1), 0);
+  assert.equal(easeMove(2), 1);
+});
+
+void test('cubicBezier with linear control points is linear', () => {
+  assert.ok(Math.abs(cubicBezier(0, 0, 1, 1)(0.3) - 0.3) < 1e-4);
+});
+
+void test('easeMove front-loads the move and only ever rises', () => {
+  assert.ok(easeMove(0.5) > 0.85);
+  const steps = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9].map(easeMove);
+  steps.slice(1).forEach((v, i) => assert.ok(v > steps[i]));
+});
+
+void test('lerpRect moves every field the same fraction of the way', () => {
+  const a = { x: 0, y: 0, width: 10, height: 20 };
+  const b = { x: 10, y: 10, width: 30, height: 40 };
+  assert.deepEqual(lerpRect(a, b, 0.5), { x: 5, y: 5, width: 20, height: 30 });
+  assert.deepEqual(lerpRect(a, b, 0), a);
+  assert.deepEqual(lerpRect(a, b, 1), b);
+});
+
+const A = { x: 0, y: 0, width: 100, height: 100 };
+const B = { x: 200, y: 0, width: 100, height: 100 };
+const C = { x: 0, y: 300, width: 50, height: 50 };
+
+void test('nextGlide keeps the last rect, hidden, once the target goes', () => {
+  assert.equal(nextGlide(null, null, []), null);
+  const g = nextGlide({ from: A, to: B, drawn: B, shown: true, covered: [] }, null, []);
+  assert.deepEqual(g, { from: A, to: B, drawn: B, shown: false, covered: [], restart: false });
+});
+
+void test('nextGlide jumps, without gliding, to a target that appears from hidden', () => {
+  assert.deepEqual(nextGlide(null, A, []), { from: A, to: A, drawn: A, shown: true, covered: [], restart: false });
+  assert.deepEqual(nextGlide({ from: A, to: A, drawn: A, shown: false, covered: [] }, B, []), {
+    from: B,
+    to: B,
+    drawn: B,
+    shown: true,
+    covered: [],
+    restart: false,
+  });
+});
+
+void test('nextGlide glides from the drawn rect to a new target', () => {
+  const mid = lerpRect(A, B, 0.5);
+  const g = nextGlide({ from: A, to: B, drawn: mid, shown: true, covered: [] }, C, []);
+  assert.deepEqual(g, { from: mid, to: C, drawn: mid, shown: true, covered: [], restart: true });
+});
+
+void test('nextGlide leaves a glide alone when the target is the same rect again', () => {
+  const prev = { from: A, to: B, drawn: A, shown: true, covered: [] };
+  assert.deepEqual(nextGlide(prev, { ...B }, []), { ...prev, restart: false });
+});
+
+void test('nextGlide keeps the parts in front of the last window while it fades out', () => {
+  const front = [{ x: 50, y: 0, width: 50, height: 50 }];
+  const g = nextGlide({ from: A, to: A, drawn: A, shown: true, covered: front }, null, []);
+  assert.deepEqual(g?.covered, front);
+  assert.deepEqual(nextGlide(g, B, [])?.covered, []);
 });

@@ -357,6 +357,15 @@ fn capture(app: &AppHandle, label: &str, selection: Selection) -> AppResult<()> 
     .map_err(|e| AppError::Other(e.to_string()))
 }
 
+/// macOS: a key press hides the cursor until the mouse moves (AppKit's typing behavior), so after Space or Tab the
+/// new mode's cursor stayed hidden. The overlay takes keys, not text: show it again at once.
+fn refresh_cursor(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    let _ = app.run_on_main_thread(|| objc2_app_kit::NSCursor::setHiddenUntilMouseMoves(false));
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+}
+
 pub mod commands {
     use super::{Mode, OpenPayload, geometry::Selection};
     use crate::shared::error::{AppError, AppResult};
@@ -392,6 +401,12 @@ pub mod commands {
     #[tauri::command]
     pub fn set_capture_mode(app: AppHandle, mode: Mode) -> AppResult<Mode> {
         super::switch_mode(&app, mode)
+    }
+
+    /// Shows the cursor again after a mode key hid it, without waiting for the mouse to move (macOS; elsewhere a no-op).
+    #[tauri::command]
+    pub fn refresh_cursor(app: AppHandle) {
+        super::refresh_cursor(&app);
     }
 
     #[tauri::command]

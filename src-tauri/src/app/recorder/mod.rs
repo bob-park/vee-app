@@ -43,9 +43,11 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const RECORDER: &str = "recorder";
-/// Bumped by each show and hide of the frame, so a late hide never takes down a newer recording's frame.
-static FRAME_GENERATION: AtomicU64 = AtomicU64::new(0);
-/// The overlay → frame crossfade (`animate-fade-in`, the overlay's `duration-150`).
+/// Bumped by each show and hide of the frame and the pill, so a late hide never takes down a newer recording's.
+/// Held across the bump and the show, and across the check and the hide, so a show can't land between those two.
+static FRAME_GENERATION: Mutex<u64> = Mutex::new(0);
+/// The overlay → frame crossfade (`animate-fade-in`, the overlay's `duration-150`), and the pill's and frame's
+/// fade out at the end (their `duration-150`).
 const CROSSFADE_MS: u64 = 150;
 /// How often the pill is told where the cursor is (macOS, for its tooltips).
 #[cfg(target_os = "macos")]
@@ -222,7 +224,7 @@ fn dispatch(app: &AppHandle, ev: Event) {
         }
         (Action::StopEngine | Action::CancelEngine, Some(running), Phase::Recording { session, format, .. }) => {
             hide_controls(app);
-            // The hidden pill drops its timer, so it never shows this recording's time when shown again.
+            // The pill fades out on its last time and stops its timer; `recorder://started` replaces it before the next show.
             let _ = app.emit_to(RECORDER, "recorder://stopped", ());
             let (app, keep) = (app.clone(), action == Action::StopEngine);
             // macOS leaves Vee's sound out of the recording, so the stop sound needn't wait for the engine.
@@ -542,21 +544,26 @@ pub fn exclude_window(window: &tauri::WebviewWindow) {
     let _ = window;
 }
 
-/// Hides the pill and the border.
+/// Hides the pill and the border. The caller sends `recorder://stopped`, which fades the pill out.
 fn hide_controls(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window(RECORDER) {
-        let _ = w.hide();
-    }
-    // The frame fades out, then goes, unless a newer recording has shown it again meanwhile.
-    let generation = FRAME_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    // Both fade out, then go, unless a newer recording has shown them again meanwhile.
+    let generation = {
+        let mut g = FRAME_GENERATION.lock().unwrap();
+        *g += 1;
+        *g
+    };
     let _ = app.emit_to(FRAME, "recframe://area", None::<RectF>);
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(CROSSFADE_MS));
-        if FRAME_GENERATION.load(Ordering::SeqCst) == generation
-            && let Some(w) = app.get_webview_window(FRAME)
-        {
-            let _ = w.hide();
+        let current = FRAME_GENERATION.lock().unwrap();
+        if *current != generation {
+            return;
+        }
+        for label in [RECORDER, FRAME] {
+            if let Some(w) = app.get_webview_window(label) {
+                let _ = w.hide();
+            }
         }
     });
 }
@@ -564,6 +571,8 @@ fn hide_controls(app: &AppHandle) {
 /// The pill at the bottom centre of the recorded monitor's work area.
 fn show_pill(app: &AppHandle, monitor: &MonitorInfo) {
     let Some(pill) = app.get_webview_window(RECORDER) else { return };
+    let mut generation = FRAME_GENERATION.lock().unwrap();
+    *generation += 1;
     let found = app.available_monitors().ok().and_then(|ms| {
         ms.into_iter().find(|m| {
             let s = m.scale_factor();
@@ -608,7 +617,8 @@ fn follow_pointer(app: AppHandle, r: window::Rect) {
 /// Clicks pass through, and it stays out of the recording (Vee is excluded from it).
 fn show_frame(app: &AppHandle, monitor: &MonitorInfo, (x, y, w, h): RectF) {
     let Some(frame) = app.get_webview_window(FRAME) else { return };
-    FRAME_GENERATION.fetch_add(1, Ordering::SeqCst);
+    let mut generation = FRAME_GENERATION.lock().unwrap();
+    *generation += 1;
     let (px, py, pw, ph) = geometry::to_physical((0.0, 0.0, monitor.width, monitor.height), monitor);
     let _ = window::place(&frame, window::rect_from((px, py), (pw, ph), monitor.scale, window::USES_POINTS));
     let _ = frame.emit("recframe://area", (x, y, w, h));

@@ -34,7 +34,7 @@ export default function RecFrameApp() {
     <svg
       key={area.join()}
       className={cx(
-        'animate-fade-in fixed inset-0 size-full transition-opacity duration-150 motion-reduce:animate-none motion-reduce:transition-none',
+        'animate-fade-in fixed inset-0 size-full transition-opacity duration-150 ease-in motion-reduce:animate-none motion-reduce:transition-none',
         !shown && 'opacity-0',
       )}
       aria-hidden
