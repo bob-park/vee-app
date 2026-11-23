@@ -6,49 +6,44 @@
 // Usage: node scripts/fetch-onnxruntime.mjs
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const BASE = "https://github.com/microsoft/onnxruntime/releases/download/v1.31.0";
+// Microsoft's official NuGet package. The GitHub release these were first pinned from is gone
+// (microsoft/onnxruntime returns 404 since 2026-11-17); the package carries the same binaries.
+const PACKAGE = {
+  url: "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.31.0/microsoft.ml.onnxruntime.1.31.0.nupkg",
+  sha256: "7e35fdb4f5adb62f01e60798e2e5ed05108f5fbbe1cca03fbcc37903cf7c5e3b",
+};
 
-/** ONNX Runtime 1.31.0 (the version `ort` 2.0.0-rc.15 targets) per `process.platform`. */
+/** ONNX Runtime 1.31.0 (the version `ort` 2.0.0-rc.15 targets) per `process.platform`; `entry` is the library's path in the package. */
 export const RUNTIMES = {
   darwin: {
-    url: `${BASE}/onnxruntime-osx-arm64-1.31.0.tgz`,
-    sha256: "1031b36dd3bdaa8d976a6130d9cf2a05e9be320b93ae804f8427b91dc3432afc",
+    ...PACKAGE,
+    entry: "runtimes/osx-arm64/native/libonnxruntime.dylib",
     lib: "libonnxruntime.dylib",
     libSha256: "83973572676032b4ba9418afed0b51f45599d35bb4e4628ca8ae1954c8362e31",
   },
   win32: {
-    url: `${BASE}/onnxruntime-win-x64-1.31.0.zip`,
-    sha256: "3958d8a44984160692c1b4ffd0de3cb48f8c39f9d34bb31e433db06e30b82195",
+    ...PACKAGE,
+    entry: "runtimes/win-x64/native/onnxruntime.dll",
     lib: "onnxruntime.dll",
     libSha256: "0c42dc4e278f0968fdf9ebf1b1e54a74c657a9942e70803e453c91993451cf4c",
   },
 };
 
 /**
- * The archive entry of the library: `<root>/lib/<lib>`. Skips the `.dSYM` copy, which sits deeper.
- * @param {string[]} entries  `tar -tf` lines
- * @param {string} lib
- */
-export function pickEntry(entries, lib) {
-  return entries.find((e) => e.split("/").slice(-2).join("/") === `lib/${lib}`) ?? null;
-}
-
-/**
- * The license notices to ship with the runtime: the top-level `LICENSE` and `ThirdPartyNotices.txt`
- * (one directory deep in both the .tgz and the .zip).
+ * The license notices to ship with the runtime: the package's top-level `LICENSE` and `ThirdPartyNotices.txt`.
  * @param {string[]} entries  `tar -tf` lines
  * @returns {{ entry: string, name: string }[]}
  */
 export function pickNotices(entries) {
   return entries
     .map((entry) => ({ entry, parts: entry.replace(/^\.\//, "").split("/") }))
-    .filter(({ parts }) => parts.length === 2 && ["LICENSE", "ThirdPartyNotices.txt"].includes(parts[1]))
-    .map(({ entry, parts }) => ({ entry, name: parts[1] }));
+    .filter(({ parts }) => parts.length === 1 && ["LICENSE", "ThirdPartyNotices.txt"].includes(parts[0]))
+    .map(({ entry, parts }) => ({ entry, name: parts[0] }));
 }
 
 /** @param {Uint8Array} bytes */
@@ -79,11 +74,11 @@ if (isMain) {
   try {
     const file = join(work, runtime.url.split("/").pop());
     writeFileSync(file, archive);
-    // The OS tar (bsdtar on macOS and Windows) reads both .tgz and .zip.
+    // The OS tar (bsdtar on macOS and Windows) reads the .nupkg, which is a zip.
     const tar = process.platform === "win32" ? "tar.exe" : "tar";
     const entries = execFileSync(tar, ["-tf", file], { encoding: "utf8", maxBuffer: 1 << 26 }).split(/\r?\n/);
-    const entry = pickEntry(entries, runtime.lib);
-    if (!entry) throw new Error(`onnxruntime: ${runtime.lib} not found in the archive`);
+    const entry = runtime.entry;
+    if (!entries.includes(entry)) throw new Error(`onnxruntime: ${entry} not found in the archive`);
     const notices = pickNotices(entries);
     if (!notices.some((n) => n.name === "LICENSE")) throw new Error("onnxruntime: LICENSE not found in the archive");
     execFileSync(tar, ["-xf", file, "-C", work, entry, ...notices.map((n) => n.entry)]);
@@ -91,6 +86,8 @@ if (isMain) {
     if (fileSha256(extracted) !== runtime.libSha256) throw new Error(`onnxruntime: ${runtime.lib} checksum mismatch`);
     mkdirSync(outDir, { recursive: true });
     copyFileSync(extracted, out);
+    // A zip entry carries no mode; keep the library executable, as the release tarball had it.
+    chmodSync(out, 0o755);
     rmSync(noticeDir, { recursive: true, force: true });
     mkdirSync(noticeDir, { recursive: true });
     for (const n of notices) copyFileSync(join(work, n.entry), join(noticeDir, n.name));
