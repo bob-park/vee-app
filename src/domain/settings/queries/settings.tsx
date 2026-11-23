@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   countPrunable,
   getDiskAccess,
+  getInputAccess,
   getScreenAccess,
   getSettings,
   getShortcutFailures,
@@ -20,6 +21,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 export const SETTINGS_QUERY_KEY = ['settings'];
 const DISK_ACCESS_QUERY_KEY = ['settings', 'diskAccess'];
 const SCREEN_ACCESS_QUERY_KEY = ['settings', 'screenAccess'];
+const INPUT_ACCESS_QUERY_KEY = ['settings', 'inputAccess'];
 /** Under SETTINGS_QUERY_KEY, so `settings://changed` (a successful shortcut save) refetches it too. */
 const SHORTCUT_FAILURES_QUERY_KEY = ['settings', 'shortcutFailures'];
 
@@ -91,6 +93,32 @@ export function useScreenAccess() {
   useEffect(() => {
     const unlisten = getCurrentWindow().onFocusChanged(
       (e) => e.payload && void queryClient.invalidateQueries({ queryKey: SCREEN_ACCESS_QUERY_KEY }),
+    );
+
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [queryClient]);
+
+  return { granted: data ?? null };
+}
+
+/**
+ * Input Monitoring (macOS), for auto next paste; null where the permission doesn't exist (Windows) or while unknown.
+ * Re-checked on focus, which also lets the backend install the key watch after a grant.
+ */
+export function useInputAccess() {
+  const queryClient = useQueryClient();
+
+  const { data } = useQuery<boolean | null>({
+    queryKey: INPUT_ACCESS_QUERY_KEY,
+    queryFn: getInputAccess,
+    staleTime: 0,
+  });
+
+  useEffect(() => {
+    const unlisten = getCurrentWindow().onFocusChanged(
+      (e) => e.payload && void queryClient.invalidateQueries({ queryKey: INPUT_ACCESS_QUERY_KEY }),
     );
 
     return () => {

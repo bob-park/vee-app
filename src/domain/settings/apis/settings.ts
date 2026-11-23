@@ -63,3 +63,17 @@ export async function requestScreenAccess() {
 export async function openScreenAccessSettings() {
   return call<void>('open_screen_access_settings');
 }
+
+/** Input Monitoring, which auto next paste needs; null where the permission doesn't exist (Windows). */
+export async function getInputAccess() {
+  return call<boolean | null>('get_input_access');
+}
+
+/** Shows the macOS prompt; only the first call ever does. */
+export async function requestInputAccess() {
+  return call<void>('request_input_access');
+}
+
+export async function openInputAccessSettings() {
+  return call<void>('open_input_access_settings');
+}

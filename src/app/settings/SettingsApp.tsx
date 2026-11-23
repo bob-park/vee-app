@@ -18,6 +18,7 @@ import { resetPanelSize } from '@/domain/panel/apis/panel';
 import {
   openKeyboardSettings,
   previewSound,
+  requestInputAccess,
   setAutostart,
   setSetting,
   setShortcut,
@@ -29,7 +30,7 @@ import {
   SOUND_NAMES,
   type SoundName,
 } from '@/domain/settings/apis/settings.dto';
-import { useSettingUpdate, useSettings, useShortcutFailures } from '@/domain/settings/queries/settings';
+import { useInputAccess, useSettingUpdate, useSettings, useShortcutFailures } from '@/domain/settings/queries/settings';
 import { checkUpdate, installUpdate } from '@/domain/updater/apis/updater';
 import { useUpdateStatus } from '@/domain/updater/queries/updater';
 import Aurora from '@/shared/components/Aurora';
@@ -155,6 +156,7 @@ export function SettingsApp() {
     onError: (e) => setError(errorText(e)),
   });
   const { failures } = useShortcutFailures();
+  const { granted: inputGranted } = useInputAccess();
   const { status: ffmpegStatus } = useEngineStatus('ffmpeg');
 
   // useEffect
@@ -238,6 +240,24 @@ export function SettingsApp() {
                 ariaLabel={s.launchAtLogin}
                 checked={settings.autostart}
                 onChange={(checked) => run(setAutostart(checked))}
+              />
+            </Row>
+            <Row
+              label={s.autoNextPaste}
+              hint={
+                settings.autoNextPaste === 'on' && inputGranted === false
+                  ? s.autoNextPasteAccessHint
+                  : s.autoNextPasteHint
+              }
+            >
+              <Switch
+                ariaLabel={s.autoNextPaste}
+                checked={settings.autoNextPaste === 'on'}
+                onChange={(checked) => {
+                  updateSetting({ key: 'autoNextPaste', value: checked ? 'on' : 'off' });
+                  // macOS asks only once; later the Permissions tab leads to System Settings.
+                  if (checked && inputGranted === false) run(requestInputAccess());
+                }}
               />
             </Row>
             <Row label={s.recordFolder} hint={settings.recordFolder || s.downloads} truncateHint>
