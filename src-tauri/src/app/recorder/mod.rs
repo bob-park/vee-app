@@ -748,7 +748,7 @@ fn add_clip(app: &AppHandle, path: &Path) -> AppResult<()> {
         (id, clip::content(&conn, id)?.ok_or_else(|| AppError::Other("clip no longer exists".into()))?)
     };
     window::write_clipboard(&state, &content, Vec::new())?;
-    state.set_paste_cursor(Some(id));
+    state.set_paste_cursor(id, crate::app::auto_paste::clipboard_seq());
     let _ = app.emit("clips://changed", ());
     Ok(())
 }

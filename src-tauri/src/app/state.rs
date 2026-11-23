@@ -13,9 +13,9 @@ pub struct AppState {
     /// Frontmost app when the panel opened (or, while pinned, last in front), re-activated after a copy.
     pub prev_app_pid: Mutex<Option<i32>>,
     suppress_until: Mutex<Instant>,
-    /// The clip Vee knows is on the clipboard, where auto next paste continues from.
-    /// `None` when the clipboard holds something Vee didn't record or write.
-    paste_cursor: Mutex<Option<i64>>,
+    /// The clip Vee knows is on the clipboard, where auto next paste continues from, with the
+    /// clipboard change count it was seen at. `None` when the clipboard holds something Vee didn't record or write.
+    paste_cursor: Mutex<Option<(i64, i64)>>,
     /// A file drag out of the panel is in progress; losing focus must not hide it.
     pub dragging: AtomicBool,
     /// The user pinned the panel: it stays up until unpinned. Memory only.
@@ -46,12 +46,19 @@ impl AppState {
         *self.suppress_until.lock().unwrap() = Instant::now() + Duration::from_millis(ms);
     }
 
-    pub fn paste_cursor(&self) -> Option<i64> {
-        *self.paste_cursor.lock().unwrap()
+    /// The cursor, unless the clipboard changed since it was set (`seq` is the current change count):
+    /// a copy the watcher hasn't seen yet, or dropped while suppressed, must never be replaced.
+    pub fn paste_cursor(&self, seq: i64) -> Option<i64> {
+        let cursor = *self.paste_cursor.lock().unwrap();
+        cursor.filter(|(_, at)| *at == seq).map(|(id, _)| id)
     }
 
-    pub fn set_paste_cursor(&self, id: Option<i64>) {
-        *self.paste_cursor.lock().unwrap() = id;
+    pub fn set_paste_cursor(&self, id: i64, seq: i64) {
+        *self.paste_cursor.lock().unwrap() = Some((id, seq));
+    }
+
+    pub fn clear_paste_cursor(&self) {
+        *self.paste_cursor.lock().unwrap() = None;
     }
 
     pub fn watcher_suppressed(&self) -> bool {
@@ -88,8 +95,18 @@ mod tests {
     #[test]
     fn paste_cursor_starts_unknown() {
         let state = AppState::new(crate::shared::db::open_in_memory().unwrap(), PathBuf::new());
-        assert_eq!(state.paste_cursor(), None);
-        state.set_paste_cursor(Some(7));
-        assert_eq!(state.paste_cursor(), Some(7));
+        assert_eq!(state.paste_cursor(0), None);
+        state.set_paste_cursor(7, 3);
+        assert_eq!(state.paste_cursor(3), Some(7));
+        state.clear_paste_cursor();
+        assert_eq!(state.paste_cursor(3), None);
+    }
+
+    #[test]
+    fn paste_cursor_is_unknown_once_the_clipboard_changed() {
+        // A copy the watcher has not seen yet (its poll, a suppression window) still bumps the change count.
+        let state = AppState::new(crate::shared::db::open_in_memory().unwrap(), PathBuf::new());
+        state.set_paste_cursor(7, 3);
+        assert_eq!(state.paste_cursor(4), None);
     }
 }

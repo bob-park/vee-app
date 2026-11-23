@@ -25,16 +25,25 @@ const DELAY: Duration = Duration::from_millis(150);
 /// How long our own advance keeps the watcher quiet: its 200ms poll, with room to spare.
 /// Short on purpose, so a real copy made right after a paste is still recorded.
 const SUPPRESS_MS: u64 = 500;
+/// Failed writes before an advance gives up: one stale card is skipped, a clipboard that
+/// can't be written at all (held by another app) must not walk the whole history.
+const MAX_SKIPS: usize = 3;
+
+/// The OS clipboard change count: it moves on every write by anyone, seen by the watcher or not.
+pub fn clipboard_seq() -> i64 {
+    platform::clipboard_seq()
+}
 
 /// Writes the first writable card after `cursor` and returns its id; `None` when nothing was written
-/// (no cursor, or no card left). The db is locked only for the lookups, never across a write.
+/// (no cursor, no card left, or `MAX_SKIPS` writes failed). The db is locked only for the lookups, never across a write.
 pub fn advance_with(
     db: &Mutex<Connection>,
     cursor: Option<i64>,
     mut write: impl FnMut(&ClipContent, Vec<(String, Vec<u8>)>) -> AppResult<()>,
 ) -> AppResult<Option<i64>> {
     let Some(mut at) = cursor else { return Ok(None) };
-    loop {
+    let mut failed = 0;
+    while failed < MAX_SKIPS {
         let (id, content, formats) = {
             let conn = db.lock().unwrap();
             let Some(id) = clip::next_after(&conn, at)? else { return Ok(None) };
@@ -43,11 +52,15 @@ pub fn advance_with(
         // A clip deleted between the two lookups counts as unwritable.
         match content.map(|content| write(&content, formats)) {
             Some(Ok(())) => return Ok(Some(id)),
-            Some(Err(e)) => log::warn!("auto next paste skipped clip {id}: {e}"),
+            Some(Err(e)) => {
+                failed += 1;
+                log::warn!("auto next paste skipped clip {id}: {e}");
+            }
             None => {}
         }
         at = id;
     }
+    Ok(None)
 }
 
 /// Moves the clipboard to the card after the current one. Silent: no touch, toast, sound or event.
@@ -57,9 +70,10 @@ pub fn advance(app: &AppHandle) {
         return;
     }
     let state = app.state::<AppState>();
-    match advance_with(&state.db, state.paste_cursor(), |content, formats| window::write_clipboard(&state, content, formats)) {
+    let cursor = state.paste_cursor(clipboard_seq());
+    match advance_with(&state.db, cursor, |content, formats| window::write_clipboard(&state, content, formats)) {
         Ok(Some(id)) => {
-            state.set_paste_cursor(Some(id));
+            state.set_paste_cursor(id, clipboard_seq());
             state.suppress_watcher_for(SUPPRESS_MS);
         }
         Ok(None) => {}
@@ -186,6 +200,10 @@ mod platform {
         Some(CGPreflightListenEventAccess())
     }
 
+    pub fn clipboard_seq() -> i64 {
+        objc2_app_kit::NSPasteboard::generalPasteboard().changeCount() as i64
+    }
+
     pub fn request_access() {
         CGRequestListenEventAccess();
     }
@@ -286,6 +304,17 @@ mod platform {
 
     pub fn request_access() {}
 
+    // Declared here because the `windows` crate gates it behind a feature (`Win32_System_DataExchange`) Vee doesn't enable.
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetClipboardSequenceNumber() -> u32;
+    }
+
+    pub fn clipboard_seq() -> i64 {
+        // SAFETY: takes no arguments and only reads a counter.
+        i64::from(unsafe { GetClipboardSequenceNumber() })
+    }
+
     /// The low-level hook has no repeat flag: V counts as a repeat until it is released.
     static V_DOWN: AtomicBool = AtomicBool::new(false);
 
@@ -351,6 +380,10 @@ mod platform {
     }
 
     pub fn request_access() {}
+
+    pub fn clipboard_seq() -> i64 {
+        0
+    }
 
     pub fn start() -> Option<Watch> {
         None
@@ -429,6 +462,20 @@ mod tests {
         });
         assert_eq!(cursor.unwrap(), Some(a));
         assert_eq!(written, ["a"]);
+    }
+
+    #[test]
+    fn gives_up_after_a_few_failed_writes() {
+        // A clipboard that can't be written at all (held by another app) must not walk the whole history.
+        let (conn, dir) = (db::open_in_memory().unwrap(), tempfile::tempdir().unwrap());
+        let ids: Vec<i64> = (0..10).map(|i| clip::upsert(&conn, dir.path(), NewClip::Text(format!("t{i}")), None, i).unwrap()).collect();
+        let mut calls = 0;
+        let cursor = advance_with(&Mutex::new(conn), ids.last().copied(), |_, _| {
+            calls += 1;
+            Err(AppError::Other("clipboard busy".into()))
+        });
+        assert_eq!(cursor.unwrap(), None);
+        assert_eq!(calls, MAX_SKIPS);
     }
 
     #[test]

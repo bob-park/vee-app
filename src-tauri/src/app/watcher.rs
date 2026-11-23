@@ -132,6 +132,8 @@ fn capture(app: &AppHandle, ctx: &ClipboardContext) -> Result<(), Box<dyn std::e
     if state.watcher_suppressed() {
         return Ok(());
     }
+    // Read before the content: a change made while this copy is recorded leaves the cursor unknown.
+    let seq = crate::app::auto_paste::clipboard_seq();
     let Some(clip) = read(ctx)? else { return Ok(()) };
     // File clips are restored from their paths, which handles multiple files.
     let formats = if matches!(clip, NewClip::Files { .. }) { Vec::new() } else { snapshot(ctx) };
@@ -149,7 +151,7 @@ fn capture(app: &AppHandle, ctx: &ClipboardContext) -> Result<(), Box<dyn std::e
     };
     let id = clip::upsert(&conn, &state.images_dir, clip, app_id, now_ms())?;
     clip::set_formats(&conn, id, &formats)?;
-    state.set_paste_cursor(Some(id));
+    state.set_paste_cursor(id, seq);
     let sound = settings::copy_sound(&conn);
     drop(conn);
     if let Some(name) = sound {
@@ -193,7 +195,7 @@ impl ClipboardHandler for Handler {
         if !state.watcher_suppressed() {
             // Cleared before the debounce: until this copy is recorded, auto next paste
             // must not replace it with an older card.
-            state.set_paste_cursor(None);
+            state.clear_paste_cursor();
             let _ = self.tx.send(());
         }
     }
