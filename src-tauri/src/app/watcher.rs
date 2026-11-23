@@ -149,6 +149,7 @@ fn capture(app: &AppHandle, ctx: &ClipboardContext) -> Result<(), Box<dyn std::e
     };
     let id = clip::upsert(&conn, &state.images_dir, clip, app_id, now_ms())?;
     clip::set_formats(&conn, id, &formats)?;
+    state.set_paste_cursor(Some(id));
     let sound = settings::copy_sound(&conn);
     drop(conn);
     if let Some(name) = sound {
@@ -188,7 +189,11 @@ impl ClipboardHandler for Handler {
     fn on_clipboard_change(&mut self) {
         // Our own writes are dropped here as well as at record time, so they don't
         // hold back recording of a real copy made right after.
-        if !self.app.state::<AppState>().watcher_suppressed() {
+        let state = self.app.state::<AppState>();
+        if !state.watcher_suppressed() {
+            // Cleared before the debounce: until this copy is recorded, auto next paste
+            // must not replace it with an older card.
+            state.set_paste_cursor(None);
             let _ = self.tx.send(());
         }
     }

@@ -740,14 +740,15 @@ fn convert(app: &AppHandle, src: &Path, format: Format) -> Result<PathBuf, JobEr
 /// The saved file as a files clip credited to Vee, and on the clipboard.
 fn add_clip(app: &AppHandle, path: &Path) -> AppResult<()> {
     let state = app.state::<AppState>();
-    let content = {
+    let (id, content) = {
         let conn = state.db.lock().unwrap();
         let vee = source_app::upsert_app(&conn, &app.config().identifier, &app.package_info().name, Some(window::DRAG_ICON))?;
         let clip = NewClip::Files { paths: vec![path.to_string_lossy().into_owned()], thumbs: vec![] };
         let id = clip::upsert(&conn, &state.images_dir, clip, Some(vee), now_ms())?;
-        clip::content(&conn, id)?.ok_or_else(|| AppError::Other("clip no longer exists".into()))?
+        (id, clip::content(&conn, id)?.ok_or_else(|| AppError::Other("clip no longer exists".into()))?)
     };
     window::write_clipboard(&state, &content, Vec::new())?;
+    state.set_paste_cursor(Some(id));
     let _ = app.emit("clips://changed", ());
     Ok(())
 }

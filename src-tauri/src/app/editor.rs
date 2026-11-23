@@ -215,6 +215,7 @@ pub(crate) fn copy_to_history(
         window::show_toast(app, window::ToastPayload::failed());
         return Err(e);
     }
+    state.set_paste_cursor(Some(id));
     Ok((id, content))
 }
 

@@ -47,6 +47,7 @@ pub struct SettingsDto {
     pub video_hw_accel: String,
     pub record_folder: String,
     pub record_format: String,
+    pub auto_next_paste: String,
     pub autostart: bool,
     pub version: String,
 }

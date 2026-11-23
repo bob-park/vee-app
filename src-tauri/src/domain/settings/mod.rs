@@ -30,7 +30,7 @@ pub fn get(conn: &Connection, key: &str) -> String {
         "soundName" => "pop",
         "panelPosition" => "bottom",
         "confirmDelete" => "off",
-        "retention" | "panelResize" => "off",
+        "retention" | "panelResize" | "autoNextPaste" => "off",
         "dragConvert" => "on",
         "videoQuality" => "normal",
         "videoHwAccel" => "on",
@@ -98,7 +98,7 @@ fn validate(key: &str, value: &str) -> AppResult<()> {
         "confirmDelete" => matches!(value, "on" | "off"),
         "panelPosition" => matches!(value, "bottom" | "top" | "left" | "right"),
         "retention" => matches!(value, "off" | "7" | "30" | "90"),
-        "panelResize" | "ocr" | "dragConvert" | "videoHwAccel" => matches!(value, "on" | "off"),
+        "panelResize" | "ocr" | "dragConvert" | "videoHwAccel" | "autoNextPaste" => matches!(value, "on" | "off"),
         "convertKey" => matches!(value, "alt" | "ctrl" | "shift"),
         "videoQuality" => matches!(value, "small" | "normal" | "original"),
         "recordFormat" => RECORD_FORMATS.contains(&value),
@@ -334,5 +334,14 @@ mod tests {
         assert!(capture_sounds(&c));
         set(&c, "sound", "off").unwrap();
         assert!(!capture_sounds(&c));
+    }
+
+    #[test]
+    fn auto_next_paste_defaults_off_and_takes_only_on_off() {
+        let conn = db::open_in_memory().unwrap();
+        assert_eq!(get(&conn, "autoNextPaste"), "off");
+        set(&conn, "autoNextPaste", "on").unwrap();
+        assert_eq!(get(&conn, "autoNextPaste"), "on");
+        assert!(set(&conn, "autoNextPaste", "yes").is_err());
     }
 }

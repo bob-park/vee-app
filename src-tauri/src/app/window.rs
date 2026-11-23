@@ -630,6 +630,7 @@ pub fn copy_clip(app: &AppHandle, id: i64, plain: bool) -> AppResult<()> {
     hide_panel(app, true);
     match result {
         Ok(content) => {
+            state.set_paste_cursor(Some(id));
             confirm_copy(app, id, &content, plain);
             Ok(())
         }
