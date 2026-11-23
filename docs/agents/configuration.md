@@ -49,6 +49,14 @@ related:
 - A plugin API **called from JS** needs its permission here. Rust-only plugin use (global-shortcut, autostart, updater) does not.
 - A new window label must be added here.
 
+## macOS permissions
+
+Asked for at runtime and shown in Settings → Permissions; none is declared in the bundle.
+
+- Full Disk Access (`app/disk_access.rs`): dragging copied files out.
+- Screen & System Audio Recording (`app/screen_access.rs`): capture and recording.
+- Input Monitoring (`app/auto_paste.rs`, `CGPreflightListenEventAccess` / `CGRequestListenEventAccess`): the listen-only key watch of auto next paste. Needed only while the `autoNextPaste` setting is on; without it the feature does nothing and paste works as usual. Windows needs no permission.
+
 ## Secrets
 
 | Secret | Where | Used by |
