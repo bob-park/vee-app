@@ -48,8 +48,11 @@ export default function PermissionsSection({ settings, run }: Props) {
     setScreenRequested(true);
   };
 
+  // Turning the switch on already used the one-time prompt, so with it on go straight to System Settings.
+  const inputAsked = inputRequested || settings.autoNextPaste === 'on';
+
   const handleInputAllow = () => {
-    run(inputRequested ? openInputAccessSettings() : requestInputAccess());
+    run(inputAsked ? openInputAccessSettings() : requestInputAccess());
     setInputRequested(true);
   };
 
@@ -81,13 +84,13 @@ export default function PermissionsSection({ settings, run }: Props) {
       {inputGranted !== null && (
         <Row
           label={s.inputAccess}
-          hint={inputRequested && !inputGranted ? s.inputAccessRelaunchHint : s.inputAccessHint}
+          hint={inputAsked && !inputGranted ? s.inputAccessRelaunchHint : s.inputAccessHint}
           dim={settings.autoNextPaste !== 'on'}
         >
           {inputGranted ? (
             <span className={BADGE}>{c.allowed}</span>
           ) : (
-            <Button onClick={handleInputAllow}>{inputRequested ? c.openSystemSettings : c.allow}</Button>
+            <Button onClick={handleInputAllow}>{inputAsked ? c.openSystemSettings : c.allow}</Button>
           )}
         </Row>
       )}

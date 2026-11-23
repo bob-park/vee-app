@@ -14,6 +14,7 @@ use crate::{
 use rusqlite::Connection;
 use std::sync::{
     Mutex, OnceLock,
+    atomic::{AtomicBool, Ordering},
     mpsc::{Receiver, Sender, channel},
 };
 use std::time::Duration;
@@ -122,19 +123,49 @@ pub fn spawn(app: AppHandle) {
     sync(&app);
 }
 
-/// Installs the key watch when the setting is on (and macOS allows it), removes it otherwise.
-/// Safe to call again: a watch that couldn't be installed is retried.
-pub fn sync(app: &AppHandle) {
+/// Whether the key watch should be installed: the setting is on and the OS hasn't refused access
+/// (`None` where there is no permission to ask for).
+fn wanted(on: bool, access: Option<bool>) -> bool {
+    on && access != Some(false)
+}
+
+/// How often a watch that is on but not installed (access not granted yet) is retried.
+const RETRY: Duration = Duration::from_secs(3);
+/// A retry thread is running.
+static RETRYING: AtomicBool = AtomicBool::new(false);
+
+/// Installs or removes the key watch to match the setting and the OS permission.
+/// Returns whether the setting is on but no watch could be installed.
+fn apply(app: &AppHandle) -> bool {
     let on = settings::get(&app.state::<AppState>().db.lock().unwrap(), "autoNextPaste") == "on";
     let mut watch = WATCH.lock().unwrap();
-    match (on, watch.is_some()) {
+    match (wanted(on, platform::access()), watch.is_some()) {
         (true, false) => *watch = platform::start(),
+        // Also drops a tap the OS killed when access was revoked, so a new grant installs a fresh one.
         (false, true) => {
             if let Some(watch) = watch.take() {
                 watch.stop();
             }
         }
         _ => {}
+    }
+    on && watch.is_none()
+}
+
+/// Installs the key watch when the setting is on (and macOS allows it), removes it otherwise.
+/// While it is on but can't be installed, keeps retrying, so a grant takes effect without visiting Settings.
+pub fn sync(app: &AppHandle) {
+    if apply(app) && !RETRYING.swap(true, Ordering::SeqCst) {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(RETRY);
+                if !apply(&app) {
+                    break;
+                }
+            }
+            RETRYING.store(false, Ordering::SeqCst);
+        });
     }
 }
 
@@ -167,7 +198,7 @@ pub fn open_input_access_settings() -> AppResult<()> {
 #[cfg(target_os = "macos")]
 mod platform {
     use super::{is_paste, pasted};
-    use objc2_core_foundation::{CFMachPort, CFRetained, CFRunLoop, kCFRunLoopCommonModes};
+    use objc2_core_foundation::{CFMachPort, CFRetained, CFRunLoop, kCFRunLoopCommonModes, kCFRunLoopDefaultMode};
     use objc2_core_graphics::{
         CGEvent, CGEventField, CGEventFlags, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement, CGEventTapProxy, CGEventType,
         CGPreflightListenEventAccess, CGRequestListenEventAccess,
@@ -175,19 +206,24 @@ mod platform {
     use std::cell::RefCell;
     use std::ffi::c_void;
     use std::ptr::NonNull;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc::channel;
+
+    /// How long the watch thread sleeps in its run loop between looks at the stop flag.
+    const STOP_CHECK_SECS: f64 = 0.5;
 
     // shortcut: matches the physical V key (ANSI key code 9), so layouts that move V (Dvorak) are missed;
     // upgrade to the event's unicode string if that matters.
     const KEY_V: i64 = 9;
 
-    pub struct Watch(CFRetained<CFRunLoop>);
-    // SAFETY: the run loop is only ever sent `CFRunLoopStop`, which is safe from any thread.
-    unsafe impl Send for Watch {}
+    /// The watch thread's stop flag. A flag, not `CFRunLoopStop`: a stop that lands before
+    /// the thread enters its run loop would be lost and leave the tap alive.
+    pub struct Watch(Arc<AtomicBool>);
 
     impl Watch {
         pub fn stop(self) {
-            self.0.stop();
+            self.0.store(true, Ordering::SeqCst);
         }
     }
 
@@ -238,6 +274,8 @@ mod platform {
             return None;
         }
         let (tx, rx) = channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopped = stop.clone();
         std::thread::spawn(move || {
             // SAFETY: `on_event` matches the callback type and uses no user info.
             let tap = unsafe {
@@ -255,26 +293,29 @@ mod platform {
                 let run_loop = CFRunLoop::current()?;
                 // SAFETY: reading an immutable CoreFoundation constant.
                 run_loop.add_source(Some(&source), unsafe { kCFRunLoopCommonModes });
-                Some((tap, run_loop))
+                Some(tap)
             });
-            let Some((tap, run_loop)) = ready else {
-                let _ = tx.send(None);
+            let Some(tap) = ready else {
+                let _ = tx.send(false);
                 return;
             };
             TAP.set(Some(tap.clone()));
-            let _ = tx.send(Some(Watch(run_loop)));
-            CFRunLoop::run();
+            let _ = tx.send(true);
+            while !stopped.load(Ordering::SeqCst) {
+                // SAFETY: reading an immutable CoreFoundation constant.
+                CFRunLoop::run_in_mode(unsafe { kCFRunLoopDefaultMode }, STOP_CHECK_SECS, false);
+            }
             CGEvent::tap_enable(&tap, false);
+            tap.invalidate();
             TAP.set(None);
         });
-        rx.recv().ok().flatten()
+        rx.recv().unwrap_or(false).then_some(Watch(stop))
     }
 }
 
 #[cfg(windows)]
 mod platform {
     use super::{is_paste, pasted};
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc::channel;
     use windows::Win32::{
         Foundation::{LPARAM, LRESULT, WPARAM},
@@ -283,7 +324,7 @@ mod platform {
             Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VK_V},
             WindowsAndMessaging::{
                 CallNextHookEx, GetMessageW, KBDLLHOOKSTRUCT, MSG, PM_NOREMOVE, PeekMessageW, PostThreadMessageW, SetWindowsHookExW,
-                UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYUP,
+                UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_QUIT,
             },
         },
     };
@@ -315,9 +356,6 @@ mod platform {
         i64::from(unsafe { GetClipboardSequenceNumber() })
     }
 
-    /// The low-level hook has no repeat flag: V counts as a repeat until it is released.
-    static V_DOWN: AtomicBool = AtomicBool::new(false);
-
     fn down(vk: u16) -> bool {
         // SAFETY: GetAsyncKeyState only reads global key state.
         (unsafe { GetAsyncKeyState(i32::from(vk)) } as u16 & 0x8000) != 0
@@ -327,16 +365,12 @@ mod platform {
         if code >= 0 {
             // SAFETY: for a low-level keyboard hook `lparam` points at a KBDLLHOOKSTRUCT.
             let key = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
-            if key.vkCode == u32::from(VK_V.0) {
-                let message = wparam.0 as u32;
-                if message == WM_KEYDOWN {
-                    let repeat = V_DOWN.swap(true, Ordering::Relaxed);
-                    let others = down(VK_SHIFT.0) || down(VK_MENU.0) || down(VK_LWIN.0) || down(VK_RWIN.0);
-                    if is_paste(true, down(VK_CONTROL.0), others, repeat) {
-                        pasted();
-                    }
-                } else if message == WM_KEYUP || message == WM_SYSKEYUP {
-                    V_DOWN.store(false, Ordering::Relaxed);
+            if key.vkCode == u32::from(VK_V.0) && wparam.0 as u32 == WM_KEYDOWN {
+                // The hook runs before the key state is updated, so V already down means a held-key repeat.
+                let repeat = down(VK_V.0);
+                let others = down(VK_SHIFT.0) || down(VK_MENU.0) || down(VK_LWIN.0) || down(VK_RWIN.0);
+                if is_paste(true, down(VK_CONTROL.0), others, repeat) {
+                    pasted();
                 }
             }
         }
@@ -358,10 +392,10 @@ mod platform {
                     return;
                 };
                 let _ = tx.send(Some(Watch(GetCurrentThreadId())));
-                while GetMessageW(&mut msg, None, 0, 0).as_bool() {}
+                // 0 is WM_QUIT and -1 an error: both end the loop.
+                while GetMessageW(&mut msg, None, 0, 0).0 > 0 {}
                 let _ = UnhookWindowsHookEx(hook);
             }
-            V_DOWN.store(false, Ordering::Relaxed);
         });
         rx.recv().ok().flatten()
     }
@@ -498,6 +532,14 @@ mod tests {
         assert!(!is_paste(true, false, false, false)); // no Cmd/Ctrl
         assert!(!is_paste(true, true, true, false)); // Cmd+Shift+V and friends
         assert!(!is_paste(true, true, false, true)); // key repeat
+    }
+
+    #[test]
+    fn the_watch_is_wanted_only_while_on_and_not_refused() {
+        assert!(wanted(true, None)); // Windows: no permission to ask for
+        assert!(wanted(true, Some(true)));
+        assert!(!wanted(true, Some(false))); // not granted yet, or revoked
+        assert!(!wanted(false, Some(true)));
     }
 
     #[test]
