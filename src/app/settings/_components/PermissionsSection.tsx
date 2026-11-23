@@ -6,9 +6,15 @@ import SettingSection from '@/app/settings/_components/SettingSection';
 import { BADGE } from '@/app/settings/_components/badge';
 import { openAutomationSettings, requestFinderAccess } from '@/domain/convert/apis/convert';
 import { useFinderAccess } from '@/domain/convert/queries/convert';
-import { openDiskAccessSettings, openScreenAccessSettings, requestScreenAccess } from '@/domain/settings/apis/settings';
+import {
+  openDiskAccessSettings,
+  openInputAccessSettings,
+  openScreenAccessSettings,
+  requestInputAccess,
+  requestScreenAccess,
+} from '@/domain/settings/apis/settings';
 import type { Settings } from '@/domain/settings/apis/settings.dto';
-import { useDiskAccess, useScreenAccess } from '@/domain/settings/queries/settings';
+import { useDiskAccess, useInputAccess, useScreenAccess } from '@/domain/settings/queries/settings';
 import { useI18n } from '@/shared/providers/i18n/I18nProvider';
 
 interface Props {
@@ -25,6 +31,7 @@ export default function PermissionsSection({ settings, run }: Props) {
   // state
   // macOS shows its prompt only once, so later presses open System Settings.
   const [screenRequested, setScreenRequested] = useState(false);
+  const [inputRequested, setInputRequested] = useState(false);
 
   // hooks
   const s = useI18n().t.settings;
@@ -33,6 +40,7 @@ export default function PermissionsSection({ settings, run }: Props) {
   const { granted } = useDiskAccess();
   const { access } = useFinderAccess();
   const { granted: screenGranted } = useScreenAccess();
+  const { granted: inputGranted } = useInputAccess();
 
   // handle
   const handleScreenAllow = () => {
@@ -40,8 +48,16 @@ export default function PermissionsSection({ settings, run }: Props) {
     setScreenRequested(true);
   };
 
+  // Turning the switch on already used the one-time prompt, so with it on go straight to System Settings.
+  const inputAsked = inputRequested || settings.autoNextPaste === 'on';
+
+  const handleInputAllow = () => {
+    run(inputAsked ? openInputAccessSettings() : requestInputAccess());
+    setInputRequested(true);
+  };
+
   const c = s.convert;
-  if (granted === null && screenGranted === null && !access) return null;
+  if (granted === null && screenGranted === null && inputGranted === null && !access) return null;
   return (
     <SettingSection>
       {granted !== null && (
@@ -62,6 +78,19 @@ export default function PermissionsSection({ settings, run }: Props) {
             <span className={BADGE}>{c.allowed}</span>
           ) : (
             <Button onClick={handleScreenAllow}>{screenRequested ? c.openSystemSettings : c.allow}</Button>
+          )}
+        </Row>
+      )}
+      {inputGranted !== null && (
+        <Row
+          label={s.inputAccess}
+          hint={inputAsked && !inputGranted ? s.inputAccessRelaunchHint : s.inputAccessHint}
+          dim={settings.autoNextPaste !== 'on'}
+        >
+          {inputGranted ? (
+            <span className={BADGE}>{c.allowed}</span>
+          ) : (
+            <Button onClick={handleInputAllow}>{inputAsked ? c.openSystemSettings : c.allow}</Button>
           )}
         </Row>
       )}

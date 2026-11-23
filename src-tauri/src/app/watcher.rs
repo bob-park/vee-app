@@ -132,6 +132,8 @@ fn capture(app: &AppHandle, ctx: &ClipboardContext) -> Result<(), Box<dyn std::e
     if state.watcher_suppressed() {
         return Ok(());
     }
+    // Read before the content: a change made while this copy is recorded leaves the cursor unknown.
+    let seq = crate::app::auto_paste::clipboard_seq();
     let Some(clip) = read(ctx)? else { return Ok(()) };
     // File clips are restored from their paths, which handles multiple files.
     let formats = if matches!(clip, NewClip::Files { .. }) { Vec::new() } else { snapshot(ctx) };
@@ -149,6 +151,7 @@ fn capture(app: &AppHandle, ctx: &ClipboardContext) -> Result<(), Box<dyn std::e
     };
     let id = clip::upsert(&conn, &state.images_dir, clip, app_id, now_ms())?;
     clip::set_formats(&conn, id, &formats)?;
+    state.set_paste_cursor(id, seq);
     let sound = settings::copy_sound(&conn);
     drop(conn);
     if let Some(name) = sound {
@@ -184,11 +187,22 @@ struct Handler {
     tx: Sender<()>,
 }
 
+/// Whether a clipboard change is someone else's and should be recorded.
+fn noticed(state: &AppState) -> bool {
+    // Our own writes are dropped here as well as at record time, so they don't
+    // hold back recording of a real copy made right after.
+    if state.watcher_suppressed() {
+        return false;
+    }
+    // Cleared before the debounce: until this copy is recorded, auto next paste
+    // must not replace it with an older card.
+    state.clear_paste_cursor();
+    true
+}
+
 impl ClipboardHandler for Handler {
     fn on_clipboard_change(&mut self) {
-        // Our own writes are dropped here as well as at record time, so they don't
-        // hold back recording of a real copy made right after.
-        if !self.app.state::<AppState>().watcher_suppressed() {
+        if noticed(&self.app.state::<AppState>()) {
             let _ = self.tx.send(());
         }
     }
@@ -264,6 +278,27 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel::<()>();
         drop(tx);
         assert!(!wait_quiet(&rx, Duration::from_millis(300)));
+    }
+
+    fn state() -> AppState {
+        AppState::new(crate::shared::db::open_in_memory().unwrap(), std::path::PathBuf::new())
+    }
+
+    #[test]
+    fn a_real_change_forgets_the_paste_cursor() {
+        let state = state();
+        state.set_paste_cursor(7, 3);
+        assert!(noticed(&state));
+        assert_eq!(state.paste_cursor(3), None);
+    }
+
+    #[test]
+    fn our_own_write_keeps_the_paste_cursor() {
+        let state = state();
+        state.set_paste_cursor(7, 3);
+        state.suppress_watcher();
+        assert!(!noticed(&state));
+        assert_eq!(state.paste_cursor(3), Some(7));
     }
 
     #[test]

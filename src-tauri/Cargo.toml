@@ -37,7 +37,7 @@ objc2-app-kit = "0.3.2"
 objc2-foundation = "0.3.2"
 objc2 = "0.6.5"
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGEvent", "CGEventSource", "CGEventTypes", "CGGeometry", "CGWindow"] }
-objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFCGTypes", "CFDictionary", "CFNumber", "CFString"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFCGTypes", "CFDictionary", "CFMachPort", "CFNumber", "CFRunLoop", "CFString"] }
 objc2-vision = { version = "0.3.2", default-features = false, features = ["std", "VNRequest", "VNRequestHandler", "VNRecognizeTextRequest", "VNObservation"] }
 image = { version = "0.25", default-features = false, features = ["png", "gif", "webp", "bmp"] }
 objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "SCStream", "SCRecordingOutput", "SCShareableContent", "objc2-core-foundation", "objc2-core-graphics", "libc"] }

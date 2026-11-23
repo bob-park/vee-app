@@ -2,6 +2,7 @@
 
 pub mod ai;
 pub mod ai_worker;
+pub mod auto_paste;
 pub mod autostart;
 pub mod capture;
 pub mod convert;

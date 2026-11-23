@@ -231,6 +231,20 @@ pub fn touch(conn: &Connection, id: i64, now: i64) -> AppResult<()> {
     Ok(())
 }
 
+/// The unpinned clip right after `id` in panel order (`last_used_at DESC, id DESC`).
+/// `None` when `id` is the last one or no longer exists.
+pub fn next_after(conn: &Connection, id: i64) -> AppResult<Option<i64>> {
+    Ok(conn
+        .query_row(
+            "SELECT c.id FROM clips c JOIN clips cur ON cur.id = ?1
+             WHERE c.pinned = 0 AND (c.last_used_at, c.id) < (cur.last_used_at, cur.id)
+             ORDER BY c.last_used_at DESC, c.id DESC LIMIT 1",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
 /// Pins or unpins a clip. Returns false, changing nothing, when pinning would go past `MAX_PINNED`.
 pub fn set_pinned(conn: &Connection, id: i64, pinned: bool, now: i64) -> AppResult<bool> {
     if !pinned {
@@ -760,5 +774,52 @@ mod tests {
         assert_eq!(upsert(&c, d.path(), image(1), None, 2).unwrap(), id);
         assert_eq!(next_ocr_pending(&c).unwrap(), None);
         assert_eq!(ids(&list(&c, "abc", None, None, 0, 50).unwrap()), vec![id]);
+    }
+
+    #[test]
+    fn next_after_walks_the_panel_order() {
+        let (c, d) = db();
+        let a = upsert(&c, d.path(), text("a"), None, 1).unwrap();
+        let b = upsert(&c, d.path(), text("b"), None, 2).unwrap();
+        let top = upsert(&c, d.path(), text("c"), None, 3).unwrap();
+        assert_eq!(next_after(&c, top).unwrap(), Some(b));
+        assert_eq!(next_after(&c, b).unwrap(), Some(a));
+        assert_eq!(next_after(&c, a).unwrap(), None);
+    }
+
+    #[test]
+    fn next_after_breaks_ties_by_id() {
+        let (c, d) = db();
+        let a = upsert(&c, d.path(), text("a"), None, 5).unwrap();
+        let b = upsert(&c, d.path(), text("b"), None, 5).unwrap();
+        assert_eq!(next_after(&c, b).unwrap(), Some(a));
+    }
+
+    #[test]
+    fn next_after_skips_pinned_clips() {
+        let (c, d) = db();
+        let a = upsert(&c, d.path(), text("a"), None, 1).unwrap();
+        let pin = upsert(&c, d.path(), text("pin"), None, 2).unwrap();
+        let top = upsert(&c, d.path(), text("c"), None, 3).unwrap();
+        set_pinned(&c, pin, true, 4).unwrap();
+        assert_eq!(next_after(&c, top).unwrap(), Some(a));
+    }
+
+    #[test]
+    fn next_after_a_pinned_clip_is_the_newest_unpinned() {
+        let (c, d) = db();
+        upsert(&c, d.path(), text("a"), None, 1).unwrap();
+        let top = upsert(&c, d.path(), text("b"), None, 2).unwrap();
+        let pin = upsert(&c, d.path(), text("pin"), None, 3).unwrap();
+        set_pinned(&c, pin, true, 4).unwrap();
+        touch(&c, pin, 10).unwrap(); // what copying a pin does
+        assert_eq!(next_after(&c, pin).unwrap(), Some(top));
+    }
+
+    #[test]
+    fn next_after_a_deleted_clip_is_none() {
+        let (c, d) = db();
+        upsert(&c, d.path(), text("a"), None, 1).unwrap();
+        assert_eq!(next_after(&c, 9999).unwrap(), None);
     }
 }

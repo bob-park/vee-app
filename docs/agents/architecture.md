@@ -36,7 +36,7 @@ Errors travel back as `AppError` → `{ code, message }` ([error-handling](./con
 | Layer | Path | May import `tauri`? |
 | ----- | ---- | ------------------- |
 | Assembly | `lib.rs` | yes — plugins, setup, window events, `generate_handler!` only |
-| App shell | `app/` (state, window + `window::commands`, tray, updater, watcher, shortcut, sound, front_app, disk_access, i18n, autostart, retention, convert + `convert::commands`, engines + `engines::commands`, editor + `editor::commands`, ai, ai_worker, drop_target, capture + `capture::commands`, recorder + `recorder::commands`, screen_access) | yes |
+| App shell | `app/` (state, window + `window::commands`, tray, updater, watcher, shortcut, sound, front_app, disk_access, i18n, autostart, retention, convert + `convert::commands`, engines + `engines::commands`, editor + `editor::commands`, ai, ai_worker, drop_target, capture + `capture::commands`, recorder + `recorder::commands`, screen_access, auto_paste) | yes |
 | Domain adapters | `domain/<name>/commands.rs` | yes |
 | Domain core | `domain/<name>/{mod,model,repository}.rs` | **no** |
 | Infrastructure | `shared/` (db, error, png, migrations) | **no** |
@@ -88,6 +88,18 @@ Dependencies point one way: `commands → domain core → shared`. The app shell
 ## Clipboard watcher
 
 `app/watcher.rs` polls the clipboard (200 ms) and records a change only after 0.5 s of quiet, so a burst of changes stores the last one. It skips excluded source apps and Vee's own writes (`AppState::suppress_watcher`), stores the clip via `clip::upsert`, emits `clips://added`, and calls `ocr::wake()` so the OCR worker picks up a new image or files clip.
+
+
+## Auto next paste
+
+`app/auto_paste.rs`, on only while the `autoNextPaste` setting is `on` (default `off`). Vee never pastes and never swallows the key: the OS pastes as always, and Vee swaps the clipboard behind it.
+
+- **Key watch:** a listen-only `CGEventTap` on its own run-loop thread (macOS, needs Input Monitoring) or a `WH_KEYBOARD_LL` hook on its own message-loop thread (Windows). `sync` installs it while the setting is on and access isn't refused, and removes it otherwise (setting off, or access revoked); it runs at startup, on `set_setting("autoNextPaste")` and on every `get_input_access` / `request_input_access`. While the setting is on but no watch could be installed, a retry thread calls it every 3 s, so a grant takes effect without visiting Settings. The macOS thread polls a stop flag from its run loop (0.5 s) and invalidates the tap on the way out. The callbacks only test `is_paste` (exactly Cmd+V / Ctrl+V, no other modifier, no key repeat) and signal the worker. No key is stored or logged.
+- **Worker:** waits 150 ms so the pasting app reads the clipboard first, drops presses made meanwhile (they pasted the same card), then `advance` writes the next card with `window::write_clipboard`. An advance is silent: no `clip::touch`, toast, sound or event, so the panel order never changes. It is skipped while a Vee window has focus.
+- **Cursor:** `AppState::paste_cursor` is the clip Vee knows is on the clipboard. The watcher clears it on every real clipboard change (before its debounce) and sets it once the copy is recorded; `copy_clip`, the editor copy and the recorder set it when they write a clip. The cursor carries the OS clipboard change count it was seen at (`auto_paste::clipboard_seq`: `NSPasteboard.changeCount` / `GetClipboardSequenceNumber`), and `advance` uses it only while that count is unchanged, so a copy the watcher has not seen yet (its poll, a suppression window, a text expander) is never replaced. With no cursor (just started, or a concealed / excluded / unrecordable copy) Vee does not advance.
+- **Order:** `clip::next_after` walks the unpinned history in panel order (`last_used_at DESC, id DESC`). After a pinned card the next one is the top of the history. Cards that fail to write (a files clip whose file is gone) are skipped, up to `MAX_SKIPS` (3) per advance, so a clipboard that can't be written at all doesn't walk the history; at the last card nothing happens.
+- **Self-writes:** an advance shortens the watcher suppression to 500 ms (`suppress_watcher_for`), so a real copy made right after a paste is still recorded.
+- **Limit:** macOS matches the physical V key (key code 9); layouts that move V are not detected.
 
 ## Drag-to-convert
 

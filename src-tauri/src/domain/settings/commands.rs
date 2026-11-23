@@ -2,7 +2,7 @@
 
 use super::{SILENT, SettingsDto, get};
 use crate::app::{
-    ocr,
+    auto_paste, ocr,
     retention::prune_now,
     shortcut::{self, Global},
     sound,
@@ -48,6 +48,7 @@ pub fn get_settings(app: AppHandle, state: State<AppState>) -> SettingsDto {
         video_hw_accel: get(&conn, "videoHwAccel"),
         record_folder: get(&conn, "recordFolder"),
         record_format: get(&conn, "recordFormat"),
+        auto_next_paste: get(&conn, "autoNextPaste"),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         version: app.package_info().version.to_string(),
     }
@@ -67,6 +68,9 @@ pub fn set_setting(app: AppHandle, state: State<AppState>, key: String, value: S
     }
     if key == "ocr" {
         ocr::wake();
+    }
+    if key == "autoNextPaste" {
+        auto_paste::sync(&app);
     }
     changed(&app);
     Ok(())

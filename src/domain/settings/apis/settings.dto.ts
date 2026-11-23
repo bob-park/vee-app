@@ -35,7 +35,8 @@ export type SettingKey =
   | 'videoQuality'
   | 'videoHwAccel'
   | 'recordFolder'
-  | 'recordFormat';
+  | 'recordFormat'
+  | 'autoNextPaste';
 
 export interface Settings {
   theme: 'system' | 'light' | 'dark';
@@ -74,6 +75,8 @@ export interface Settings {
   /** Where recordings are saved; "" means the OS Downloads folder. */
   recordFolder: string;
   recordFormat: RecordFormat;
+  /** After each paste, the clipboard moves to the next card in the panel. */
+  autoNextPaste: 'on' | 'off';
   autostart: boolean;
   version: string;
 }
