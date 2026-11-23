@@ -1,14 +1,26 @@
 //! Auto next paste: after each paste, the clipboard moves to the next card in panel order.
+//!
+//! Vee never pastes and never swallows the key. A listen-only key watch (installed only while
+//! the `autoNextPaste` setting is on) signals a worker, which swaps the clipboard behind the paste.
 
 use crate::{
     app::{state::AppState, window},
-    domain::clip::{self, ClipContent},
+    domain::{
+        clip::{self, ClipContent},
+        settings,
+    },
     shared::error::AppResult,
 };
 use rusqlite::Connection;
-use std::sync::{Mutex, mpsc::Receiver};
+use std::sync::{
+    Mutex, OnceLock,
+    mpsc::{Receiver, Sender, channel},
+};
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
+
+/// How long the pasting app gets to read the clipboard before it is swapped.
+const DELAY: Duration = Duration::from_millis(150);
 
 /// How long our own advance keeps the watcher quiet: its 200ms poll, with room to spare.
 /// Short on purpose, so a real copy made right after a paste is still recorded.
@@ -60,6 +72,289 @@ pub fn advance(app: &AppHandle) {
 pub fn settle(rx: &Receiver<()>, delay: Duration) {
     std::thread::sleep(delay);
     while rx.try_recv().is_ok() {}
+}
+
+/// Whether a key-down is the paste shortcut: V with only Cmd (macOS) / Ctrl (Windows), not a held-key repeat.
+pub fn is_paste(key_is_v: bool, primary: bool, other_mods: bool, repeat: bool) -> bool {
+    key_is_v && primary && !other_mods && !repeat
+}
+
+/// Where the key watch reports a paste. The callbacks do nothing else.
+static PASTED: OnceLock<Sender<()>> = OnceLock::new();
+/// The installed key watch, if any.
+static WATCH: Mutex<Option<platform::Watch>> = Mutex::new(None);
+
+fn pasted() {
+    if let Some(tx) = PASTED.get() {
+        let _ = tx.send(());
+    }
+}
+
+/// Starts the worker that advances after each paste, then installs the key watch if the setting is on.
+pub fn spawn(app: AppHandle) {
+    let (tx, rx) = channel();
+    let _ = PASTED.set(tx);
+    let worker = app.clone();
+    std::thread::spawn(move || {
+        while rx.recv().is_ok() {
+            settle(&rx, DELAY);
+            // No run loop drains autoreleased Cocoa objects on this thread (see the clipboard watcher).
+            #[cfg(target_os = "macos")]
+            objc2::rc::autoreleasepool(|_| advance(&worker));
+            #[cfg(not(target_os = "macos"))]
+            advance(&worker);
+        }
+    });
+    sync(&app);
+}
+
+/// Installs the key watch when the setting is on (and macOS allows it), removes it otherwise.
+/// Safe to call again: a watch that couldn't be installed is retried.
+pub fn sync(app: &AppHandle) {
+    let on = settings::get(&app.state::<AppState>().db.lock().unwrap(), "autoNextPaste") == "on";
+    let mut watch = WATCH.lock().unwrap();
+    match (on, watch.is_some()) {
+        (true, false) => *watch = platform::start(),
+        (false, true) => {
+            if let Some(watch) = watch.take() {
+                watch.stop();
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Whether Vee may watch key presses (macOS Input Monitoring). `None` where no permission exists.
+#[tauri::command]
+pub fn get_input_access(app: AppHandle) -> Option<bool> {
+    // Re-checked when the settings window regains focus, so a grant made meanwhile installs the watch.
+    sync(&app);
+    platform::access()
+}
+
+/// Shows the system prompt the first time; later calls do nothing (macOS asks once).
+#[tauri::command]
+pub fn request_input_access(app: AppHandle) {
+    platform::request_access();
+    sync(&app);
+}
+
+#[tauri::command]
+pub fn open_input_access_settings() -> AppResult<()> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent").spawn()?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    Err(crate::shared::error::AppError::Other("Input Monitoring settings are macOS only".into()))
+}
+
+#[cfg(target_os = "macos")]
+mod platform {
+    use super::{is_paste, pasted};
+    use objc2_core_foundation::{CFMachPort, CFRetained, CFRunLoop, kCFRunLoopCommonModes};
+    use objc2_core_graphics::{
+        CGEvent, CGEventField, CGEventFlags, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement, CGEventTapProxy, CGEventType,
+        CGPreflightListenEventAccess, CGRequestListenEventAccess,
+    };
+    use std::cell::RefCell;
+    use std::ffi::c_void;
+    use std::ptr::NonNull;
+    use std::sync::mpsc::channel;
+
+    // shortcut: matches the physical V key (ANSI key code 9), so layouts that move V (Dvorak) are missed;
+    // upgrade to the event's unicode string if that matters.
+    const KEY_V: i64 = 9;
+
+    pub struct Watch(CFRetained<CFRunLoop>);
+    // SAFETY: the run loop is only ever sent `CFRunLoopStop`, which is safe from any thread.
+    unsafe impl Send for Watch {}
+
+    impl Watch {
+        pub fn stop(self) {
+            self.0.stop();
+        }
+    }
+
+    thread_local! {
+        /// The tap of this watch thread, so its callback can re-enable it.
+        static TAP: RefCell<Option<CFRetained<CFMachPort>>> = const { RefCell::new(None) };
+    }
+
+    pub fn access() -> Option<bool> {
+        Some(CGPreflightListenEventAccess())
+    }
+
+    pub fn request_access() {
+        CGRequestListenEventAccess();
+    }
+
+    unsafe extern "C-unwind" fn on_event(_: CGEventTapProxy, kind: CGEventType, event: NonNull<CGEvent>, _: *mut c_void) -> *mut CGEvent {
+        if kind == CGEventType::TapDisabledByTimeout || kind == CGEventType::TapDisabledByUserInput {
+            TAP.with_borrow(|tap| {
+                if let Some(tap) = tap {
+                    CGEvent::tap_enable(tap, true);
+                }
+            });
+        } else if kind == CGEventType::KeyDown {
+            // SAFETY: the tap hands us a valid event for the duration of the callback.
+            let ev = Some(unsafe { event.as_ref() });
+            let flags = CGEvent::flags(ev);
+            let others = CGEventFlags::MaskShift | CGEventFlags::MaskControl | CGEventFlags::MaskAlternate;
+            if is_paste(
+                CGEvent::integer_value_field(ev, CGEventField::KeyboardEventKeycode) == KEY_V,
+                flags.contains(CGEventFlags::MaskCommand),
+                flags.intersects(others),
+                CGEvent::integer_value_field(ev, CGEventField::KeyboardEventAutorepeat) != 0,
+            ) {
+                pasted();
+            }
+        }
+        event.as_ptr()
+    }
+
+    /// A listen-only tap on its own thread. `None` without Input Monitoring access.
+    pub fn start() -> Option<Watch> {
+        if !CGPreflightListenEventAccess() {
+            return None;
+        }
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            // SAFETY: `on_event` matches the callback type and uses no user info.
+            let tap = unsafe {
+                CGEvent::tap_create(
+                    CGEventTapLocation::SessionEventTap,
+                    CGEventTapPlacement::HeadInsertEventTap,
+                    CGEventTapOptions::ListenOnly,
+                    1 << CGEventType::KeyDown.0,
+                    Some(on_event),
+                    std::ptr::null_mut(),
+                )
+            };
+            let ready = tap.and_then(|tap| {
+                let source = CFMachPort::new_run_loop_source(None, Some(&tap), 0)?;
+                let run_loop = CFRunLoop::current()?;
+                // SAFETY: reading an immutable CoreFoundation constant.
+                run_loop.add_source(Some(&source), unsafe { kCFRunLoopCommonModes });
+                Some((tap, run_loop))
+            });
+            let Some((tap, run_loop)) = ready else {
+                let _ = tx.send(None);
+                return;
+            };
+            TAP.set(Some(tap.clone()));
+            let _ = tx.send(Some(Watch(run_loop)));
+            CFRunLoop::run();
+            CGEvent::tap_enable(&tap, false);
+            TAP.set(None);
+        });
+        rx.recv().ok().flatten()
+    }
+}
+
+#[cfg(windows)]
+mod platform {
+    use super::{is_paste, pasted};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc::channel;
+    use windows::Win32::{
+        Foundation::{LPARAM, LRESULT, WPARAM},
+        System::Threading::GetCurrentThreadId,
+        UI::{
+            Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VK_V},
+            WindowsAndMessaging::{
+                CallNextHookEx, GetMessageW, KBDLLHOOKSTRUCT, MSG, PM_NOREMOVE, PeekMessageW, PostThreadMessageW, SetWindowsHookExW,
+                UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYUP,
+            },
+        },
+    };
+
+    /// The hook thread's id.
+    pub struct Watch(u32);
+
+    impl Watch {
+        pub fn stop(self) {
+            // SAFETY: posting a message to a thread id has no memory-safety preconditions.
+            let _ = unsafe { PostThreadMessageW(self.0, WM_QUIT, WPARAM(0), LPARAM(0)) };
+        }
+    }
+
+    pub fn access() -> Option<bool> {
+        None
+    }
+
+    pub fn request_access() {}
+
+    /// The low-level hook has no repeat flag: V counts as a repeat until it is released.
+    static V_DOWN: AtomicBool = AtomicBool::new(false);
+
+    fn down(vk: u16) -> bool {
+        // SAFETY: GetAsyncKeyState only reads global key state.
+        (unsafe { GetAsyncKeyState(i32::from(vk)) } as u16 & 0x8000) != 0
+    }
+
+    unsafe extern "system" fn on_key(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+        if code >= 0 {
+            // SAFETY: for a low-level keyboard hook `lparam` points at a KBDLLHOOKSTRUCT.
+            let key = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
+            if key.vkCode == u32::from(VK_V.0) {
+                let message = wparam.0 as u32;
+                if message == WM_KEYDOWN {
+                    let repeat = V_DOWN.swap(true, Ordering::Relaxed);
+                    let others = down(VK_SHIFT.0) || down(VK_MENU.0) || down(VK_LWIN.0) || down(VK_RWIN.0);
+                    if is_paste(true, down(VK_CONTROL.0), others, repeat) {
+                        pasted();
+                    }
+                } else if message == WM_KEYUP || message == WM_SYSKEYUP {
+                    V_DOWN.store(false, Ordering::Relaxed);
+                }
+            }
+        }
+        // SAFETY: passing the unmodified arguments on, as every hook must.
+        unsafe { CallNextHookEx(None, code, wparam, lparam) }
+    }
+
+    /// A low-level keyboard hook on its own thread, which pumps the messages the hook needs.
+    pub fn start() -> Option<Watch> {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let mut msg = MSG::default();
+            // SAFETY: plain Win32 calls on this thread with valid pointers.
+            unsafe {
+                // Creates this thread's message queue, so `stop` can post to it right away.
+                let _ = PeekMessageW(&mut msg, None, 0, 0, PM_NOREMOVE);
+                let Ok(hook) = SetWindowsHookExW(WH_KEYBOARD_LL, Some(on_key), None, 0) else {
+                    let _ = tx.send(None);
+                    return;
+                };
+                let _ = tx.send(Some(Watch(GetCurrentThreadId())));
+                while GetMessageW(&mut msg, None, 0, 0).as_bool() {}
+                let _ = UnhookWindowsHookEx(hook);
+            }
+            V_DOWN.store(false, Ordering::Relaxed);
+        });
+        rx.recv().ok().flatten()
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+mod platform {
+    pub struct Watch;
+
+    impl Watch {
+        pub fn stop(self) {}
+    }
+
+    pub fn access() -> Option<bool> {
+        None
+    }
+
+    pub fn request_access() {}
+
+    pub fn start() -> Option<Watch> {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -147,6 +442,15 @@ mod tests {
         })
         .unwrap();
         assert_eq!(formats, [("public.html".to_string(), b"<b>b</b>".to_vec())]);
+    }
+
+    #[test]
+    fn only_a_plain_first_press_of_the_paste_key_counts() {
+        assert!(is_paste(true, true, false, false));
+        assert!(!is_paste(false, true, false, false)); // another key
+        assert!(!is_paste(true, false, false, false)); // no Cmd/Ctrl
+        assert!(!is_paste(true, true, true, false)); // Cmd+Shift+V and friends
+        assert!(!is_paste(true, true, false, true)); // key repeat
     }
 
     #[test]

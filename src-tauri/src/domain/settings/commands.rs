@@ -2,7 +2,7 @@
 
 use super::{SILENT, SettingsDto, get};
 use crate::app::{
-    ocr,
+    auto_paste, ocr,
     retention::prune_now,
     shortcut::{self, Global},
     sound,
@@ -68,6 +68,9 @@ pub fn set_setting(app: AppHandle, state: State<AppState>, key: String, value: S
     }
     if key == "ocr" {
         ocr::wake();
+    }
+    if key == "autoNextPaste" {
+        auto_paste::sync(&app);
     }
     changed(&app);
     Ok(())

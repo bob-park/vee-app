@@ -3,7 +3,7 @@ mod domain;
 mod shared;
 
 use app::{
-    autostart, capture, convert, disk_access, drop_target, editor, engines, ocr, office, recorder, retention, screen_access, shortcut,
+    auto_paste, autostart, capture, convert, disk_access, drop_target, editor, engines, ocr, office, recorder, retention, screen_access, shortcut,
     state::AppState, tray, updater, watcher, window,
 };
 use domain::{clip, settings, source_app, whats_new};
@@ -84,6 +84,7 @@ pub fn run() {
             tray::create(app.handle())?;
             retention::spawn_pruner(app.handle().clone());
             watcher::spawn(app.handle().clone());
+            auto_paste::spawn(app.handle().clone());
             ocr::spawn(app.handle().clone());
             shortcut::register_stored(app.handle());
             updater::spawn_periodic(app.handle().clone());
@@ -160,6 +161,9 @@ pub fn run() {
             screen_access::get_screen_access,
             screen_access::request_screen_access,
             screen_access::open_screen_access_settings,
+            auto_paste::get_input_access,
+            auto_paste::request_input_access,
+            auto_paste::open_input_access_settings,
             drop_target::get_finder_access,
             drop_target::request_finder_access,
             drop_target::open_automation_settings,
