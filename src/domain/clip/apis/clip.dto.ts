@@ -40,4 +40,6 @@ export interface ToastPayload {
   pinsFit: number | null;
   /** Set when a dragged card's file is gone, so it can't be dragged. */
   dragMissing: boolean;
+  /** Set when the toast reports auto next paste being toggled. */
+  autoNextPaste: 'on' | 'off' | 'needsAccess' | null;
 }

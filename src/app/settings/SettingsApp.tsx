@@ -18,7 +18,6 @@ import { resetPanelSize } from '@/domain/panel/apis/panel';
 import {
   openKeyboardSettings,
   previewSound,
-  requestInputAccess,
   setAutostart,
   setSetting,
   setShortcut,
@@ -107,6 +106,7 @@ const SHORTCUT_KEYS = [
   'shortcut',
   'captureShortcut',
   'recordShortcut',
+  'autoNextPasteShortcut',
   'panelPinShortcut',
   'resetSearchShortcut',
   'pinnedCopy1Shortcut',
@@ -117,9 +117,9 @@ type ShortcutKey = (typeof SHORTCUT_KEYS)[number];
 
 /** OS-wide shortcuts, saved through `set_shortcut`; the rest only act while the panel has focus. */
 const isGlobal = (key: ShortcutKey): key is GlobalShortcutKey =>
-  key === 'shortcut' || key === 'captureShortcut' || key === 'recordShortcut';
+  key === 'shortcut' || key === 'captureShortcut' || key === 'recordShortcut' || key === 'autoNextPasteShortcut';
 
-function shortcutLabel(s: Dict['settings'], key: ShortcutKey) {
+function shortcutLabel(s: Dict['settings'], key: ShortcutKey, autoPaste: { on: boolean; denied: boolean }) {
   switch (key) {
     case 'shortcut':
       return { label: s.shortcut, hint: s.shortcutHint };
@@ -127,6 +127,11 @@ function shortcutLabel(s: Dict['settings'], key: ShortcutKey) {
       return { label: s.captureShortcut, hint: s.captureShortcutHint };
     case 'recordShortcut':
       return { label: s.recordShortcut, hint: s.recordShortcutHint };
+    case 'autoNextPasteShortcut':
+      return {
+        label: s.autoNextPaste,
+        hint: autoPaste.on && autoPaste.denied ? s.autoNextPasteAccessHint : s.autoNextPasteShortcutHint(autoPaste.on),
+      };
     case 'panelPinShortcut':
       return { label: s.panelPinShortcut, hint: s.panelPinShortcutHint };
     case 'resetSearchShortcut':
@@ -242,24 +247,6 @@ export function SettingsApp() {
                 onChange={(checked) => run(setAutostart(checked))}
               />
             </Row>
-            <Row
-              label={s.autoNextPaste}
-              hint={
-                settings.autoNextPaste === 'on' && inputGranted === false
-                  ? s.autoNextPasteAccessHint
-                  : s.autoNextPasteHint
-              }
-            >
-              <Switch
-                ariaLabel={s.autoNextPaste}
-                checked={settings.autoNextPaste === 'on'}
-                onChange={(checked) => {
-                  updateSetting({ key: 'autoNextPaste', value: checked ? 'on' : 'off' });
-                  // macOS asks only once; later the Permissions tab leads to System Settings.
-                  if (checked && inputGranted === false) run(requestInputAccess());
-                }}
-              />
-            </Row>
             <Row label={s.recordFolder} hint={settings.recordFolder || s.downloads} truncateHint>
               <Button onClick={() => run(pickRecordFolder())}>{s.change}</Button>
             </Row>
@@ -344,7 +331,10 @@ export function SettingsApp() {
         {tab === 'shortcuts' && (
           <SettingSection>
             {SHORTCUT_KEYS.map((key) => (
-              <Row key={key} label={shortcutLabel(s, key).label} hint={shortcutLabel(s, key).hint}>
+              <Row
+                key={key}
+                {...shortcutLabel(s, key, { on: settings.autoNextPaste === 'on', denied: inputGranted === false })}
+              >
                 <div className="flex flex-col items-end gap-1.5">
                   <ShortcutRecorder
                     value={settings[key]}

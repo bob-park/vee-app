@@ -12,7 +12,7 @@ export const RECORD_FORMATS = ['mp4', 'mov', 'webm', 'gif'] as const;
 export type RecordFormat = (typeof RECORD_FORMATS)[number];
 
 /** Setting keys of the OS-wide shortcuts, saved through `set_shortcut`. */
-export type GlobalShortcutKey = 'shortcut' | 'captureShortcut' | 'recordShortcut';
+export type GlobalShortcutKey = 'shortcut' | 'captureShortcut' | 'recordShortcut' | 'autoNextPasteShortcut';
 
 /** Keys `set_setting` accepts. */
 export type SettingKey =
@@ -77,6 +77,8 @@ export interface Settings {
   recordFormat: RecordFormat;
   /** After each paste, the clipboard moves to the next card in the panel. */
   autoNextPaste: 'on' | 'off';
+  /** Global: turns auto next paste on or off. */
+  autoNextPasteShortcut: string;
   autostart: boolean;
   version: string;
 }

@@ -68,25 +68,36 @@ export function ToastApp() {
   const p = toast.payload;
   // Still working: no check badge until the result's toast.
   const converting = p.convert?.type === 'recordConverting';
-  const done = p.ok && !converting;
+  // Turned off: a muted tile without the check.
+  const off = p.autoNextPaste === 'off';
+  const done = p.ok && !converting && !off;
   const video = p.convert ? isVideo(p.convert) : false;
   // The tile follows `ok` and `kind` for a conversion too (Rust sets them to match).
   const [title, summary] = p.convert
     ? convertLines(p.convert, t)
-    : p.pinsFit !== null
-      ? [t.sidePinsTitle, t.sidePinsFit(p.pinsFit)]
-      : p.dragMissing
-        ? [t.dragMissing, t.copyFailedDetail]
-        : [
-            p.ok ? (p.plain ? t.copiedPlain : t.copied) : t.copyFailed,
-            !p.ok
-              ? t.copyFailedDetail
-              : p.kind === 'image'
-                ? t.kinds.image
-                : p.kind === 'files'
-                  ? t.filesCount(p.files)
-                  : p.text,
-          ];
+    : p.autoNextPaste !== null
+      ? [
+          t.autoNextPasteTitle,
+          p.autoNextPaste === 'on'
+            ? t.autoNextPasteOn
+            : p.autoNextPaste === 'off'
+              ? t.autoNextPasteOff
+              : t.autoNextPasteNeedsAccess,
+        ]
+      : p.pinsFit !== null
+        ? [t.sidePinsTitle, t.sidePinsFit(p.pinsFit)]
+        : p.dragMissing
+          ? [t.dragMissing, t.copyFailedDetail]
+          : [
+              p.ok ? (p.plain ? t.copiedPlain : t.copied) : t.copyFailed,
+              !p.ok
+                ? t.copyFailedDetail
+                : p.kind === 'image'
+                  ? t.kinds.image
+                  : p.kind === 'files'
+                    ? t.filesCount(p.files)
+                    : p.text,
+            ];
   return (
     // The window is larger than the card; the margin is room for the card's shadow.
     <div
@@ -102,7 +113,7 @@ export function ToastApp() {
         <span
           className={cx(
             'glass relative flex size-[44px] flex-none items-center justify-center rounded-xl text-[22px] font-extrabold',
-            converting ? 'text-primary' : p.ok ? 'text-success' : 'text-error',
+            converting ? 'text-primary' : off ? 'text-muted' : p.ok ? 'text-success' : 'text-error',
           )}
         >
           {!p.ok ? (
