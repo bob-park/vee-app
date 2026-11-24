@@ -5,6 +5,8 @@ pub const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+V";
 pub const DEFAULT_CAPTURE_SHORTCUT: &str = "CommandOrControl+Alt+Shift+Digit4";
 /// Global: starts or stops a screen recording.
 pub const DEFAULT_RECORD_SHORTCUT: &str = "CommandOrControl+Alt+Shift+Digit5";
+/// Global: turns auto next paste on or off.
+pub const DEFAULT_AUTO_NEXT_PASTE_SHORTCUT: &str = "CommandOrControl+Alt+Shift+KeyN";
 /// `recordFormat` values; the first is the default.
 pub const RECORD_FORMATS: [&str; 4] = ["mp4", "mov", "webm", "gif"];
 /// Panel-only, so it is matched in the panel instead of being registered with the OS.
@@ -48,6 +50,7 @@ pub struct SettingsDto {
     pub record_folder: String,
     pub record_format: String,
     pub auto_next_paste: String,
+    pub auto_next_paste_shortcut: String,
     pub autostart: bool,
     pub version: String,
 }
