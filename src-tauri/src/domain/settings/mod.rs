@@ -5,8 +5,8 @@ mod model;
 pub mod repository;
 
 pub use model::{
-    DEFAULT_CAPTURE_SHORTCUT, DEFAULT_PANEL_PIN_SHORTCUT, DEFAULT_PINNED_COPY_SHORTCUTS, DEFAULT_RECORD_SHORTCUT,
-    DEFAULT_RESET_SEARCH_SHORTCUT, DEFAULT_SHORTCUT, RECORD_FORMATS, SILENT, SOUND_NAMES, SettingsDto,
+    DEFAULT_AUTO_NEXT_PASTE_SHORTCUT, DEFAULT_CAPTURE_SHORTCUT, DEFAULT_PANEL_PIN_SHORTCUT, DEFAULT_PINNED_COPY_SHORTCUTS,
+    DEFAULT_RECORD_SHORTCUT, DEFAULT_RESET_SEARCH_SHORTCUT, DEFAULT_SHORTCUT, RECORD_FORMATS, SILENT, SOUND_NAMES, SettingsDto,
 };
 
 use crate::domain::clip;
@@ -20,6 +20,7 @@ pub fn get(conn: &Connection, key: &str) -> String {
         "shortcut" => DEFAULT_SHORTCUT,
         "captureShortcut" => DEFAULT_CAPTURE_SHORTCUT,
         "recordShortcut" => DEFAULT_RECORD_SHORTCUT,
+        "autoNextPasteShortcut" => DEFAULT_AUTO_NEXT_PASTE_SHORTCUT,
         "recordFormat" => "mp4",
         "panelPinShortcut" => DEFAULT_PANEL_PIN_SHORTCUT,
         "resetSearchShortcut" => DEFAULT_RESET_SEARCH_SHORTCUT,
@@ -343,5 +344,7 @@ mod tests {
         set(&conn, "autoNextPaste", "on").unwrap();
         assert_eq!(get(&conn, "autoNextPaste"), "on");
         assert!(set(&conn, "autoNextPaste", "yes").is_err());
+        assert_eq!(get(&conn, "autoNextPasteShortcut"), "CommandOrControl+Alt+Shift+KeyN");
+        assert!(set(&conn, "autoNextPasteShortcut", "Alt+KeyX").is_err()); // globals go through set_shortcut
     }
 }

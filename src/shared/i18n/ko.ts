@@ -26,6 +26,10 @@ export const ko: Dict = {
   copyFailed: '복사하지 못했어요',
   copyFailedDetail: '원본이 없어요',
   dragMissing: '이 카드는 끌 수 없어요',
+  autoNextPasteTitle: '자동 다음 붙여넣기',
+  autoNextPasteOn: '켜짐',
+  autoNextPasteOff: '꺼짐',
+  autoNextPasteNeedsAccess: '켜려면 입력 모니터링을 허용해 주세요',
   sidePinsTitle: '고정 카드가 기록을 가리고 있어요',
   sidePinsFit: (n: number) =>
     n === 0
@@ -141,7 +145,8 @@ export const ko: Dict = {
     dark: '다크',
     launchAtLogin: '로그인 시 자동 실행',
     autoNextPaste: '자동 다음 붙여넣기',
-    autoNextPasteHint: '붙여넣을 때마다 클립보드가 패널의 다음 카드로 넘어가요',
+    autoNextPasteShortcutHint: (on: boolean) =>
+      `붙여넣을 때마다 클립보드가 다음 카드로 넘어가요 · 현재 ${on ? '켜짐' : '꺼짐'}`,
     autoNextPasteAccessHint: '사용하려면 권한 탭에서 입력 모니터링을 허용해 주세요',
     recordFolder: '녹화 저장 폴더',
     downloads: '다운로드',

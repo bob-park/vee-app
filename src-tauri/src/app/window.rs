@@ -68,6 +68,18 @@ pub struct ToastPayload {
     pub pins_fit: Option<usize>,
     /// Set when a dragged card's file is gone, so it can't be dragged.
     pub drag_missing: bool,
+    /// Set when the toast reports auto next paste being toggled.
+    pub auto_next_paste: Option<AutoPasteNote>,
+}
+
+/// What the auto next paste shortcut did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AutoPasteNote {
+    On,
+    Off,
+    /// Not turned on: macOS Input Monitoring is not granted.
+    NeedsAccess,
 }
 
 impl ToastPayload {
@@ -82,10 +94,19 @@ impl ToastPayload {
                 convert: None,
                 pins_fit: None,
                 drag_missing: false,
+                auto_next_paste: None,
             },
-            ClipContent::Image(_) => {
-                Self { ok: true, kind: Kind::Image, text: None, files: 0, plain: false, convert: None, pins_fit: None, drag_missing: false }
-            }
+            ClipContent::Image(_) => Self {
+                ok: true,
+                kind: Kind::Image,
+                text: None,
+                files: 0,
+                plain: false,
+                convert: None,
+                pins_fit: None,
+                drag_missing: false,
+                auto_next_paste: None,
+            },
             ClipContent::Files(f) => Self {
                 ok: true,
                 kind: Kind::Files,
@@ -95,28 +116,74 @@ impl ToastPayload {
                 convert: None,
                 pins_fit: None,
                 drag_missing: false,
+                auto_next_paste: None,
             },
         }
     }
 
     pub(crate) fn failed() -> Self {
-        Self { ok: false, kind: Kind::Text, text: None, files: 0, plain: false, convert: None, pins_fit: None, drag_missing: false }
+        Self {
+            ok: false,
+            kind: Kind::Text,
+            text: None,
+            files: 0,
+            plain: false,
+            convert: None,
+            pins_fit: None,
+            drag_missing: false,
+            auto_next_paste: None,
+        }
     }
 
     /// A convert note; `ok` for a saved file or one still converting.
     pub(crate) fn convert(note: ConvertNote, kind: Kind) -> Self {
         let ok = matches!(note, ConvertNote::Saved { .. } | ConvertNote::RecordFolderMissing { .. } | ConvertNote::RecordConverting { .. });
-        Self { ok, kind, text: None, files: 0, plain: false, convert: Some(note), pins_fit: None, drag_missing: false }
+        Self {
+            ok,
+            kind,
+            text: None,
+            files: 0,
+            plain: false,
+            convert: Some(note),
+            pins_fit: None,
+            drag_missing: false,
+            auto_next_paste: None,
+        }
     }
 
     /// A dragged card whose file no longer exists.
     fn drag_missing(kind: Kind) -> Self {
-        Self { ok: false, kind, text: None, files: 0, plain: false, convert: None, pins_fit: None, drag_missing: true }
+        Self {
+            ok: false,
+            kind,
+            text: None,
+            files: 0,
+            plain: false,
+            convert: None,
+            pins_fit: None,
+            drag_missing: true,
+            auto_next_paste: None,
+        }
+    }
+
+    /// The auto next paste shortcut's result.
+    pub(crate) fn auto_next_paste(note: AutoPasteNote) -> Self {
+        Self { ok: note != AutoPasteNote::NeedsAccess, auto_next_paste: Some(note), ..Self::failed() }
     }
 
     /// The side-panel warning: more cards are pinned than fit above the history.
     pub(crate) fn pins_fit(n: usize) -> Self {
-        Self { ok: false, kind: Kind::Text, text: None, files: 0, plain: false, convert: None, pins_fit: Some(n), drag_missing: false }
+        Self {
+            ok: false,
+            kind: Kind::Text,
+            text: None,
+            files: 0,
+            plain: false,
+            convert: None,
+            pins_fit: Some(n),
+            drag_missing: false,
+            auto_next_paste: None,
+        }
     }
 }
 
@@ -870,6 +937,17 @@ pub mod commands {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auto_next_paste_toast_serializes_its_state() {
+        let json = |n| serde_json::to_value(ToastPayload::auto_next_paste(n)).unwrap();
+        assert_eq!(json(AutoPasteNote::On)["autoNextPaste"], "on");
+        assert_eq!(json(AutoPasteNote::On)["ok"], true);
+        assert_eq!(json(AutoPasteNote::Off)["ok"], true);
+        assert_eq!(json(AutoPasteNote::NeedsAccess)["autoNextPaste"], "needsAccess");
+        assert_eq!(json(AutoPasteNote::NeedsAccess)["ok"], false);
+        assert!(serde_json::to_value(ToastPayload::failed()).unwrap()["autoNextPaste"].is_null());
+    }
 
     #[test]
     fn dragged_image_names_are_path_free_pngs() {

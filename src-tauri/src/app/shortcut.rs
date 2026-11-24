@@ -1,4 +1,4 @@
-//! Global (OS-wide) shortcuts: toggle the panel, capture the screen, record the screen.
+//! Global (OS-wide) shortcuts: toggle the panel, capture the screen, record the screen, toggle auto next paste.
 
 use crate::{
     app::state::AppState,
@@ -14,10 +14,11 @@ pub enum Global {
     Panel,
     Capture,
     Record,
+    AutoNextPaste,
 }
 
 impl Global {
-    pub const ALL: [Global; 3] = [Global::Panel, Global::Capture, Global::Record];
+    pub const ALL: [Global; 4] = [Global::Panel, Global::Capture, Global::Record, Global::AutoNextPaste];
 
     /// The setting key that stores this shortcut.
     pub fn key(self) -> &'static str {
@@ -25,6 +26,7 @@ impl Global {
             Global::Panel => "shortcut",
             Global::Capture => "captureShortcut",
             Global::Record => "recordShortcut",
+            Global::AutoNextPaste => "autoNextPasteShortcut",
         }
     }
 
@@ -68,6 +70,7 @@ pub fn register(app: &AppHandle, global: Global, accel: &str) -> AppResult<()> {
                     crate::app::capture::open(app, crate::app::capture::Mode::Capture);
                 }
                 Global::Record => crate::app::recorder::on_shortcut(app),
+                Global::AutoNextPaste => crate::app::auto_paste::toggle(app),
             }
         })
         .map_err(|e| AppError::Other(e.to_string()))
@@ -105,6 +108,8 @@ mod tests {
             assert_eq!(Global::from_key(g.key()), Some(g));
         }
         assert_eq!(Global::Capture.key(), "captureShortcut");
+        assert_eq!(Global::AutoNextPaste.key(), "autoNextPasteShortcut");
+        assert_eq!(Global::ALL.len(), 4);
         assert_eq!(Global::from_key("panelPinShortcut"), None);
     }
 

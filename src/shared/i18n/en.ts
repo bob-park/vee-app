@@ -24,6 +24,11 @@ export const en = {
   copyFailed: "Couldn't copy",
   copyFailedDetail: 'The original is gone',
   dragMissing: "Can't drag this card",
+  /** Toast for the auto next paste shortcut. */
+  autoNextPasteTitle: 'Auto next paste',
+  autoNextPasteOn: 'On',
+  autoNextPasteOff: 'Off',
+  autoNextPasteNeedsAccess: 'Allow Input Monitoring to turn it on',
   /** Toast when a left/right panel has more pinned cards than fit above its history. */
   sidePinsTitle: 'Pinned cards cover the history',
   sidePinsFit: (n: number) =>
@@ -141,7 +146,8 @@ export const en = {
     dark: 'Dark',
     launchAtLogin: 'Launch at login',
     autoNextPaste: 'Auto next paste',
-    autoNextPasteHint: 'Each paste moves the clipboard to the next card in the panel',
+    autoNextPasteShortcutHint: (on: boolean) =>
+      `Each paste moves the clipboard to the next card · ${on ? 'On' : 'Off'} now`,
     autoNextPasteAccessHint: 'Allow Input Monitoring in the Permissions tab to use this',
     recordFolder: 'Recording folder',
     downloads: 'Downloads',

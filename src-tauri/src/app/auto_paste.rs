@@ -2,9 +2,13 @@
 //!
 //! Vee never pastes and never swallows the key. A listen-only key watch (installed only while
 //! the `autoNextPaste` setting is on) signals a worker, which swaps the clipboard behind the paste.
+//! The setting is flipped by a global shortcut (`toggle`).
 
 use crate::{
-    app::{state::AppState, window},
+    app::{
+        state::AppState,
+        window::{self, AutoPasteNote, ToastPayload},
+    },
     domain::{
         clip::{self, ClipContent},
         settings,
@@ -167,6 +171,37 @@ pub fn sync(app: &AppHandle) {
             RETRYING.store(false, Ordering::SeqCst);
         });
     }
+}
+
+/// What the toggle shortcut does: off turns on only when the OS hasn't refused access; on always turns off.
+pub fn next_state(on: bool, access: Option<bool>) -> AutoPasteNote {
+    match (on, access) {
+        (true, _) => AutoPasteNote::Off,
+        (false, Some(false)) => AutoPasteNote::NeedsAccess,
+        (false, _) => AutoPasteNote::On,
+    }
+}
+
+/// The global shortcut: flips the setting and says so in a toast.
+pub fn toggle(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let on = settings::get(&state.db.lock().unwrap(), "autoNextPaste") == "on";
+    let note = next_state(on, platform::access());
+    if note == AutoPasteNote::NeedsAccess {
+        // macOS shows its prompt only the first time; the toast covers every other press.
+        platform::request_access();
+    } else {
+        let value = if note == AutoPasteNote::On { "on" } else { "off" };
+        // Bound first so the db lock is released before anything else runs.
+        let saved = settings::set(&state.db.lock().unwrap(), "autoNextPaste", value);
+        if let Err(e) = saved {
+            log::error!("failed to save autoNextPaste: {e}");
+            return;
+        }
+        sync(app);
+        settings::commands::changed(app);
+    }
+    window::show_toast(app, ToastPayload::auto_next_paste(note));
 }
 
 /// Whether Vee may watch key presses (macOS Input Monitoring). `None` where no permission exists.
@@ -540,6 +575,17 @@ mod tests {
         assert!(wanted(true, Some(true)));
         assert!(!wanted(true, Some(false))); // not granted yet, or revoked
         assert!(!wanted(false, Some(true)));
+    }
+
+    #[test]
+    fn next_state_flips_and_refuses_to_turn_on_without_access() {
+        use crate::app::window::AutoPasteNote::{NeedsAccess, Off, On};
+        assert_eq!(next_state(false, None), On); // Windows: no permission to ask for
+        assert_eq!(next_state(false, Some(true)), On);
+        assert_eq!(next_state(false, Some(false)), NeedsAccess);
+        assert_eq!(next_state(true, Some(true)), Off);
+        assert_eq!(next_state(true, Some(false)), Off); // revoked while on: still turns off
+        assert_eq!(next_state(true, None), Off);
     }
 
     #[test]

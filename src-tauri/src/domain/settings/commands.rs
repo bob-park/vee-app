@@ -49,6 +49,7 @@ pub fn get_settings(app: AppHandle, state: State<AppState>) -> SettingsDto {
         record_folder: get(&conn, "recordFolder"),
         record_format: get(&conn, "recordFormat"),
         auto_next_paste: get(&conn, "autoNextPaste"),
+        auto_next_paste_shortcut: get(&conn, "autoNextPasteShortcut"),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         version: app.package_info().version.to_string(),
     }

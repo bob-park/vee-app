@@ -55,7 +55,7 @@ Asked for at runtime and shown in Settings → Permissions; none is declared in 
 
 - Full Disk Access (`app/disk_access.rs`): dragging copied files out.
 - Screen & System Audio Recording (`app/screen_access.rs`): capture and recording.
-- Input Monitoring (`app/auto_paste.rs`, `CGPreflightListenEventAccess` / `CGRequestListenEventAccess`): the listen-only key watch of auto next paste. Needed only while the `autoNextPaste` setting is on; without it the feature does nothing and paste works as usual. Windows needs no permission.
+- Input Monitoring (`app/auto_paste.rs`, `CGPreflightListenEventAccess` / `CGRequestListenEventAccess`): the listen-only key watch of auto next paste. Needed only while the `autoNextPaste` setting is on (toggled by the `autoNextPasteShortcut` global shortcut, which refuses to turn it on without this access); without it paste works as usual. Windows needs no permission.
 
 ## Secrets
 
