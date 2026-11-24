@@ -48,11 +48,13 @@ export default function PermissionsSection({ settings, run }: Props) {
     setScreenRequested(true);
   };
 
-  // Turning the switch on already used the one-time prompt, so with it on go straight to System Settings.
+  // On without access, or the button was used: a grant may need a relaunch to show.
   const inputAsked = inputRequested || settings.autoNextPaste === 'on';
 
+  // The shortcut may have used macOS's one-time prompt already, and nothing tells us. The request is
+  // a no-op then (and lists Vee in System Settings otherwise), so always open System Settings too.
   const handleInputAllow = () => {
-    run(inputAsked ? openInputAccessSettings() : requestInputAccess());
+    run(requestInputAccess().then(() => openInputAccessSettings()));
     setInputRequested(true);
   };
 
@@ -90,7 +92,7 @@ export default function PermissionsSection({ settings, run }: Props) {
           {inputGranted ? (
             <span className={BADGE}>{c.allowed}</span>
           ) : (
-            <Button onClick={handleInputAllow}>{inputAsked ? c.openSystemSettings : c.allow}</Button>
+            <Button onClick={handleInputAllow}>{c.openSystemSettings}</Button>
           )}
         </Row>
       )}

@@ -192,9 +192,10 @@ pub fn toggle(app: &AppHandle) {
         platform::request_access();
     } else {
         let value = if note == AutoPasteNote::On { "on" } else { "off" };
-        if let Err(e) = settings::set(&state.db.lock().unwrap(), "autoNextPaste", value) {
+        // Bound first so the db lock is released before anything else runs.
+        let saved = settings::set(&state.db.lock().unwrap(), "autoNextPaste", value);
+        if let Err(e) = saved {
             log::error!("failed to save autoNextPaste: {e}");
-            window::show_toast(app, ToastPayload::failed());
             return;
         }
         sync(app);
